@@ -37,7 +37,11 @@ types you train.
 | `src/main.ts` | All UI and app state |
 | `scripts/gen-journeys.ts` | Build-time generator for `journeys.ideals.ts` |
 
-## Develop
+## Run it
+
+**Easiest:** double-click `start.bat` (installs deps on first run, opens the app, starts the dev server).
+
+**Or manually:**
 
 ```bash
 npm install
@@ -65,10 +69,12 @@ single-user tool; never ship a shared key.
 The repo target is `github.com/ianjohndawson/petrus-trainer`, served at
 `https://ianjohndawson.github.io/petrus-trainer/`.
 
-1. Uncomment `base: '/petrus-trainer/'` in `vite.config.ts`.
-2. `npm run build`
-3. `npm run deploy` (runs `gh-pages -d dist`).
-4. In the repo settings, set **Pages → Source** to the `gh-pages` branch.
+The production build automatically uses `base: '/petrus-trainer/'` (local dev stays at `/`),
+so deploying is just:
+
+1. `npm run build`
+2. `npm run deploy` (runs `gh-pages -d dist`).
+3. In the repo settings, set **Pages → Source** to the `gh-pages` branch (one-time).
 
 ## Smart cube notes
 
