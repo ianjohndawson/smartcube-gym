@@ -375,3 +375,28 @@ export function goalProgress(c: CubieCube, g: BlockGoal): number {
   for (const i of g.edges) if (c.ep[i] === i && c.eo[i] === 0) done++;
   return done / total;
 }
+
+/**
+ * Facelet indices (0..53) of where the goal's pieces CURRENTLY sit — for
+ * highlighting "the pieces you need to gather" on the cube view.
+ */
+export function goalPieceStickers(c: CubieCube, g: BlockGoal): number[] {
+  const out: number[] = [];
+  for (const target of g.corners) {
+    const i = c.cp.indexOf(target);
+    if (i >= 0) out.push(...cornerFacelet[i]);
+  }
+  for (const target of g.edges) {
+    const i = c.ep.indexOf(target);
+    if (i >= 0) out.push(...edgeFacelet[i]);
+  }
+  return out;
+}
+
+/** Facelet indices (0..53) of the goal's HOME location — where the block will be. */
+export function goalHomeStickers(g: BlockGoal): number[] {
+  const out: number[] = [];
+  for (const i of g.corners) out.push(...cornerFacelet[i]);
+  for (const i of g.edges) out.push(...edgeFacelet[i]);
+  return out;
+}

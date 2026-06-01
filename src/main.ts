@@ -5,6 +5,7 @@ import {
   cubeFromFacelets,
   cubesEqual,
   cubeToFaceletString,
+  goalPieceStickers,
   moveCube,
   parseMoves,
   solvedCube,
@@ -16,7 +17,10 @@ import {
   detectFamily,
   familyProgress,
   getIdeal,
+  hintFor,
   listMethods,
+  optimalFor,
+  type Hint,
   type Method,
   type PhaseDef,
 } from './journeys.ts';
@@ -44,6 +48,8 @@ interface State {
   showSettings: boolean;
   log: string[]; // recent cube event trace
   lastError: string;
+  hint: Hint | null; // active hint (optimal continuation + highlighted block)
+  lastResult: { phase: string; used: number; optimal: number | null } | null;
 }
 
 const app = document.getElementById('app')!;
@@ -83,6 +89,8 @@ function freshJourney(method: Method, scrambleIndex: number): State {
     showSettings: false,
     log: state?.log ?? [],
     lastError: state?.lastError ?? '',
+    hint: null,
+    lastResult: null,
   };
 }
 
@@ -108,6 +116,7 @@ function step(move: string) {
     return; // ignore invalid token
   }
   if (state.mode === 'solve') state.movesThisPhase.push(move);
+  state.hint = null; // position changed; any shown hint is stale
   afterChange();
 }
 
@@ -152,7 +161,15 @@ function checkPhaseCompletion() {
   if (state.phaseDone[state.phaseIndex]) return;
   const solved = detectFamily(state.cube, phase.family);
   if (solved) {
+    // Score: your moves vs the optimal solution to the block you actually built.
+    const optimal = optimalFor(state.phaseStartCube, solved);
+    state.lastResult = {
+      phase: phase.name,
+      used: state.movesThisPhase.length,
+      optimal: optimal ? optimal.length : null,
+    };
     state.phaseDone[state.phaseIndex] = true;
+    state.hint = null;
     state.status = `${phase.name} complete!`;
     // advance to next phase, anchoring its start to the current cube
     if (state.phaseIndex < phases().length - 1) {
@@ -239,12 +256,27 @@ function rewindPhase() {
   state.cube = cloneCube(state.phaseStartCube);
   state.movesThisPhase = [];
   state.phaseDone[state.phaseIndex] = false;
+  state.hint = null;
   state.status = 'Phase rewound to its starting state.';
   render();
 }
 
 function toggleIdeal() {
   state.showIdeal = !state.showIdeal;
+  render();
+}
+
+function showHint() {
+  const phase = currentPhase();
+  if (!phase) return;
+  const h = hintFor(state.cube, phase.family);
+  if (!h) {
+    state.status = 'No short hint found from here — try the AI coach.';
+    state.hint = null;
+  } else {
+    state.hint = h;
+    state.status = `Hint: next move ${h.moves[0]} (${h.moves.length} to finish this block).`;
+  }
   render();
 }
 
@@ -364,9 +396,14 @@ function render() {
   const viewCard = el('div', 'card');
   viewCard.appendChild(el('h2', '', 'Cube view'));
   const wrap = el('div', 'cube-wrap');
-  wrap.appendChild(renderCubeNet(cubeToFaceletString(state.cube)));
+  const highlight = state.hint ? new Set(goalPieceStickers(state.cube, state.hint.goal)) : null;
+  wrap.appendChild(renderCubeNet(cubeToFaceletString(state.cube), highlight));
   viewCard.appendChild(wrap);
-  viewCard.appendChild(el('div', 'hint', 'Reflects the model cube — the scramble and every move you make. Hold your cube white-up, green-front so it matches.'));
+  viewCard.appendChild(
+    el('div', 'hint', highlight
+      ? 'Highlighted: the pieces for the block to build next — gather these.'
+      : 'Reflects the model cube — the scramble and every move you make. Hold your cube white-up, green-front so it matches.'),
+  );
   app.appendChild(viewCard);
 
   // Phase tracker
@@ -407,14 +444,39 @@ function render() {
 
     const actions = el('div', 'row');
     actions.style.marginTop = '12px';
+    actions.appendChild(btn('Hint', showHint, 'primary'));
     actions.appendChild(btn(state.showIdeal ? 'Hide ideal' : 'Show ideal', toggleIdeal));
     actions.appendChild(btn('Rewind phase', rewindPhase));
     cur.appendChild(actions);
 
+    if (state.hint) {
+      const h = state.hint;
+      const box = el('div', 'ideal mono');
+      box.innerHTML = `<span style="color:var(--accent-2)">next ▸ ${h.moves[0]}</span>　 ${h.moves.join(' ')}`;
+      cur.appendChild(box);
+      cur.appendChild(el('div', 'hint', `Optimal continuation to the nearest block (${h.moves.length} moves). The matching pieces are highlighted on the cube above.`));
+    }
+
     if (state.showIdeal) {
       cur.appendChild(el('div', 'ideal mono', ideal ? ideal : '(no ideal available for this phase)'));
+      cur.appendChild(el('div', 'hint', 'Optimal solution for this block from the scramble (white-up / green-front).'));
     }
     app.appendChild(cur);
+  }
+
+  // Efficiency result from the most recently completed block
+  if (state.lastResult && state.mode === 'solve') {
+    const r = state.lastResult;
+    const card = el('div', 'card');
+    card.appendChild(el('h2', '', 'Last block'));
+    if (r.optimal != null) {
+      const pct = Math.round((r.optimal / Math.max(r.used, 1)) * 100);
+      const verdict = r.used <= r.optimal ? '🏆 optimal!' : r.used <= r.optimal + 2 ? '👍 very efficient' : pct >= 60 ? 'good — room to tighten' : 'lots of room to improve';
+      card.appendChild(el('div', 'coach', `${r.phase}: you ${r.used} moves · optimal ${r.optimal} · ${pct}% efficient — ${verdict}`));
+    } else {
+      card.appendChild(el('div', 'coach', `${r.phase}: solved in ${r.used} moves.`));
+    }
+    app.appendChild(card);
   }
 
   // Coaching
@@ -512,7 +574,7 @@ function renderSettings() {
 }
 
 // Build the unfolded cube net from a 54-char facelet string.
-function renderCubeNet(f: string): HTMLElement {
+function renderCubeNet(f: string, highlight: Set<number> | null = null): HTMLElement {
   const net = el('div', 'cube-net');
   // facelet index ranges -> net face class
   const faces: [string, number][] = [
@@ -526,7 +588,9 @@ function renderCubeNet(f: string): HTMLElement {
   for (const [cls, start] of faces) {
     const face = el('div', `cube-face ${cls}`);
     for (let i = 0; i < 9; i++) {
-      face.appendChild(el('div', `sticker ${f[start + i]}`));
+      const idx = start + i;
+      const dim = highlight && !highlight.has(idx) ? ' dim' : '';
+      face.appendChild(el('div', `sticker ${f[idx]}${dim}`));
     }
     net.appendChild(face);
   }
