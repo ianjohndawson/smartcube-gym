@@ -18,7 +18,7 @@ import {
   type Method,
   type PhaseDef,
 } from './journeys.ts';
-import { CubeManager } from './bluetooth.ts';
+import { CubeManager, clearSavedMac, getSavedMac } from './bluetooth.ts';
 import { getApiKey, getCoaching, hasApiKey, setApiKey } from './coaching.ts';
 
 interface State {
@@ -36,6 +36,8 @@ interface State {
   battery: number | null;
   status: string;
   showSettings: boolean;
+  log: string[]; // recent cube event trace
+  lastError: string;
 }
 
 const app = document.getElementById('app')!;
@@ -71,7 +73,15 @@ function freshJourney(method: Method, scrambleIndex: number): State {
     battery: state?.battery ?? null,
     status: 'Scramble your cube using the sequence above, then start solving.',
     showSettings: false,
+    log: state?.log ?? [],
+    lastError: state?.lastError ?? '',
   };
+}
+
+function pushLog(line: string) {
+  const stamp = new Date().toLocaleTimeString();
+  state.log = [`${stamp}  ${line}`, ...state.log].slice(0, 12);
+  render();
 }
 function phases0(method: Method) {
   return METHODS[method].phases;
@@ -142,6 +152,7 @@ const cube = new CubeManager({
   },
   onConnect: (name) => {
     state.connected = true;
+    state.lastError = '';
     state.status = `Connected to ${name}.`;
     render();
   },
@@ -151,9 +162,11 @@ const cube = new CubeManager({
     render();
   },
   onError: (e) => {
-    state.status = `Bluetooth error: ${String((e as Error)?.message ?? e)}`;
+    state.lastError = String((e as Error)?.message ?? e);
+    state.status = `Bluetooth error: ${state.lastError}`;
     render();
   },
+  onLog: (line) => pushLog(line),
 });
 
 async function toggleConnect() {
@@ -252,6 +265,33 @@ function render() {
   top.appendChild(btn(state.connected ? 'Disconnect' : 'Connect cube', toggleConnect, state.connected ? 'ghost' : 'primary'));
   top.appendChild(btn('⚙', () => { state.showSettings = true; render(); }, 'ghost'));
   app.appendChild(top);
+
+  // Cube status / diagnostics (shown when connecting, connected, or after an error)
+  if (state.connected || state.lastError || state.log.length) {
+    const cubeCard = el('div', 'card');
+    const head = el('div', 'row');
+    head.style.justifyContent = 'space-between';
+    head.appendChild(el('h2', '', 'Cube'));
+    const statePill = el('span', `pill ${state.connected ? 'ok' : state.lastError ? 'bad' : ''}`,
+      state.connected ? `Connected · ${cube.deviceName || 'GAN'}${state.battery != null ? ` · ${state.battery}%` : ''}` : state.lastError ? 'Error' : 'Idle');
+    head.appendChild(statePill);
+    cubeCard.appendChild(head);
+    if (state.connected) {
+      const actions = el('div', 'row');
+      actions.appendChild(btn('Sync from cube', () => cube.requestFacelets()));
+      cubeCard.appendChild(actions);
+    }
+    if (state.lastError) {
+      cubeCard.appendChild(el('div', 'coach', `⚠ ${state.lastError}`));
+    }
+    if (state.log.length) {
+      const logBox = el('div', 'coach mono');
+      logBox.style.fontSize = '13px';
+      logBox.textContent = state.log.join('\n');
+      cubeCard.appendChild(logBox);
+    }
+    app.appendChild(cubeCard);
+  }
 
   // Method selector
   const methodCard = el('div', 'card');
@@ -386,6 +426,21 @@ function renderSettings() {
   );
   row.appendChild(btn('Close', () => { state.showSettings = false; render(); }, 'ghost'));
   modal.appendChild(row);
+
+  // Cube MAC management
+  modal.appendChild(el('h2', '', 'Cube'));
+  const savedMac = getSavedMac();
+  modal.appendChild(el('div', 'hint', savedMac ? `Saved cube MAC: ${savedMac}` : 'No cube MAC saved. If auto-detection fails on connect, you will be asked for it once.'));
+  const macRow = el('div', 'row');
+  macRow.appendChild(
+    btn('Forget cube MAC', () => {
+      clearSavedMac();
+      state.status = 'Saved cube MAC cleared.';
+      render();
+    }, 'ghost'),
+  );
+  modal.appendChild(macRow);
+
   backdrop.appendChild(modal);
   backdrop.addEventListener('click', (e) => {
     if (e.target === backdrop) {
