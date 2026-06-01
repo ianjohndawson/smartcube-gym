@@ -3,6 +3,7 @@ import {
   applyScramble,
   cloneCube,
   cubeFromFacelets,
+  cubesEqual,
   cubeToFaceletString,
   moveCube,
   parseMoves,
@@ -22,11 +23,15 @@ import {
 import { CubeManager, clearSavedMac, getSavedMac } from './bluetooth.ts';
 import { getApiKey, getCoaching, hasApiKey, setApiKey } from './coaching.ts';
 
+type Mode = 'scramble' | 'solve';
+
 interface State {
   method: Method;
   scrambleIndex: number;
   phaseIndex: number;
-  cube: CubieCube; // current cube state (scrambled -> solving)
+  mode: Mode; // 'scramble' until the cube matches the target, then 'solve'
+  cube: CubieCube; // current cube state (starts solved)
+  targetCube: CubieCube; // the scrambled state to reach
   phaseStartCube: CubieCube; // snapshot at the start of the current phase (for rewind)
   movesThisPhase: string[];
   showIdeal: boolean;
@@ -58,12 +63,14 @@ function currentPhase(): PhaseDef | null {
 
 function freshJourney(method: Method, scrambleIndex: number): State {
   const scr = SCRAMBLES[scrambleIndex];
-  const cube = applyScramble(solvedCube(), scr.scramble);
+  const cube = solvedCube();
   return {
     method,
     scrambleIndex,
     phaseIndex: 0,
+    mode: 'scramble',
     cube,
+    targetCube: applyScramble(solvedCube(), scr.scramble),
     phaseStartCube: cloneCube(cube),
     movesThisPhase: [],
     showIdeal: false,
@@ -72,7 +79,7 @@ function freshJourney(method: Method, scrambleIndex: number): State {
     coachBusy: false,
     connected: state?.connected ?? false,
     battery: state?.battery ?? null,
-    status: 'Scramble your cube using the sequence above, then start solving.',
+    status: 'Start with a solved cube, then apply the scramble above. The cube view follows along.',
     showSettings: false,
     log: state?.log ?? [],
     lastError: state?.lastError ?? '',
@@ -92,32 +99,47 @@ let state: State;
 
 // --- Cube input handling (from BLE or manual) ---
 
-function handleMove(move: string) {
-  // normalise: gan-web-bluetooth emits standard notation already
+// Apply a single move and update mode/phase state (no render).
+function step(move: string) {
   if (!move) return;
-  state.cube = moveCube(state.cube, move);
-  state.movesThisPhase.push(move);
-  checkPhaseCompletion();
+  try {
+    state.cube = moveCube(state.cube, move);
+  } catch {
+    return; // ignore invalid token
+  }
+  if (state.mode === 'solve') state.movesThisPhase.push(move);
+  afterChange();
+}
+
+// Called after any change to the cube (move or facelet resync).
+function afterChange() {
+  if (state.mode === 'scramble') {
+    if (cubesEqual(state.cube, state.targetCube)) {
+      state.mode = 'solve';
+      state.phaseStartCube = cloneCube(state.cube);
+      state.movesThisPhase = [];
+      state.showIdeal = false;
+      state.status = 'Scrambled! Build your first block.';
+    }
+  } else {
+    checkPhaseCompletion();
+  }
+}
+
+function handleMove(move: string) {
+  step(move);
   render();
 }
 
 function handleManualMoves(text: string) {
-  for (const tok of parseMoves(text)) {
-    try {
-      state.cube = moveCube(state.cube, tok);
-      state.movesThisPhase.push(tok);
-    } catch {
-      /* ignore invalid token */
-    }
-  }
-  checkPhaseCompletion();
+  for (const tok of parseMoves(text)) step(tok);
   render();
 }
 
 function handleFacelets(facelets: string) {
   try {
     state.cube = cubeFromFacelets(facelets);
-    checkPhaseCompletion();
+    afterChange();
     render();
   } catch (e) {
     console.warn('Could not parse facelets', e);
@@ -198,6 +220,18 @@ function selectMethod(m: Method) {
 function newScramble() {
   const next = (state.scrambleIndex + 1) % SCRAMBLES.length;
   state = freshJourney(state.method, next);
+  render();
+}
+
+function resetToSolved() {
+  state = freshJourney(state.method, state.scrambleIndex);
+  render();
+}
+
+function applyScrambleNow() {
+  // Jump straight to the scrambled state (for off-cube / desktop practice).
+  state.cube = cloneCube(state.targetCube);
+  afterChange();
   render();
 }
 
@@ -314,6 +348,16 @@ function render() {
   scrHead.appendChild(btn('New scramble', newScramble, 'ghost'));
   scrCard.appendChild(scrHead);
   scrCard.appendChild(el('div', 'scramble mono', scr.scramble));
+  const scrActions = el('div', 'row');
+  scrActions.style.marginTop = '12px';
+  if (state.mode === 'scramble') {
+    scrCard.appendChild(el('div', 'hint', 'Apply these moves to your solved cube. When the cube matches, solving starts automatically.'));
+    scrActions.appendChild(btn('Apply scramble for me', applyScrambleNow));
+  } else {
+    scrCard.appendChild(el('div', 'hint', '✓ Scrambled — now build your blocks.'));
+    scrActions.appendChild(btn('Reset to solved', resetToSolved, 'ghost'));
+  }
+  scrCard.appendChild(scrActions);
   app.appendChild(scrCard);
 
   // Live cube view
@@ -329,18 +373,24 @@ function render() {
   const phaseCard = el('div', 'card');
   phaseCard.appendChild(el('h2', '', 'Journey'));
   const chips = el('div', 'phases');
+  const solving = state.mode === 'solve';
   phases().forEach((p, i) => {
-    const cls = state.phaseDone[i] ? 'done' : i === state.phaseIndex ? 'active' : '';
+    const isCurrent = solving && i === state.phaseIndex;
+    const cls = state.phaseDone[i] ? 'done' : isCurrent ? 'active' : '';
     const chip = el('div', `phase-chip ${cls}`);
     chip.appendChild(el('div', 'name', p.name));
-    chip.appendChild(el('div', 'state', state.phaseDone[i] ? '✓ done' : i === state.phaseIndex ? 'in progress' : 'upcoming'));
+    chip.appendChild(el('div', 'state', state.phaseDone[i] ? '✓ done' : isCurrent ? 'in progress' : 'upcoming'));
     chips.appendChild(chip);
   });
   phaseCard.appendChild(chips);
   app.appendChild(phaseCard);
 
   // Current phase / solved banner
-  if (allDone) {
+  if (state.mode === 'scramble') {
+    const sc = el('div', 'card');
+    sc.appendChild(el('div', 'solved-banner', '🧩 Scramble mode — apply the scramble to your solved cube to begin.'));
+    app.appendChild(sc);
+  } else if (allDone) {
     const done = el('div', 'card');
     done.appendChild(el('div', 'solved-banner', '🎉 All blocks built! Pick a new scramble or method to keep training.'));
     app.appendChild(done);
