@@ -3,6 +3,7 @@ import {
   applyScramble,
   cloneCube,
   cubeFromFacelets,
+  cubeToFaceletString,
   moveCube,
   parseMoves,
   solvedCube,
@@ -315,6 +316,15 @@ function render() {
   scrCard.appendChild(el('div', 'scramble mono', scr.scramble));
   app.appendChild(scrCard);
 
+  // Live cube view
+  const viewCard = el('div', 'card');
+  viewCard.appendChild(el('h2', '', 'Cube view'));
+  const wrap = el('div', 'cube-wrap');
+  wrap.appendChild(renderCubeNet(cubeToFaceletString(state.cube)));
+  viewCard.appendChild(wrap);
+  viewCard.appendChild(el('div', 'hint', 'Reflects the model cube — the scramble and every move you make. Hold your cube white-up, green-front so it matches.'));
+  app.appendChild(viewCard);
+
   // Phase tracker
   const phaseCard = el('div', 'card');
   phaseCard.appendChild(el('h2', '', 'Journey'));
@@ -449,6 +459,28 @@ function renderSettings() {
     }
   });
   app.appendChild(backdrop);
+}
+
+// Build the unfolded cube net from a 54-char facelet string.
+function renderCubeNet(f: string): HTMLElement {
+  const net = el('div', 'cube-net');
+  // facelet index ranges -> net face class
+  const faces: [string, number][] = [
+    ['up', 0],
+    ['right', 9],
+    ['front', 18],
+    ['down', 27],
+    ['left', 36],
+    ['back', 45],
+  ];
+  for (const [cls, start] of faces) {
+    const face = el('div', `cube-face ${cls}`);
+    for (let i = 0; i < 9; i++) {
+      face.appendChild(el('div', `sticker ${f[start + i]}`));
+    }
+    net.appendChild(face);
+  }
+  return net;
 }
 
 // --- tiny DOM helpers ---

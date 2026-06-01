@@ -266,6 +266,73 @@ input[type='password'] {
   margin: 0;
 }
 
+/* --- Cube net visualisation --- */
+.cube-net {
+  --s: 30px;
+  display: inline-grid;
+  grid-template-areas:
+    '. up . .'
+    'left front right back'
+    '. down . .';
+  gap: 8px;
+  margin: 4px auto 0;
+}
+.cube-face {
+  display: grid;
+  grid-template-columns: repeat(3, var(--s));
+  grid-template-rows: repeat(3, var(--s));
+  gap: 3px;
+}
+.cube-face.up {
+  grid-area: up;
+}
+.cube-face.left {
+  grid-area: left;
+}
+.cube-face.front {
+  grid-area: front;
+}
+.cube-face.right {
+  grid-area: right;
+}
+.cube-face.back {
+  grid-area: back;
+}
+.cube-face.down {
+  grid-area: down;
+}
+.sticker {
+  border-radius: 5px;
+  border: 1px solid rgba(0, 0, 0, 0.45);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.06);
+}
+.sticker.U {
+  background: #f5f7fa;
+}
+.sticker.D {
+  background: #ffd21e;
+}
+.sticker.F {
+  background: #16b14b;
+}
+.sticker.B {
+  background: #2a6cf0;
+}
+.sticker.R {
+  background: #e23b3b;
+}
+.sticker.L {
+  background: #ff8a1e;
+}
+.cube-wrap {
+  text-align: center;
+}
+@media (max-width: 520px) {
+  .cube-net {
+    --s: 24px;
+  }
+}
+
 .hint {
   font-size: 13px;
   color: var(--muted);

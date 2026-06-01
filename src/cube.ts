@@ -234,6 +234,27 @@ export function cubeFromFacelets(facelets: string): CubieCube {
   return c;
 }
 
+// Render the cube state to a 54-char facelet string (face letters U R F D L B).
+// Inverse of cubeFromFacelets; order: U(0-8) R(9-17) F(18-26) D(27-35) L(36-44) B(45-53).
+const CENTER_FACELET = [4, 13, 22, 31, 40, 49];
+const CENTER_COLOR = ['U', 'R', 'F', 'D', 'L', 'B'];
+
+export function cubeToFaceletString(c: CubieCube): string {
+  const f = new Array(54).fill('.');
+  for (let i = 0; i < 6; i++) f[CENTER_FACELET[i]] = CENTER_COLOR[i];
+  for (let i = 0; i < 8; i++) {
+    const j = c.cp[i];
+    const ori = c.co[i];
+    for (let n = 0; n < 3; n++) f[cornerFacelet[i][(n + ori) % 3]] = cornerColor[j][n];
+  }
+  for (let i = 0; i < 12; i++) {
+    const j = c.ep[i];
+    const ori = c.eo[i];
+    for (let n = 0; n < 2; n++) f[edgeFacelet[i][(n + ori) % 2]] = edgeColor[j][n];
+  }
+  return f.join('');
+}
+
 // --- Geometry: coordinates of each cubie slot, used to generate block goals ---
 // Axes: x: 0=L 2=R, y: 0=D 2=U, z: 0=B 2=F. Centres have a coord === 1.
 
