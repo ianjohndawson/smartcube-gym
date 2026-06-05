@@ -17,7 +17,7 @@ import {
 import { genPruningTable, solve, type PruningTable } from './engine/search/index.ts';
 
 export type { Move3x3, RotationMove, Cube3x3Mask };
-export { Cube3x3, MOVESETS };
+export { Cube3x3, MOVESETS, SOLVED_FACELET_CUBE };
 
 export interface StepSolverConfig {
   moveSet: readonly Move3x3[];

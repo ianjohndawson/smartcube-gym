@@ -12,6 +12,7 @@ import {
   type Move3x3,
 } from './engine-api.ts';
 import { METHODS, SCRAMBLES, listMethods, type Method, type StepDef } from './steps.ts';
+import { nextFocusPiece, type FocusPiece } from './pieces.ts';
 import { CubeManager, clearSavedMac, getSavedMac } from './bluetooth.ts';
 import { getApiKey, getCoaching, hasApiKey, setApiKey } from './coaching.ts';
 
@@ -28,8 +29,7 @@ interface State {
   stepStartHistory: Move3x3[]; // history snapshot at start of current step
   movesThisStep: Move3x3[];
   stepDone: boolean[];
-  showIdeal: boolean;
-  hint: { mask: StepDef['canonicalMask']; moves: Move3x3[] } | null;
+  assist: { kind: 'nudge' | 'move' | 'ideal'; moves: Move3x3[]; focus: FocusPiece | null } | null;
   lastResult: { step: string; used: number; optimal: number | null } | null;
   coachText: string;
   coachBusy: boolean;
@@ -70,8 +70,7 @@ function freshJourney(method: Method, scrambleIndex: number): State {
     stepStartHistory: [],
     movesThisStep: [],
     stepDone: METHODS[method].steps.map(() => false),
-    showIdeal: false,
-    hint: null,
+    assist: null,
     lastResult: null,
     coachText: '',
     coachBusy: false,
@@ -99,7 +98,7 @@ function step(move: Move3x3) {
   state.cube = applyMove(state.cube, move);
   state.history.push(move);
   if (state.mode === 'solve') state.movesThisStep.push(move);
-  state.hint = null;
+  state.assist = null;
   afterChange();
 }
 
@@ -109,7 +108,7 @@ function afterChange() {
       state.mode = 'solve';
       state.stepStartHistory = [...state.history];
       state.movesThisStep = [];
-      state.showIdeal = false;
+      state.assist = null;
       state.status = `Scrambled! Build the ${currentStep()?.label ?? 'first block'}.`;
     }
   } else {
@@ -129,13 +128,12 @@ function checkStepCompletion() {
       optimal: optimal ? optimal.length : null,
     };
     state.stepDone[state.stepIndex] = true;
-    state.hint = null;
+    state.assist = null;
     state.status = `${s.label} complete!`;
     if (state.stepIndex < steps().length - 1) {
       state.stepIndex += 1;
       state.stepStartHistory = [...state.history];
       state.movesThisStep = [];
-      state.showIdeal = false;
     }
   }
 }
@@ -219,33 +217,37 @@ function rewindStep() {
   state.history = [...state.stepStartHistory];
   state.movesThisStep = [];
   state.stepDone[state.stepIndex] = false;
-  state.hint = null;
+  state.assist = null;
   state.status = 'Step rewound to its starting state.';
   render();
 }
-function toggleIdeal() {
-  state.showIdeal = !state.showIdeal;
-  render();
-}
-function showHint() {
+
+// Optimal continuation from the current position to the step's target block.
+function continuation(): Move3x3[] {
   const s = currentStep();
-  if (!s) return;
-  const moves = optimalToMask(state.history, s.canonicalMask, s.solver);
-  if (!moves || moves.length === 0) {
-    state.status = 'No short hint from here — try the AI coach.';
-    state.hint = null;
-  } else {
-    state.hint = { mask: s.canonicalMask, moves };
-    state.status = `Hint: next move ${moves[0]} (${moves.length} to finish this block).`;
-  }
-  render();
+  if (!s) return [];
+  return optimalToMask(state.history, s.canonicalMask, s.solver) ?? [];
 }
 
-function currentIdeal(): string {
+function assist(kind: 'nudge' | 'move' | 'ideal') {
   const s = currentStep();
-  if (!s) return '';
-  const moves = optimalToMask(state.stepStartHistory, s.canonicalMask, s.solver);
-  return moves ? moves.join(' ') : '';
+  if (!s) return;
+  const moves = continuation();
+  if (moves.length === 0) {
+    state.assist = null;
+    state.status = 'Nothing to suggest from here — try the AI coach.';
+    render();
+    return;
+  }
+  const focus = kind === 'ideal' ? null : nextFocusPiece(state.cube, s.canonicalMask, moves);
+  state.assist = { kind, moves, focus };
+  state.status =
+    kind === 'nudge'
+      ? `Nudge: focus on the ${focus?.description ?? 'highlighted piece'} — work out how to pair and insert it.`
+      : kind === 'move'
+        ? `Next move: ${moves[0]}`
+        : 'Showing the full solution for this block.';
+  render();
 }
 
 async function askCoach(question?: string) {
@@ -260,14 +262,17 @@ async function askCoach(question?: string) {
   state.coachText = '';
   render();
   try {
+    const cont = continuation();
+    const focus = nextFocusPiece(state.cube, s.canonicalMask, cont);
     const text = await getCoaching({
       method: state.method,
       methodDescription: methodDef().description,
-      phaseName: s.label,
-      phaseBlurb: s.blurb,
+      stepName: s.label,
+      stepBlurb: s.blurb,
       scramble: currentScramble().scramble,
       movesDone: state.movesThisStep,
-      ideal: currentIdeal(),
+      optimalContinuation: cont.join(' '),
+      nextPiece: focus?.description,
       progress: maskProgress(state.cube, s.canonicalMask),
       question,
     });
@@ -351,12 +356,21 @@ function render() {
   const viewCard = el('div', 'card');
   viewCard.appendChild(el('h2', '', 'Cube view'));
   const wrap = el('div', 'cube-wrap');
-  const highlight = state.hint ? new Set(state.hint.mask.solvedFaceletIndices) : null;
+  let highlight: Set<number> | null = null;
+  let highlightNote = '';
+  if (state.assist) {
+    if (state.assist.kind === 'ideal') {
+      highlight = new Set(s!.canonicalMask.solvedFaceletIndices);
+      highlightNote = 'Highlighted: where the target block belongs.';
+    } else if (state.assist.focus) {
+      highlight = new Set(state.assist.focus.current);
+      highlightNote = `Highlighted: the ${state.assist.focus.description} to place next.`;
+    }
+  }
   wrap.appendChild(renderCubeNet(faceletString(state.cube), highlight));
   viewCard.appendChild(wrap);
-  viewCard.appendChild(el('div', 'hint', highlight
-    ? 'Highlighted: where the target block belongs — build it here.'
-    : 'Reflects the model cube — the scramble and every move. Hold your cube white-up, green-front so it matches.'));
+  viewCard.appendChild(el('div', 'hint', highlightNote
+    || 'Reflects the model cube — the scramble and every move. Hold your cube white-up, green-front so it matches.'));
   app.appendChild(viewCard);
 
   // Journey
@@ -397,22 +411,25 @@ function render() {
 
     const actions = el('div', 'row');
     actions.style.marginTop = '12px';
-    actions.appendChild(btn('Hint', showHint, 'primary'));
-    actions.appendChild(btn(state.showIdeal ? 'Hide ideal' : 'Show ideal', toggleIdeal));
-    actions.appendChild(btn('Rewind step', rewindStep));
+    actions.appendChild(btn('Nudge', () => assist('nudge'), 'primary'));
+    actions.appendChild(btn('Reveal move', () => assist('move')));
+    actions.appendChild(btn('Show ideal', () => assist('ideal')));
+    actions.appendChild(btn('Rewind step', rewindStep, 'ghost'));
     cur.appendChild(actions);
+    cur.appendChild(el('div', 'hint', 'Nudge points at the piece (no spoiler) · Reveal move gives the next turn · Show ideal gives the whole solution.'));
 
-    if (state.hint) {
-      const h = state.hint;
-      const box = el('div', 'ideal mono');
-      box.innerHTML = `<span style="color:var(--accent-2)">next ▸ ${h.moves[0]}</span>　 ${h.moves.join(' ')}`;
-      cur.appendChild(box);
-      cur.appendChild(el('div', 'hint', `Optimal continuation (${h.moves.length} moves). The target block's home is highlighted above.`));
-    }
-    if (state.showIdeal) {
-      const ideal = currentIdeal();
-      cur.appendChild(el('div', 'ideal mono', ideal || '(no ideal available)'));
-      cur.appendChild(el('div', 'hint', 'Optimal solution for this block from the start of the step.'));
+    if (state.assist) {
+      const a = state.assist;
+      if (a.kind === 'nudge' && a.focus) {
+        cur.appendChild(el('div', 'ideal', `Focus on the ${a.focus.description}. Find it (highlighted), then work out how to pair and insert it.`));
+      } else if (a.kind === 'move') {
+        const box = el('div', 'ideal mono');
+        box.innerHTML = `<span style="color:var(--accent-2)">next ▸ ${a.moves[0]}</span>`;
+        cur.appendChild(box);
+      } else if (a.kind === 'ideal') {
+        cur.appendChild(el('div', 'ideal mono', a.moves.join(' ')));
+        cur.appendChild(el('div', 'hint', 'Full solution from your current position to the target block.'));
+      }
     }
     app.appendChild(cur);
   }
