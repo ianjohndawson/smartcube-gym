@@ -9,7 +9,6 @@
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
-    "gen": "node scripts/gen-journeys.ts",
     "deploy": "gh-pages -d dist"
   },
   "dependencies": {

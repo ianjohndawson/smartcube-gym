@@ -266,40 +266,15 @@ input[type='password'] {
   margin: 0;
 }
 
-/* --- Cube net visualisation --- */
+/* --- Cube net visualisation (engine net-order: U on top, L F R B band, D below) --- */
 .cube-net {
-  --s: 30px;
-  display: inline-grid;
-  grid-template-areas:
-    '. up . .'
-    'left front right back'
-    '. down . .';
-  gap: 8px;
-  margin: 4px auto 0;
-}
-.cube-face {
+  --s: 26px;
   display: grid;
-  grid-template-columns: repeat(3, var(--s));
-  grid-template-rows: repeat(3, var(--s));
+  grid-template-columns: repeat(12, var(--s));
+  grid-template-rows: repeat(9, var(--s));
   gap: 3px;
-}
-.cube-face.up {
-  grid-area: up;
-}
-.cube-face.left {
-  grid-area: left;
-}
-.cube-face.front {
-  grid-area: front;
-}
-.cube-face.right {
-  grid-area: right;
-}
-.cube-face.back {
-  grid-area: back;
-}
-.cube-face.down {
-  grid-area: down;
+  justify-content: center;
+  margin: 4px auto 0;
 }
 .sticker {
   border-radius: 5px;
@@ -333,7 +308,7 @@ input[type='password'] {
 }
 @media (max-width: 520px) {
   .cube-net {
-    --s: 24px;
+    --s: 19px;
   }
 }
 

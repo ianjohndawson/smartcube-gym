@@ -1,91 +1,76 @@
-# Block Trainer
+# Cube Skills Trainer
 
-An intuitive **block-building trainer** for speedcubing methods — Petrus, APB, Roux, and
-LEOR — with live input from **GAN Bluetooth smart cubes** and optional **AI coaching**.
+An extensible trainer for speedcubing skills — currently **block building** for
+Petrus, APB, Roux and LEOR — with live input from **GAN Bluetooth smart cubes**,
+**solver-backed coaching**, and a live cube view.
 
-This is a reframed, method-agnostic successor to the original Petrus-only trainer: the same
-single-scramble guided-journey idea, but with a method selector that changes which block
-types you train.
+Live: **https://ianjohndawson.github.io/petrus-trainer/**
 
-## What it does
+## Design: solver is the brain, AI is the voice
 
-- **Method selector** — Petrus / APB (2×2×2 → 2×2×3) and Roux / LEOR (1×2×3 left → 1×2×3 right).
-- **Single-scramble journeys** — one scramble, guided sequentially through the method's block phases.
-- **Block detection in any orientation** — recognises a built 2×2×2, 2×2×3, or 1×2×3 anywhere on the cube.
-- **Show ideal** — a verified, efficient solution for the current phase (generated offline by an IDA\* solver).
-- **Rewind phase** — snap the model cube back to the start of the current phase.
-- **AI coach** — short, method-aware tips via the Anthropic API (model `claude-sonnet-4-20250514`).
-- **iPad-optimised dark UI** designed for the **Bluefy** browser (Web Bluetooth).
+A fast, mask-driven optimal solver provides ground truth — difficulty, your
+moves vs optimal, hints, detection. The Anthropic API explains the *why* in
+prose. The solver never lies about optimality; the AI never claims it.
 
-## Tech
+## How it works
 
-- Vite + TypeScript, no UI framework.
-- [`gan-web-bluetooth`](https://www.npmjs.com/package/gan-web-bluetooth) (v3) for GAN BLE, with `rxjs`.
-- Browser-direct Anthropic API call for coaching (key stored in `localStorage`).
+- **Step registry** — every trainable skill is a `StepDef` (mask + solver
+  config) behind one shared engine and shell. Block steps today; EO / EOLine /
+  EOCross / Cross live in the engine and slot in next.
+- **Single-scramble journeys** — start solved, apply the scramble (the cube view
+  follows), then solving begins automatically and steps are tracked in order.
+- **Hint** — optimal next move to the target block, with its home highlighted.
+- **Show ideal** — optimal solution for the current step from its start.
+- **Efficiency** — your move count vs the solver's optimal, per block.
+- **AI coach** — method/step-aware tips (model `claude-sonnet-4-20250514`).
+- **GAN BLE** via `gan-web-bluetooth` (v3), iPad/**Bluefy** dark UI.
 
-## Project layout
+## Tech & layout
 
-| File | Purpose |
+Vite + TypeScript, no framework.
+
+| Path | Purpose |
 | --- | --- |
-| `src/cube.ts` | Cubie cube model, 18 moves, scramble/facelet parsing, geometry, block-goal generation + detection |
-| `src/solver.ts` | IDA\* block solver with an admissible single-piece-distance heuristic |
-| `src/journeys.def.ts` | Method/phase definitions, canonical block goals, scrambles |
-| `src/journeys.ideals.ts` | **Auto-generated** verified ideal solutions (do not edit) |
-| `src/journeys.ts` | Runtime API: merges defs + ideals, "block anywhere" detection |
-| `src/bluetooth.ts` | GAN BLE manager wrapping `gan-web-bluetooth` |
-| `src/coaching.ts` | Anthropic API coaching client |
-| `src/main.ts` | All UI and app state |
-| `scripts/gen-journeys.ts` | Build-time generator for `journeys.ideals.ts` |
+| `src/engine/` | **Vendored crystalcube engine** (MPL-2.0) — generic IDA\* solver, pruning, `Cube3x3` facelet model, masks, configs. See `src/engine/ATTRIBUTION.md`. |
+| `src/blocks.ts` | Net-order facelet↔coordinate map; 2×2×2 / 2×2×3 / 1×2×3 block masks |
+| `src/engine-api.ts` | Shell-facing API: state tracking, mask detection, cached pruning tables, solving, progress |
+| `src/steps.ts` | Step registry (methods → steps) + scrambles |
+| `src/bluetooth.ts` | GAN BLE manager (MAC provider, event log) |
+| `src/coaching.ts` | Anthropic API client |
+| `src/main.ts` | UI + state machine |
+| `src/cube.ts`, `src/solver.ts` | Independent cubie model + IDA\* used to cross-validate the engine masks (`scripts/parity-blocks.ts`) |
 
 ## Run it
 
-**Easiest:** double-click `start.bat` (installs deps on first run, opens the app, starts the dev server).
-
-**Or manually:**
+Double-click `start.bat`, or:
 
 ```bash
 npm install
-npm run gen     # regenerate verified ideals (after editing scrambles/goals)
 npm run dev     # dev server, exposed on the LAN for the iPad
 npm run build   # type-check + production build
 ```
 
-The dev server binds to `host: true`, so on the iPad open `http://<your-computer-ip>:5173`
-in **Bluefy** (Safari does not expose Web Bluetooth).
-
-### Testing without a cube
-
-Use the **Manual moves** box (e.g. type `R U R' U'`) — moves apply to the model cube exactly
-as smart-cube moves do.
+On the iPad, open the printed Network address in **Bluefy** (Safari has no Web
+Bluetooth). For desktop GAN connection in Chrome/Edge, enable
+`chrome://flags/#enable-experimental-web-platform-features` so the cube's MAC is
+read automatically. Use the **Manual moves** box to test without a cube.
 
 ### AI coaching
 
-Open **⚙ Settings** and paste an Anthropic API key. It is stored only in this browser.
-The call uses the `anthropic-dangerous-direct-browser-access` header — fine for a personal
-single-user tool; never ship a shared key.
+Open **⚙ Settings** and paste an Anthropic API key (stored only in this browser).
 
-## Deploy to GitHub Pages
+## Deploy (GitHub Pages)
 
-The repo target is `github.com/ianjohndawson/petrus-trainer`, served at
-`https://ianjohndawson.github.io/petrus-trainer/`.
+Production build auto-uses base `/petrus-trainer/`:
 
-The production build automatically uses `base: '/petrus-trainer/'` (local dev stays at `/`),
-so deploying is just:
+```bash
+npm run build
+npm run deploy   # gh-pages -d dist
+```
 
-1. `npm run build`
-2. `npm run deploy` (runs `gh-pages -d dist`).
-3. In the repo settings, set **Pages → Source** to the `gh-pages` branch (one-time).
+## Licence
 
-## Smart cube notes
-
-- Primary test cube: **GAN 356 i Carry 2** (Gen3 protocol, fully supported).
-- Also: GAN i4 Maglev, GAN Super Weilong v2.
-- Hold the cube in the standard scheme (white U, green F) so detection aligns with centres.
-- The cube's `FACELETS` events can resync the model if moves are missed.
-
-## Notes on this rebuild
-
-The original `petrus-trainer-source.tar.gz` was not recoverable, so this was rebuilt from the
-spec. Behaviour is equivalent but internals differ — in particular, block detection is
-generated from a geometric model (any of the 8 / 12 / N candidate sub-blocks), and ideal
-solutions are produced by an offline IDA\* solver rather than hand-authored.
+**GPL-3.0-or-later** (see `LICENSE`). The `src/engine/` directory is derived
+from [crystalcube](https://github.com/crystalcuber/crystalcube) and remains under
+**MPL-2.0** (see `src/engine/ATTRIBUTION.md`); MPL-2.0 §3.3 permits its inclusion
+in this GPL work.
