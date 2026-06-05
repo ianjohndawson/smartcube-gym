@@ -73,10 +73,10 @@ body {
   flex-wrap: wrap;
 }
 .topbar h1 {
-  font-size: 20px;
+  font-size: 30px;
   margin: 0;
   flex: 1;
-  letter-spacing: 0.2px;
+  letter-spacing: 0.5px;
 }
 .spacer {
   flex: 1;
@@ -390,7 +390,6 @@ body.theme-borland .card,
 body.theme-borland .modal {
   background: var(--panel-2);
   border: 2px solid var(--line);
-  box-shadow: 4px 4px 0 rgba(0, 0, 0, 0.5);
 }
 body.theme-borland button {
   border-radius: 0;

@@ -23,6 +23,9 @@ import {
 } from './steps.ts';
 import { nextFocusPiece, type FocusPiece } from './pieces.ts';
 import { sampleEoScramble } from './eo-scramble.ts';
+import { genEoSafeScramble } from './steps.ts';
+
+const SOLVED_ENCODE = newSolved().encode();
 import { ORIENT_LABEL, rotateHighlight, rotatedFacelets, toDisplayMoves, toModelMoves } from './orient.ts';
 import { CubeManager, clearSavedMac, getSavedMac } from './bluetooth.ts';
 import { getApiKey, getCoaching, hasApiKey, setApiKey } from './coaching.ts';
@@ -80,8 +83,12 @@ function makeScramble(base: Cube3x3, baseHistory: Move3x3[], stepsList: StepDef[
   const first = stepsList[0];
   // EO: pick the bad-edge count from the binomial, then use the shortest sequence
   // that yields it (exact distribution, ~5-move scrambles). Permutation-independent,
-  // so it works applied from the current cube.
-  if (first.kind === 'eo') return sampleEoScramble();
+  // so it works applied from the current cube. From a solved cube, prepend an
+  // EO-preserving permutation scramble so the first case still looks messed up.
+  if (first.kind === 'eo') {
+    const eoSeq = sampleEoScramble();
+    return base.encode() === SOLVED_ENCODE ? [...genEoSafeScramble(10), ...eoSeq] : eoSeq;
+  }
   // Blocks: a normal-length random scramble, rejecting any that pre-solve the step.
   for (let attempt = 0; attempt < 25; attempt++) {
     const moves = genScramble(16);

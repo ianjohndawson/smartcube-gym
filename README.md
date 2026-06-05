@@ -4,7 +4,7 @@ An extensible trainer for speedcubing skills — currently **block building** fo
 Petrus, APB, Roux and LEOR — with live input from **GAN Bluetooth smart cubes**,
 **solver-backed coaching**, and a live cube view.
 
-Live: **https://ianjohndawson.github.io/petrus-trainer/**
+Live: **https://ianjohndawson.github.io/smartcube-gym/**
 
 ## Design: solver is the brain, AI is the voice
 
@@ -61,7 +61,7 @@ Open **⚙ Settings** and paste an Anthropic API key (stored only in this browse
 
 ## Deploy (GitHub Pages)
 
-Production build auto-uses base `/petrus-trainer/`:
+Production build auto-uses base `/smartcube-gym/`:
 
 ```bash
 npm run build

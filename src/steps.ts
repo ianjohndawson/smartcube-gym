@@ -114,6 +114,22 @@ const FACES = ['U', 'D', 'L', 'R', 'F', 'B'];
 const SUFFIX = ['', '2', "'"];
 const OPPOSITE: Record<string, string> = { U: 'D', D: 'U', L: 'R', R: 'L', F: 'B', B: 'F' };
 
+// EO-preserving moves (no quarter F/B), so they mess up the permutation without
+// changing edge orientation. Used to make a from-solved cube look scrambled
+// before the short EO-pattern setup.
+const EO_SAFE: Move3x3[] = ['U', "U'", 'U2', 'D', "D'", 'D2', 'R', "R'", 'R2', 'L', "L'", 'L2', 'F2', 'B2'];
+export function genEoSafeScramble(n = 10): Move3x3[] {
+  const out: Move3x3[] = [];
+  let last = '';
+  while (out.length < n) {
+    const m = EO_SAFE[Math.floor(Math.random() * EO_SAFE.length)];
+    if (m[0] === last) continue;
+    out.push(m);
+    last = m[0];
+  }
+  return out;
+}
+
 /** A random WCA-style scramble (no same-face / canonical opposite-face order). */
 export function genScramble(n = 16): Move3x3[] {
   const out: string[] = [];
