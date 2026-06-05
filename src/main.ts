@@ -77,7 +77,9 @@ function currentStep(): StepDef | null {
 
 function makeScramble(base: Cube3x3, baseHistory: Move3x3[], stepsList: StepDef[]): Move3x3[] {
   const first = stepsList[0];
-  const n = first.kind === 'eo' ? 10 : 16; // EO needs only a short scramble
+  // EO: a long scramble so edge orientation reaches the true (binomial) spread of
+  // bad edges (short scrambles skew easy). Blocks: a normal-length scramble.
+  const n = first.kind === 'eo' ? 28 : 16;
   for (let attempt = 0; attempt < 25; attempt++) {
     const moves = genScramble(n);
     const targetHistory = [...baseHistory, ...moves];
