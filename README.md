@@ -1,4 +1,4 @@
-# Cube Skills Trainer
+# SmartCube Gym
 
 An extensible trainer for speedcubing skills — currently **block building** for
 Petrus, APB, Roux and LEOR — with live input from **GAN Bluetooth smart cubes**,
