@@ -406,6 +406,8 @@ function setOrient(b: boolean) {
   localStorage.setItem(ORIENT_KEY, b ? '1' : '0');
   render();
 }
+let showPicker = false; // Trainer selector collapsed by default
+
 /** True when the solve-phase held frame is active (rotate view + translate notation). */
 function solveFrame(): boolean {
   return orientEnabled && state.mode === 'solve';
@@ -486,29 +488,37 @@ function render() {
 
   // Top bar
   const top = el('div', 'topbar');
-  top.appendChild(el('h1', '', 'Cube Skills Trainer'));
+  top.appendChild(el('h1', '', 'SmartCube Gym'));
   const battery = state.battery != null ? ` · ${state.battery}%` : '';
   top.appendChild(el('span', `pill ${state.connected ? 'ok' : ''}`, state.connected ? `${cube.deviceName || 'Cube'}${battery}` : 'No cube'));
   top.appendChild(btn(state.connected ? 'Disconnect' : 'Connect cube', toggleConnect, state.connected ? 'ghost' : 'primary'));
   top.appendChild(btn('⚙', () => { state.showSettings = true; render(); }, 'ghost'));
   app.appendChild(top);
 
-  // Category + trainer selector
+  // Trainer selector (collapsed to a summary until you want to change it)
   const pick = el('div', 'card');
-  pick.appendChild(el('h2', '', 'Trainer'));
-  const cats = el('div', 'segmented');
-  for (const c of CATEGORIES) cats.appendChild(btn(c === 'Blocks' ? 'Block building' : c, () => selectCategory(c), state.category === c ? 'active' : ''));
-  pick.appendChild(cats);
-  const trs = el('div', 'segmented');
-  trs.style.marginTop = '8px';
-  for (const t of trainersIn(state.category)) trs.appendChild(btn(t.label, () => selectTrainer(t.id), state.trainerId === t.id ? 'active' : ''));
-  pick.appendChild(trs);
-  pick.appendChild(el('p', 'blurb', trainer().description));
-  const modeRow = el('div', 'segmented');
-  modeRow.appendChild(btn('Efficiency', () => setMode('efficiency'), state.trainMode === 'efficiency' ? 'active' : ''));
-  modeRow.appendChild(btn('Timed', () => setMode('timed'), state.trainMode === 'timed' ? 'active' : ''));
-  pick.appendChild(modeRow);
-  pick.appendChild(el('div', 'hint', state.trainMode === 'timed' ? 'Timed: a timer runs from scramble-complete until solved — train for speed.' : 'Efficiency: compare your move count to the solver-optimal.'));
+  const cat = state.category === 'Blocks' ? 'Block building' : state.category;
+  const head = el('div', 'row');
+  head.style.justifyContent = 'space-between';
+  head.style.alignItems = 'center';
+  head.appendChild(el('div', '', `${cat} · ${trainer().label} · ${state.trainMode === 'timed' ? 'Timed' : 'Efficiency'}`));
+  head.appendChild(btn(showPicker ? 'Done' : 'Change', () => { showPicker = !showPicker; render(); }, 'ghost'));
+  pick.appendChild(head);
+  if (showPicker) {
+    const cats = el('div', 'segmented');
+    cats.style.marginTop = '10px';
+    for (const c of CATEGORIES) cats.appendChild(btn(c === 'Blocks' ? 'Block building' : c, () => selectCategory(c), state.category === c ? 'active' : ''));
+    pick.appendChild(cats);
+    const trs = el('div', 'segmented');
+    trs.style.marginTop = '8px';
+    for (const t of trainersIn(state.category)) trs.appendChild(btn(t.label, () => selectTrainer(t.id), state.trainerId === t.id ? 'active' : ''));
+    pick.appendChild(trs);
+    pick.appendChild(el('p', 'blurb', trainer().description));
+    const modeRow = el('div', 'segmented');
+    modeRow.appendChild(btn('Efficiency', () => setMode('efficiency'), state.trainMode === 'efficiency' ? 'active' : ''));
+    modeRow.appendChild(btn('Timed', () => setMode('timed'), state.trainMode === 'timed' ? 'active' : ''));
+    pick.appendChild(modeRow);
+  }
   app.appendChild(pick);
 
   // Scramble (with progress highlight)
@@ -689,35 +699,8 @@ function render() {
     app.appendChild(card);
   }
 
-  // Coaching
-  const coachCard = el('div', 'card');
-  coachCard.appendChild(el('h2', '', 'AI coach'));
-  const ca = el('div', 'row');
-  ca.appendChild(btn(state.coachBusy ? 'Thinking…' : 'Get a tip', () => askCoach(), 'primary', state.coachBusy));
-  coachCard.appendChild(ca);
-  const qWrap = el('div', 'row');
-  qWrap.style.marginTop = '10px';
-  const q = document.createElement('input');
-  q.type = 'text';
-  q.placeholder = 'Ask the coach a question…';
-  q.addEventListener('keydown', (ev) => { if ((ev as KeyboardEvent).key === 'Enter' && q.value.trim()) { askCoach(q.value.trim()); q.value = ''; } });
-  qWrap.appendChild(q);
-  coachCard.appendChild(qWrap);
-  if (state.coachText) coachCard.appendChild(el('div', 'coach', state.coachText));
-  if (!hasApiKey()) coachCard.appendChild(el('div', 'hint', 'Add an Anthropic API key in Settings (⚙) to enable coaching.'));
-  app.appendChild(coachCard);
-
-  // Manual moves
-  const manualCard = el('div', 'card');
-  manualCard.appendChild(el('h2', '', 'Manual moves (no cube)'));
-  const mWrap = el('div', 'row');
-  const m = document.createElement('input');
-  m.type = 'text';
-  m.placeholder = "Type moves, e.g. R U R' U'";
-  m.addEventListener('keydown', (ev) => { if ((ev as KeyboardEvent).key === 'Enter' && m.value.trim()) { handleManualMoves(m.value.trim()); m.value = ''; } });
-  mWrap.appendChild(m);
-  manualCard.appendChild(mWrap);
-  app.appendChild(manualCard);
+  // AI coach card removed from the UI; coaching.ts + askCoach() are kept as hooks
+  // in case we re-enable it later.
 
   app.appendChild(el('div', 'hint', state.status));
 
@@ -848,6 +831,9 @@ function btn(label: string, onClick: () => void, className = '', disabled = fals
 applyTheme(getTheme());
 state = freshTrainer('petrus');
 render();
+
+// Hidden test hook (Manual Moves panel was removed from the UI).
+(window as unknown as { gym: unknown }).gym = { apply: (s: string) => handleManualMoves(s) };
 
 // Tick the live timer (timed mode) without a full re-render.
 setInterval(() => {

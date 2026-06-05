@@ -1,10 +1,10 @@
 {
-  "name": "cube-skills-trainer",
+  "name": "smartcube-gym",
   "private": true,
-  "version": "0.2.0",
+  "version": "0.3.0",
   "type": "module",
   "license": "GPL-3.0-or-later",
-  "description": "Cube Skills Trainer — block building, EO and more for Petrus/Roux/LEOR/ZZ/CFOP, with GAN smart cube support and solver-backed coaching",
+  "description": "SmartCube Gym — block building, EO and more for Petrus/Roux/LEOR/ZZ/CFOP, with GAN smart cube support and a solver-backed coach",
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",

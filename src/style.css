@@ -40,20 +40,29 @@ body {
   gap: 16px;
 }
 
-/* Landscape / wide (e.g. iPad landscape): flow cards into two columns. */
+/* Landscape / wide (e.g. iPad landscape): flow cards into two columns, tightened
+   so a typical session fits the screen without scrolling. */
 @media (min-width: 920px) {
   #app {
     display: block;
     column-count: 2;
-    column-gap: 16px;
+    column-gap: 14px;
     max-width: 1180px;
+    padding-top: 10px;
   }
   #app > * {
     break-inside: avoid;
-    margin-bottom: 16px;
+    margin-bottom: 12px;
   }
   .topbar {
     column-span: all;
+    margin-bottom: 6px;
+  }
+  .card {
+    padding: 12px 14px;
+  }
+  .card h2 {
+    margin-bottom: 6px;
   }
 }
 
@@ -369,7 +378,13 @@ body.theme-borland {
   --warn: #ffff55;
   --danger: #ff5555;
   --radius: 0;
-  font-family: ui-monospace, 'Courier New', Consolas, monospace;
+  font-family: 'VT323', ui-monospace, 'Courier New', Consolas, monospace;
+  font-size: 20px;
+  letter-spacing: 0.4px;
+}
+/* VT323 is a small-per-em DOS font; nudge the base size up for readability. */
+body.theme-borland #app {
+  font-size: 20px;
 }
 body.theme-borland .card,
 body.theme-borland .modal {
