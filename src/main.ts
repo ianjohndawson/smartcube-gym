@@ -22,6 +22,7 @@ import {
   type StepDef,
 } from './steps.ts';
 import { nextFocusPiece, type FocusPiece } from './pieces.ts';
+import { ORIENT_LABEL, rotateHighlight, rotatedFacelets, toDisplayMoves, toModelMoves } from './orient.ts';
 import { CubeManager, clearSavedMac, getSavedMac } from './bluetooth.ts';
 import { getApiKey, getCoaching, hasApiKey, setApiKey } from './coaching.ts';
 
@@ -234,7 +235,9 @@ function handleMove(move: string) {
   render();
 }
 function handleManualMoves(text: string) {
-  for (const tok of parseMoves(text)) step(tok);
+  // In the solve frame the user types what they see (held frame); translate to model.
+  const toks = solveFrame() ? toModelMoves(parseMoves(text)) : parseMoves(text);
+  for (const tok of toks) step(tok);
   render();
 }
 
@@ -395,6 +398,22 @@ function applyTheme(t: string) {
   document.body.className = t === 'dark' ? '' : `theme-${t}`;
 }
 
+// --- solving orientation (phase-flip; static x2 for now) ---
+const ORIENT_KEY = 'cube-trainer.orient';
+let orientEnabled = localStorage.getItem(ORIENT_KEY) === '1';
+function setOrient(b: boolean) {
+  orientEnabled = b;
+  localStorage.setItem(ORIENT_KEY, b ? '1' : '0');
+  render();
+}
+/** True when the solve-phase held frame is active (rotate view + translate notation). */
+function solveFrame(): boolean {
+  return orientEnabled && state.mode === 'solve';
+}
+function disp(moves: Move3x3[]): Move3x3[] {
+  return solveFrame() ? toDisplayMoves(moves) : moves;
+}
+
 function continuation(): Move3x3[] {
   const s = currentStep();
   if (!s) return [];
@@ -531,9 +550,14 @@ function render() {
     if (state.assist.kind === 'ideal') { highlight = new Set(s!.canonicalMask.solvedFaceletIndices); highlightNote = 'Highlighted: the target facelets.'; }
     else if (state.assist.focus) { highlight = new Set(state.assist.focus.current); highlightNote = `Highlighted: the ${state.assist.focus.description} to place next.`; }
   }
-  wrap.appendChild(renderCubeNet(faceletString(state.cube), highlight));
+  if (solveFrame() && highlight) highlight = rotateHighlight(highlight);
+  const facelets = solveFrame() ? rotatedFacelets(state.cube) : faceletString(state.cube);
+  wrap.appendChild(renderCubeNet(facelets, highlight));
   viewCard.appendChild(wrap);
-  viewCard.appendChild(el('div', 'hint', highlightNote || 'Reflects the model cube. Hold your cube white-up, green-front so it matches.'));
+  const holdNote = orientEnabled
+    ? (state.mode === 'solve' ? `Hold ${ORIENT_LABEL} (rotate x2 from the scramble).` : 'Hold white-top / green-front to scramble.')
+    : 'Hold your cube white-up, green-front so it matches.';
+  viewCard.appendChild(el('div', 'hint', highlightNote || `Reflects the model cube. ${holdNote}`));
   app.appendChild(viewCard);
 
   // Journey chips (only show if multi-step)
@@ -564,13 +588,13 @@ function render() {
     done.appendChild(el('div', 'solved-banner', '🎉 Solved! Here’s how you did.'));
     const r = state.lastResult;
     if (r) {
-      const yours = simplifyMoves(r.yourMoves);
+      const yours = disp(simplifyMoves(r.yourMoves));
       const extra = r.optimal != null ? r.used - r.optimal : 0;
       const verdict = r.optimal == null ? '' : extra <= 0 ? '🏆 optimal!' : extra <= 2 ? '👍 very efficient' : extra <= 5 ? 'good — room to tighten' : 'lots of room to improve';
       const cmp = el('div', 'coach mono');
       cmp.innerHTML =
         `your solution (${r.used}): ${yours.join(' ') || '—'}\n` +
-        `ideal (${r.optimal ?? '?'}):  ${r.idealMoves.join(' ')}` +
+        `ideal (${r.optimal ?? '?'}):  ${disp(r.idealMoves).join(' ')}` +
         (verdict ? `\n${verdict}` : '');
       done.appendChild(cmp);
     }
@@ -592,8 +616,9 @@ function render() {
     lc.appendChild(el('h2', '', `Learn by example — ${s.label}`));
     lc.appendChild(el('p', 'blurb', 'Follow the ideal solution move by move. Each move turns green; a wrong turn shows red. This is how the trick gets into your hands.'));
     const { done, errorIndex } = progressOver(state.learn.moves, state.history.slice(state.learn.baseLen));
+    const shown = disp(state.learn.moves); // translate to the held frame for display
     const box = el('div', 'scramble mono');
-    state.learn.moves.forEach((mv, i) => {
+    shown.forEach((mv, i) => {
       const cls = i < done ? 'tok done' : i === errorIndex ? 'tok error' : i === done ? 'tok next' : 'tok';
       const span = el('span', cls);
       span.textContent = mv;
@@ -601,7 +626,7 @@ function render() {
       box.appendChild(document.createTextNode(' '));
     });
     lc.appendChild(box);
-    if (done < state.learn.moves.length) lc.appendChild(el('div', 'hint', `Next move: ${state.learn.moves[done]} (${done}/${state.learn.moves.length} done)`));
+    if (done < shown.length) lc.appendChild(el('div', 'hint', `Next move: ${shown[done]} (${done}/${shown.length} done)`));
     const la = el('div', 'row');
     la.style.marginTop = '12px';
     la.appendChild(btn('Stop walkthrough', stopLearn, 'ghost'));
@@ -643,8 +668,8 @@ function render() {
     if (state.assist) {
       const a = state.assist;
       if (a.kind === 'nudge' && a.focus) cur.appendChild(el('div', 'ideal', `Focus on the ${a.focus.description}. Find it (highlighted), then pair and insert it.`));
-      else if (a.kind === 'move') { const box = el('div', 'ideal mono'); box.innerHTML = `<span style="color:var(--accent-2)">next ▸ ${a.moves[0]}</span>`; cur.appendChild(box); }
-      else if (a.kind === 'ideal') { cur.appendChild(el('div', 'ideal mono', a.moves.join(' '))); cur.appendChild(el('div', 'hint', 'Full solution from your current position.')); }
+      else if (a.kind === 'move') { const box = el('div', 'ideal mono'); box.innerHTML = `<span style="color:var(--accent-2)">next ▸ ${disp([a.moves[0]])[0]}</span>`; cur.appendChild(box); }
+      else if (a.kind === 'ideal') { cur.appendChild(el('div', 'ideal mono', disp(a.moves).join(' '))); cur.appendChild(el('div', 'hint', 'Full solution from your current position.')); }
     }
     app.appendChild(cur);
   }
@@ -769,6 +794,13 @@ function renderSettings() {
   const macRow = el('div', 'row');
   macRow.appendChild(btn('Forget cube MAC', () => { clearSavedMac(); state.status = 'Saved cube MAC cleared.'; render(); }, 'ghost'));
   modal.appendChild(macRow);
+
+  modal.appendChild(el('h2', '', 'Solve orientation'));
+  modal.appendChild(el('div', 'hint', 'Scramble white-top / green-front, then solve in the chosen hold. (Static x2 for now.)'));
+  const orientRow = el('div', 'segmented');
+  orientRow.appendChild(btn('White-top', () => setOrient(false), !orientEnabled ? 'active' : ''));
+  orientRow.appendChild(btn('Yellow-top (x2)', () => setOrient(true), orientEnabled ? 'active' : ''));
+  modal.appendChild(orientRow);
 
   modal.appendChild(el('h2', '', 'Theme'));
   const themeRow = el('div', 'segmented');
