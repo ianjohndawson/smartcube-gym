@@ -107,7 +107,7 @@ function startScramble(base: Cube3x3, baseHistory: Move3x3[], explicit?: Move3x3
   const t = trainerById(state?.trainerId ?? 'petrus');
   const moves = explicit ?? makeScramble(base, baseHistory, t.steps);
   return {
-    category: state?.category ?? 'Blocks',
+    category: t.category,
     trainerId: t.id,
     trainMode: state?.trainMode ?? 'efficiency',
     stepIndex: 0,
@@ -156,7 +156,10 @@ function step(move: Move3x3) {
   state.history.push(move);
   state.assist = null;
   if (state.learn) { afterLearnMove(); return; }
-  if (state.mode === 'solve') state.movesThisStep.push(move);
+  if (state.mode === 'solve') {
+    state.movesThisStep.push(move);
+    if (state.solveStartMs == null) state.solveStartMs = Date.now(); // start timer on first move
+  }
   afterChange();
 }
 
@@ -183,7 +186,7 @@ function afterChange() {
       state.stepStartHistory = [...state.history];
       state.movesThisStep = [];
       state.assist = null;
-      state.solveStartMs = Date.now();
+      state.solveStartMs = null; // timer starts on the first solve move
       state.solveStartLen = state.history.length;
       state.finishedMs = null;
       if (state.pendingLearn) {
@@ -590,9 +593,7 @@ function render() {
 
   // Current step / banners
   if (state.mode === 'scramble') {
-    const sc = el('div', 'card');
-    sc.appendChild(el('div', 'solved-banner', '🧩 Apply the scramble above to begin.'));
-    app.appendChild(sc);
+    // no banner needed — the Scramble card already guides the user
   } else if (allDone) {
     const done = el('div', 'card');
     done.appendChild(el('div', 'solved-banner', '🎉 Solved! Here’s how you did.'));
@@ -649,8 +650,9 @@ function render() {
     head.style.justifyContent = 'space-between';
     head.appendChild(el('h2', '', `Current step — ${s.label}`));
     const pills = el('div', 'row');
-    if (state.trainMode === 'timed' && state.solveStartMs != null) {
-      const t = el('span', 'pill', state.finishedMs != null ? fmtTime(state.finishedMs - state.solveStartMs) : fmtTime(Date.now() - state.solveStartMs));
+    if (state.trainMode === 'timed') {
+      const txt = state.solveStartMs == null ? '0:00.00' : fmtTime((state.finishedMs ?? Date.now()) - state.solveStartMs);
+      const t = el('span', 'pill', txt);
       t.id = 'live-timer';
       pills.appendChild(t);
     }
@@ -829,7 +831,7 @@ function btn(label: string, onClick: () => void, className = '', disabled = fals
 
 // --- boot ---
 applyTheme(getTheme());
-state = freshTrainer('petrus');
+state = freshTrainer('eo'); // default: Full EO, Efficiency
 render();
 
 // Hidden test hook (Manual Moves panel was removed from the UI).

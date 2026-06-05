@@ -441,3 +441,19 @@ body.theme-borland .ideal,
 body.theme-borland .coach {
   border-radius: 0;
 }
+
+/* Borland: make monospace elements (scramble, ideal, results) use the DOS font too */
+body.theme-borland .mono,
+body.theme-borland .scramble {
+  font-family: 'VT323', ui-monospace, 'Courier New', monospace;
+}
+
+/* Centre the cube view */
+.cube-wrap {
+  display: flex;
+  justify-content: center;
+}
+.cube-net {
+  width: max-content;
+  margin: 4px auto 0;
+}
