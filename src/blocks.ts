@@ -1,0 +1,86 @@
+// Block-building masks for the crystalcube engine.
+//
+// crystalcube uses a "net order" 54-facelet layout. This maps each facelet to
+// the cubie coordinate (x,y,z) it belongs to — axes: x 0=L 2=R, y 0=D 2=U,
+// z 0=B 2=F — so we can generate 2x2x2 / 2x2x3 / 1x2x3 block masks from
+// geometry. The map is cross-checked against the engine's own Cross/centre
+// masks in scripts/parity-blocks.ts.
+
+import type { Cube3x3Mask } from './engine/puzzles/cube3x3/index.ts';
+
+// facelet index -> [x, y, z]
+export const NET_COORDS: ReadonlyArray<readonly [number, number, number]> = [
+  // U face (y=2), indices 0-8
+  [0, 2, 0], [1, 2, 0], [2, 2, 0], [0, 2, 1], [1, 2, 1], [2, 2, 1], [0, 2, 2], [1, 2, 2], [2, 2, 2],
+  // band row 1 (y=2): L(9-11) F(12-14) R(15-17) B(18-20)
+  [0, 2, 0], [0, 2, 1], [0, 2, 2],
+  [0, 2, 2], [1, 2, 2], [2, 2, 2],
+  [2, 2, 2], [2, 2, 1], [2, 2, 0],
+  [2, 2, 0], [1, 2, 0], [0, 2, 0],
+  // band row 2 (y=1): L(21-23) F(24-26) R(27-29) B(30-32)
+  [0, 1, 0], [0, 1, 1], [0, 1, 2],
+  [0, 1, 2], [1, 1, 2], [2, 1, 2],
+  [2, 1, 2], [2, 1, 1], [2, 1, 0],
+  [2, 1, 0], [1, 1, 0], [0, 1, 0],
+  // band row 3 (y=0): L(33-35) F(36-38) R(39-41) B(42-44)
+  [0, 0, 0], [0, 0, 1], [0, 0, 2],
+  [0, 0, 2], [1, 0, 2], [2, 0, 2],
+  [2, 0, 2], [2, 0, 1], [2, 0, 0],
+  [2, 0, 0], [1, 0, 0], [0, 0, 0],
+  // D face (y=0), indices 45-53
+  [0, 0, 2], [1, 0, 2], [2, 0, 2], [0, 0, 1], [1, 0, 1], [2, 0, 1], [0, 0, 0], [1, 0, 0], [2, 0, 0],
+];
+
+function inSet(v: number, allowed: number[]): boolean {
+  return allowed.includes(v);
+}
+
+/** A block mask = every facelet whose cubie coordinate falls within the ranges. */
+export function blockMaskFromRanges(xs: number[], ys: number[], zs: number[]): Cube3x3Mask {
+  const solvedFaceletIndices: number[] = [];
+  NET_COORDS.forEach(([x, y, z], i) => {
+    if (inSet(x, xs) && inSet(y, ys) && inSet(z, zs)) solvedFaceletIndices.push(i);
+  });
+  return { solvedFaceletIndices };
+}
+
+const PAIRS = [
+  [0, 1],
+  [1, 2],
+];
+const SINGLES = [[0], [1], [2]];
+const FULL = [0, 1, 2];
+
+/** All 8 distinct 2x2x2 sub-blocks, as masks. */
+export function all222Masks(): Cube3x3Mask[] {
+  const out: Cube3x3Mask[] = [];
+  for (const xs of PAIRS) for (const ys of PAIRS) for (const zs of PAIRS) out.push(blockMaskFromRanges(xs, ys, zs));
+  return out;
+}
+
+/** All 12 distinct 2x2x3 sub-blocks, as masks. */
+export function all223Masks(): Cube3x3Mask[] {
+  const out: Cube3x3Mask[] = [];
+  for (const ys of PAIRS) for (const zs of PAIRS) out.push(blockMaskFromRanges(FULL, ys, zs));
+  for (const xs of PAIRS) for (const zs of PAIRS) out.push(blockMaskFromRanges(xs, FULL, zs));
+  for (const xs of PAIRS) for (const ys of PAIRS) out.push(blockMaskFromRanges(xs, ys, FULL));
+  return out;
+}
+
+/** All distinct 1x2x3 sub-blocks, as masks. */
+export function all123Masks(): Cube3x3Mask[] {
+  const out: Cube3x3Mask[] = [];
+  for (const ys of PAIRS) for (const zs of SINGLES) out.push(blockMaskFromRanges(FULL, ys, zs));
+  for (const ys of SINGLES) for (const zs of PAIRS) out.push(blockMaskFromRanges(FULL, ys, zs));
+  for (const xs of PAIRS) for (const zs of SINGLES) out.push(blockMaskFromRanges(xs, FULL, zs));
+  for (const xs of SINGLES) for (const zs of PAIRS) out.push(blockMaskFromRanges(xs, FULL, zs));
+  for (const xs of PAIRS) for (const ys of SINGLES) out.push(blockMaskFromRanges(xs, ys, FULL));
+  for (const xs of SINGLES) for (const ys of PAIRS) out.push(blockMaskFromRanges(xs, ys, FULL));
+  return out;
+}
+
+// Canonical guided-target masks (fixed orientation, white-up / green-front):
+export const MASK_222_DLF = blockMaskFromRanges([0, 1], [0, 1], [1, 2]); // down-left-front 2x2x2
+export const MASK_223_BOTTOM_LEFT = blockMaskFromRanges([0, 1], [0, 1], [0, 1, 2]); // contains DLF block
+export const MASK_123_LEFT = blockMaskFromRanges([0], [0, 1], [0, 1, 2]); // L-side 1x2x3 (Roux left)
+export const MASK_123_RIGHT = blockMaskFromRanges([2], [0, 1], [0, 1, 2]); // R-side 1x2x3 (Roux right)

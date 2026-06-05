@@ -1,0 +1,145 @@
+// Shell-facing API over the (vendored, MPL) crystalcube engine.
+// This file is part of the GPL-3.0 application code.
+//
+// Provides: live state tracking, mask-based step detection, optimal solving to a
+// mask (with a cached pruning table), nearest-block selection, and progress —
+// the primitives the UI/coaching shell needs.
+
+import {
+  Cube3x3,
+  MOVESETS,
+  SOLVED_FACELET_CUBE,
+  invertMoves,
+  type Cube3x3Mask,
+  type Move3x3,
+  type RotationMove,
+} from './engine/puzzles/cube3x3/index.ts';
+import { genPruningTable, solve, type PruningTable } from './engine/search/index.ts';
+
+export type { Move3x3, RotationMove, Cube3x3Mask };
+export { Cube3x3, MOVESETS };
+
+export interface StepSolverConfig {
+  moveSet: readonly Move3x3[];
+  pruningDepth: number;
+  depthLimit: number;
+}
+
+// --- state helpers ---
+
+export function newSolved(): Cube3x3 {
+  return new Cube3x3();
+}
+
+export function parseMoves(s: string): Move3x3[] {
+  return Cube3x3.parseNotation(s) ?? [];
+}
+
+/** Apply one move to a tracked state, returning a new Cube3x3 (immutable-style). */
+export function applyMove(state: Cube3x3, move: Move3x3): Cube3x3 {
+  return state.clone().applyMove(move);
+}
+
+export function applyMoves(state: Cube3x3, moves: Move3x3[]): Cube3x3 {
+  return state.clone().applyMoves(moves);
+}
+
+export function statesEqual(a: Cube3x3, b: Cube3x3): boolean {
+  return a.encode() === b.encode();
+}
+
+/** Facelet string (U R F D L B + masked markers) for rendering. */
+export function faceletString(state: Cube3x3): string {
+  return state.stateData.join('');
+}
+
+// --- detection + progress ---
+
+function maskSolved(state: Cube3x3, mask: Cube3x3Mask): boolean {
+  return state.clone().applyMask(mask).isSolved();
+}
+
+/** Index of the first candidate mask that is solved in `state`, or -1. */
+export function detectIndex(state: Cube3x3, masks: Cube3x3Mask[]): number {
+  for (let i = 0; i < masks.length; i++) if (maskSolved(state, masks[i])) return i;
+  return -1;
+}
+
+export function anySolved(state: Cube3x3, masks: Cube3x3Mask[]): boolean {
+  return detectIndex(state, masks) >= 0;
+}
+
+/** Fraction (0..1) of a mask's solved-facelets currently matching the solved cube. */
+export function maskProgress(state: Cube3x3, mask: Cube3x3Mask): number {
+  const facelets = state.stateData;
+  const idxs = mask.solvedFaceletIndices;
+  if (idxs.length === 0) return 1;
+  let ok = 0;
+  for (const i of idxs) if (facelets[i] === SOLVED_FACELET_CUBE[i]) ok++;
+  return ok / idxs.length;
+}
+
+/** The candidate mask the state is closest to completing. */
+export function nearestMask(state: Cube3x3, masks: Cube3x3Mask[]): { mask: Cube3x3Mask; index: number } {
+  let best = 0;
+  let bestP = -1;
+  masks.forEach((m, i) => {
+    const p = maskProgress(state, m);
+    if (p > bestP) {
+      bestP = p;
+      best = i;
+    }
+  });
+  return { mask: masks[best], index: best };
+}
+
+// --- solving ---
+
+const tableCache = new Map<string, PruningTable>();
+function maskKey(mask: Cube3x3Mask, cfg: StepSolverConfig): string {
+  return `${mask.solvedFaceletIndices.join(',')}|${mask.eoFaceletIndices?.join(',') ?? ''}@${cfg.pruningDepth}#${cfg.moveSet.length}`;
+}
+
+function getTable(mask: Cube3x3Mask, cfg: StepSolverConfig): PruningTable {
+  const key = maskKey(mask, cfg);
+  let t = tableCache.get(key);
+  if (!t) {
+    const solvedMasked = new Cube3x3([...cfg.moveSet]).applyMask(mask);
+    t = genPruningTable(solvedMasked, { name: key, pruningDepth: cfg.pruningDepth });
+    tableCache.set(key, t);
+  }
+  return t;
+}
+
+/**
+ * Optimal solution(s) bringing `scramble` (moves from solved) to the masked
+ * step. `scramble` is typically the full move history so far, so this also
+ * works mid-solve for hints.
+ */
+export function solveToMask(
+  scramble: Move3x3[],
+  mask: Cube3x3Mask,
+  cfg: StepSolverConfig,
+  preRotation: RotationMove[] = [],
+  maxSolutionCount = 3,
+): Move3x3[][] {
+  const translated = [...invertMoves(preRotation), ...scramble, ...preRotation];
+  const puzzle = new Cube3x3([...cfg.moveSet]).applyMask(mask).applyMoves(translated);
+  const table = getTable(mask, cfg);
+  return solve(puzzle, table, {
+    pruningDepth: cfg.pruningDepth,
+    depthLimit: cfg.depthLimit,
+    maxSolutionCount,
+  });
+}
+
+/** Single optimal solution, or null. */
+export function optimalToMask(
+  scramble: Move3x3[],
+  mask: Cube3x3Mask,
+  cfg: StepSolverConfig,
+  preRotation: RotationMove[] = [],
+): Move3x3[] | null {
+  const sols = solveToMask(scramble, mask, cfg, preRotation, 1);
+  return sols[0] ?? null;
+}
