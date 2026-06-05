@@ -43,6 +43,7 @@ interface State {
   target: Cube3x3; // base + scramble
   scrambleMoves: Move3x3[];
   scrambleBaseLen: number; // history length when this scramble was issued
+  prefixEncodes: string[]; // encoded states base..target (for green progress)
   pendingLearn: boolean; // after this setup completes, start the ideal walkthrough
   history: Move3x3[]; // all moves from solved
   stepStartHistory: Move3x3[];
@@ -88,6 +89,16 @@ function makeScramble(base: Cube3x3, baseHistory: Move3x3[], stepsList: StepDef[
   return genScramble(n);
 }
 
+function computePrefixEncodes(base: Cube3x3, moves: Move3x3[]): string[] {
+  const encs = [base.encode()];
+  let c = base;
+  for (const m of moves) {
+    c = applyMove(c, m);
+    encs.push(c.encode());
+  }
+  return encs;
+}
+
 /** Begin a new scramble from a given base cube + history (continuous reps).
  *  `explicit` lets callers supply the exact setup sequence (e.g. an undo back to
  *  the same case) instead of a fresh random scramble. */
@@ -108,6 +119,7 @@ function startScramble(base: Cube3x3, baseHistory: Move3x3[], explicit?: Move3x3
     target: applyMoves(base, moves),
     scrambleMoves: moves,
     scrambleBaseLen: baseHistory.length,
+    prefixEncodes: computePrefixEncodes(base, moves),
     pendingLearn: false,
     history: [...baseHistory],
     stepStartHistory: [...baseHistory],
@@ -297,7 +309,7 @@ function resetToSolved() {
 }
 function applyScrambleNow() {
   state.cube = state.target.clone();
-  state.history = [...state.history, ...state.scrambleMoves];
+  state.history = [...state.history.slice(0, state.scrambleBaseLen), ...state.scrambleMoves];
   afterChange();
   render();
 }
@@ -491,7 +503,16 @@ function render() {
   const scrActions = el('div', 'row');
   scrActions.style.marginTop = '12px';
   if (state.mode === 'scramble') {
-    scrCard.appendChild(el('div', 'hint', 'Apply these moves from your current cube. Solving begins automatically when it matches.'));
+    const rem = scrambleRemaining();
+    if (rem.length) {
+      const expected = state.scrambleMoves[scrambleDone()];
+      const isFix = expected != null && rem[0][0] !== expected[0];
+      const line = el('div', 'hint');
+      line.innerHTML = `Next: <b style="color:var(--accent-2)">${rem[0]}</b>${isFix ? ' — corrects a wrong turn' : ''} · ${rem.length} to go`;
+      scrCard.appendChild(line);
+    } else {
+      scrCard.appendChild(el('div', 'hint', 'Apply the scramble from your current cube. Solving begins automatically when it matches.'));
+    }
     scrActions.appendChild(btn('Apply scramble for me', applyScrambleNow));
     scrActions.appendChild(btn('Reset to solved', resetToSolved, 'ghost'));
   } else {
@@ -699,13 +720,27 @@ function progressOver(tokens: Move3x3[], moves: Move3x3[]): { done: number; erro
   return { done: ti, errorIndex: -1 };
 }
 
+// Leading scramble tokens whose resulting state has actually been reached.
+function scrambleDone(): number {
+  const cur = state.cube.encode();
+  let done = 0;
+  for (let k = 0; k < state.prefixEncodes.length; k++) if (state.prefixEncodes[k] === cur) done = k;
+  return done;
+}
+
+// Self-healing remaining moves to reach the scrambled target from wherever the
+// cube is now: undo what's been done this scramble, then the original scramble,
+// simplified. On-track this is the clean tail; off-track it prepends corrections.
+function scrambleRemaining(): Move3x3[] {
+  const phase = state.history.slice(state.scrambleBaseLen);
+  return simplifyMoves(invertSeq(phase).concat(state.scrambleMoves));
+}
+
 function renderScramble(): HTMLElement {
   const box = el('div', 'scramble mono');
-  const phaseMoves = state.history.slice(state.scrambleBaseLen);
-  const { done, errorIndex } = progressOver(state.scrambleMoves, phaseMoves);
+  const done = scrambleDone();
   state.scrambleMoves.forEach((mv, i) => {
-    const cls = i < done ? 'tok done' : i === errorIndex ? 'tok error' : 'tok';
-    const span = el('span', cls);
+    const span = el('span', i < done ? 'tok done' : 'tok');
     span.textContent = mv;
     box.appendChild(span);
     box.appendChild(document.createTextNode(' '));
