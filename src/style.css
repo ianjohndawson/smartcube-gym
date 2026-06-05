@@ -130,9 +130,18 @@ button:disabled {
 .scramble {
   font-size: 22px;
   letter-spacing: 1px;
-  line-height: 1.5;
-  word-spacing: 4px;
+  line-height: 1.6;
   color: var(--text);
+}
+.scramble .tok {
+  color: var(--muted);
+  opacity: 0.55;
+  transition: color 0.12s, opacity 0.12s;
+}
+.scramble .tok.done {
+  color: var(--accent-2);
+  opacity: 1;
+  font-weight: 600;
 }
 
 .phases {
