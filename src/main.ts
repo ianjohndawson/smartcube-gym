@@ -49,7 +49,7 @@ interface State {
   stepDone: boolean[];
   assist: { kind: 'nudge' | 'move' | 'ideal'; moves: Move3x3[]; focus: FocusPiece | null } | null;
   learn: { moves: Move3x3[]; baseLen: number } | null; // guided ideal replay
-  lastResult: { step: string; used: number; optimal: number | null } | null;
+  lastResult: { step: string; used: number; optimal: number | null; yourMoves: Move3x3[]; idealMoves: Move3x3[] } | null;
   coachText: string;
   coachBusy: boolean;
   connected: boolean;
@@ -189,8 +189,14 @@ function checkStepCompletion() {
   const s = currentStep();
   if (!s || state.stepDone[state.stepIndex]) return;
   if (stepSolved(s)) {
-    const optimal = optimalToMask(state.stepStartHistory, s.canonicalMask, s.solver);
-    state.lastResult = { step: s.label, used: htmCount(state.movesThisStep), optimal: optimal ? optimal.length : null };
+    const optimal = optimalToMask(state.stepStartHistory, s.canonicalMask, s.solver) ?? [];
+    state.lastResult = {
+      step: s.label,
+      used: htmCount(state.movesThisStep),
+      optimal: optimal.length,
+      yourMoves: [...state.movesThisStep],
+      idealMoves: optimal,
+    };
     state.stepDone[state.stepIndex] = true;
     state.assist = null;
     state.status = `${s.label} done!`;
@@ -231,7 +237,12 @@ function moveAmount(m: Move3x3): number {
   return m.includes('2') ? 2 : m.includes("'") ? 3 : 1;
 }
 function htmCount(moves: Move3x3[]): number {
-  let count = 0;
+  return simplifyMoves(moves).length;
+}
+
+// Collapse consecutive same-face quarter-turns into HTM tokens (D D -> D2, R R' -> nothing).
+function simplifyMoves(moves: Move3x3[]): Move3x3[] {
+  const out: Move3x3[] = [];
   let i = 0;
   while (i < moves.length) {
     const f = moveFace(moves[i]);
@@ -240,9 +251,11 @@ function htmCount(moves: Move3x3[]): number {
       net = (net + moveAmount(moves[i])) % 4;
       i++;
     }
-    if (net !== 0) count++;
+    if (net === 1) out.push(f as Move3x3);
+    else if (net === 2) out.push(`${f}2` as Move3x3);
+    else if (net === 3) out.push(`${f}'` as Move3x3);
   }
-  return count;
+  return out;
 }
 
 async function toggleConnect() {
@@ -317,6 +330,24 @@ function setMode(m: TrainMode) {
   render();
 }
 
+// Retry the same scramble from the scrambled state (a fresh attempt at the case).
+function tryAgain() {
+  const base = state.history.slice(0, state.solveStartLen);
+  state.cube = applyMoves(newSolved(), base);
+  state.history = [...base];
+  state.stepIndex = 0;
+  state.stepStartHistory = [...base];
+  state.movesThisStep = [];
+  state.stepDone = steps().map(() => false);
+  state.assist = null;
+  state.learn = null;
+  state.solveStartMs = Date.now();
+  state.finishedMs = null;
+  state.lastResult = null;
+  state.status = 'Same scramble again — go!';
+  render();
+}
+
 function fmtTime(ms: number): string {
   const s = ms / 1000;
   const m = Math.floor(s / 60);
@@ -326,7 +357,7 @@ function fmtTime(ms: number): string {
 // --- theming ---
 const THEME_KEY = 'cube-trainer.theme';
 function getTheme(): string {
-  return localStorage.getItem(THEME_KEY) || 'dark';
+  return localStorage.getItem(THEME_KEY) || 'borland';
 }
 function setTheme(t: string) {
   localStorage.setItem(THEME_KEY, t);
@@ -493,17 +524,31 @@ function render() {
     app.appendChild(sc);
   } else if (allDone) {
     const done = el('div', 'card');
-    done.appendChild(el('div', 'solved-banner', '🎉 Done! Click “Next scramble” to keep practising from here.'));
+    done.appendChild(el('div', 'solved-banner', '🎉 Solved! Here’s how you did.'));
+    const r = state.lastResult;
+    if (r) {
+      const yours = simplifyMoves(r.yourMoves);
+      const extra = r.optimal != null ? r.used - r.optimal : 0;
+      const verdict = r.optimal == null ? '' : extra <= 0 ? '🏆 optimal!' : extra <= 2 ? '👍 very efficient' : extra <= 5 ? 'good — room to tighten' : 'lots of room to improve';
+      const cmp = el('div', 'coach mono');
+      cmp.innerHTML =
+        `your solution (${r.used}): ${yours.join(' ') || '—'}\n` +
+        `ideal (${r.optimal ?? '?'}):  ${r.idealMoves.join(' ')}` +
+        (verdict ? `\n${verdict}` : '');
+      done.appendChild(cmp);
+    }
     if (state.trainMode === 'timed' && state.solveStartMs != null && state.finishedMs != null) {
       const ms = state.finishedMs - state.solveStartMs;
       const moves = htmCount(state.history.slice(state.solveStartLen));
       const tps = ms > 0 ? (moves / (ms / 1000)).toFixed(1) : '–';
       done.appendChild(el('div', 'coach', `⏱ ${fmtTime(ms)} · ${moves} moves · ${tps} TPS`));
     }
-    const r = el('div', 'row');
-    r.style.marginTop = '12px';
-    r.appendChild(btn('Next scramble', nextScramble, 'primary'));
-    done.appendChild(r);
+    const row = el('div', 'row');
+    row.style.marginTop = '12px';
+    row.appendChild(btn('Learn the ideal', enterLearn, 'primary'));
+    row.appendChild(btn('Try again', tryAgain));
+    row.appendChild(btn('Next scramble', nextScramble, 'ghost'));
+    done.appendChild(row);
     app.appendChild(done);
   } else if (s && state.learn) {
     const lc = el('div', 'card');
@@ -567,8 +612,8 @@ function render() {
     app.appendChild(cur);
   }
 
-  // Last result — you vs ideal
-  if (state.lastResult) {
+  // Last result — you vs ideal (mid-journey only; the all-done review covers it otherwise)
+  if (state.lastResult && !allDone) {
     const r = state.lastResult;
     const card = el('div', 'card');
     card.appendChild(el('h2', '', 'Result'));
