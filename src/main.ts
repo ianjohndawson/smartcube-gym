@@ -42,6 +42,7 @@ interface State {
   movesThisStep: Move3x3[];
   stepDone: boolean[];
   assist: { kind: 'nudge' | 'move' | 'ideal'; moves: Move3x3[]; focus: FocusPiece | null } | null;
+  learn: { moves: Move3x3[]; baseLen: number } | null; // guided ideal replay
   lastResult: { step: string; used: number; optimal: number | null } | null;
   coachText: string;
   coachBusy: boolean;
@@ -99,6 +100,7 @@ function startScramble(base: Cube3x3, baseHistory: Move3x3[]): State {
     movesThisStep: [],
     stepDone: t.steps.map(() => false),
     assist: null,
+    learn: null,
     lastResult: state?.lastResult ?? null,
     coachText: '',
     coachBusy: false,
@@ -125,9 +127,26 @@ function step(move: Move3x3) {
   if (!move) return;
   state.cube = applyMove(state.cube, move);
   state.history.push(move);
-  if (state.mode === 'solve') state.movesThisStep.push(move);
   state.assist = null;
+  if (state.learn) { afterLearnMove(); return; }
+  if (state.mode === 'solve') state.movesThisStep.push(move);
   afterChange();
+}
+
+function afterLearnMove() {
+  const s = currentStep();
+  if (!s) return;
+  // Completed the guided ideal — the step is solved (no score; it was a walkthrough).
+  if (stepSolved(s)) {
+    state.learn = null;
+    state.stepDone[state.stepIndex] = true;
+    state.status = `Nice — you walked through the ideal ${s.label}. Rewind to try it yourself.`;
+    if (state.stepIndex < steps().length - 1) {
+      state.stepIndex += 1;
+      state.stepStartHistory = [...state.history];
+      state.movesThisStep = [];
+    }
+  }
 }
 
 function afterChange() {
@@ -250,7 +269,30 @@ function rewindStep() {
   state.movesThisStep = [];
   state.stepDone[state.stepIndex] = false;
   state.assist = null;
+  state.learn = null;
   state.status = 'Step rewound to its starting state.';
+  render();
+}
+
+function enterLearn() {
+  const s = currentStep();
+  if (!s) return;
+  const ideal = optimalToMask(state.stepStartHistory, s.canonicalMask, s.solver) ?? [];
+  if (ideal.length === 0) { state.status = 'Nothing to learn from here.'; render(); return; }
+  // rewind to the start of this case, then guide through the ideal
+  state.cube = applyMoves(newSolved(), state.stepStartHistory);
+  state.history = [...state.stepStartHistory];
+  state.movesThisStep = [];
+  state.stepDone[state.stepIndex] = false;
+  state.assist = null;
+  state.learn = { moves: ideal, baseLen: state.history.length };
+  state.status = `Learn by example: follow the ${ideal.length} highlighted moves for ${s.label}.`;
+  render();
+}
+
+function stopLearn() {
+  state.learn = null;
+  state.status = 'Stopped the walkthrough. Rewind to try the case yourself.';
   render();
 }
 
@@ -412,6 +454,26 @@ function render() {
     r.appendChild(btn('Next scramble', nextScramble, 'primary'));
     done.appendChild(r);
     app.appendChild(done);
+  } else if (s && state.learn) {
+    const lc = el('div', 'card');
+    lc.appendChild(el('h2', '', `Learn by example — ${s.label}`));
+    lc.appendChild(el('p', 'blurb', 'Follow the ideal solution move by move. Each move turns green; a wrong turn shows red. This is how the trick gets into your hands.'));
+    const { done, errorIndex } = progressOver(state.learn.moves, state.history.slice(state.learn.baseLen));
+    const box = el('div', 'scramble mono');
+    state.learn.moves.forEach((mv, i) => {
+      const cls = i < done ? 'tok done' : i === errorIndex ? 'tok error' : i === done ? 'tok next' : 'tok';
+      const span = el('span', cls);
+      span.textContent = mv;
+      box.appendChild(span);
+      box.appendChild(document.createTextNode(' '));
+    });
+    lc.appendChild(box);
+    if (done < state.learn.moves.length) lc.appendChild(el('div', 'hint', `Next move: ${state.learn.moves[done]} (${done}/${state.learn.moves.length} done)`));
+    const la = el('div', 'row');
+    la.style.marginTop = '12px';
+    la.appendChild(btn('Stop walkthrough', stopLearn, 'ghost'));
+    lc.appendChild(la);
+    app.appendChild(lc);
   } else if (s) {
     const cur = el('div', 'card');
     const ideal = idealFromStart();
@@ -433,9 +495,10 @@ function render() {
     actions.appendChild(btn('Nudge', () => assist('nudge'), 'primary'));
     actions.appendChild(btn('Reveal move', () => assist('move')));
     actions.appendChild(btn('Show ideal', () => assist('ideal')));
+    actions.appendChild(btn('Learn by example', enterLearn));
     actions.appendChild(btn('Rewind', rewindStep, 'ghost'));
     cur.appendChild(actions);
-    cur.appendChild(el('div', 'hint', 'Nudge = point at the piece · Reveal move = next turn · Show ideal = whole solution.'));
+    cur.appendChild(el('div', 'hint', 'Nudge = point at the piece · Reveal move = next turn · Show ideal = whole solution · Learn by example = walk the ideal.'));
 
     if (state.assist) {
       const a = state.assist;
@@ -497,9 +560,9 @@ function render() {
   if (state.showSettings) renderSettings();
 }
 
-// Track scramble progress at the face level: tokens completed in order, plus the
-// index of a token the solver is mid-applying incorrectly (wrong face) -> red.
-function scrambleProgress(tokens: Move3x3[], moves: Move3x3[]): { done: number; errorIndex: number } {
+// Track progress through a token sequence at the face level: tokens completed in
+// order, plus the index of a token being applied with the wrong face -> red.
+function progressOver(tokens: Move3x3[], moves: Move3x3[]): { done: number; errorIndex: number } {
   let ti = 0;
   let acc = 0;
   for (const mv of moves) {
@@ -520,7 +583,7 @@ function scrambleProgress(tokens: Move3x3[], moves: Move3x3[]): { done: number; 
 function renderScramble(): HTMLElement {
   const box = el('div', 'scramble mono');
   const phaseMoves = state.history.slice(state.scrambleBaseLen);
-  const { done, errorIndex } = scrambleProgress(state.scrambleMoves, phaseMoves);
+  const { done, errorIndex } = progressOver(state.scrambleMoves, phaseMoves);
   state.scrambleMoves.forEach((mv, i) => {
     const cls = i < done ? 'tok done' : i === errorIndex ? 'tok error' : 'tok';
     const span = el('span', cls);

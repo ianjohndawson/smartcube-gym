@@ -147,6 +147,12 @@ button:disabled {
   opacity: 1;
   font-weight: 700;
 }
+.scramble .tok.next {
+  color: var(--accent);
+  opacity: 1;
+  font-weight: 700;
+  text-decoration: underline;
+}
 
 .phases {
   display: flex;
