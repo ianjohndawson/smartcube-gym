@@ -7,7 +7,9 @@ import {
   optimalToMask,
   parseMoves,
   maskProgress,
+  maskProgressFromHistory,
   anySolved,
+  isMaskSolvedFromHistory,
   statesEqual,
   type Move3x3,
 } from './engine-api.ts';
@@ -120,7 +122,10 @@ function checkStepCompletion() {
   const s = currentStep();
   if (!s) return;
   if (state.stepDone[state.stepIndex]) return;
-  if (anySolved(state.cube, [s.canonicalMask])) {
+  const solved = s.kind === 'eo'
+    ? isMaskSolvedFromHistory(state.history, s.canonicalMask)
+    : anySolved(state.cube, [s.canonicalMask]);
+  if (solved) {
     const optimal = optimalToMask(state.stepStartHistory, s.canonicalMask, s.solver);
     state.lastResult = {
       step: s.label,
@@ -239,14 +244,16 @@ function assist(kind: 'nudge' | 'move' | 'ideal') {
     render();
     return;
   }
-  const focus = kind === 'ideal' ? null : nextFocusPiece(state.cube, s.canonicalMask, moves);
-  state.assist = { kind, moves, focus };
+  const focus = kind !== 'ideal' && s.kind === 'block' ? nextFocusPiece(state.cube, s.canonicalMask, moves) : null;
+  // For EO steps (no single "piece"), a nudge falls back to revealing the next move.
+  const effective = kind === 'nudge' && !focus ? 'move' : kind;
+  state.assist = { kind: effective, moves, focus };
   state.status =
-    kind === 'nudge'
-      ? `Nudge: focus on the ${focus?.description ?? 'highlighted piece'} — work out how to pair and insert it.`
-      : kind === 'move'
+    effective === 'nudge'
+      ? `Nudge: focus on the ${focus?.description ?? 'highlighted piece'} — pair and insert it.`
+      : effective === 'move'
         ? `Next move: ${moves[0]}`
-        : 'Showing the full solution for this block.';
+        : 'Showing the full solution for this step.';
   render();
 }
 
@@ -263,7 +270,7 @@ async function askCoach(question?: string) {
   render();
   try {
     const cont = continuation();
-    const focus = nextFocusPiece(state.cube, s.canonicalMask, cont);
+    const focus = s.kind === 'block' ? nextFocusPiece(state.cube, s.canonicalMask, cont) : null;
     const text = await getCoaching({
       method: state.method,
       methodDescription: methodDef().description,
@@ -290,7 +297,9 @@ async function askCoach(question?: string) {
 function render() {
   const s = currentStep();
   const scr = currentScramble();
-  const progress = s ? Math.round(maskProgress(state.cube, s.canonicalMask) * 100) : 100;
+  const progress = s
+    ? Math.round((s.kind === 'eo' ? maskProgressFromHistory(state.history, s.canonicalMask) : maskProgress(state.cube, s.canonicalMask)) * 100)
+    : 100;
   const allDone = state.stepDone.every(Boolean);
 
   app.innerHTML = '';
@@ -407,7 +416,7 @@ function render() {
     fill.style.width = `${progress}%`;
     bar.appendChild(fill);
     cur.appendChild(bar);
-    cur.appendChild(el('div', 'hint', `${progress}% of this block in place · ${state.movesThisStep.length} moves this step`));
+    cur.appendChild(el('div', 'hint', `${progress}% complete · ${state.movesThisStep.length} moves this step`));
 
     const actions = el('div', 'row');
     actions.style.marginTop = '12px';

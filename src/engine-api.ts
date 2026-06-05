@@ -69,6 +69,27 @@ export function anySolved(state: Cube3x3, masks: Cube3x3Mask[]): boolean {
   return detectIndex(state, masks) >= 0;
 }
 
+/**
+ * History-based detection. EO (and other orientation) masks must be applied to a
+ * SOLVED cube and then the move history replayed, so the orientation markers get
+ * permuted — applying the mask to an already-scrambled state would read EO as
+ * trivially solved. Correct for blocks too.
+ */
+export function isMaskSolvedFromHistory(history: Move3x3[], mask: Cube3x3Mask): boolean {
+  return new Cube3x3().applyMask(mask).applyMoves([...history]).isSolved();
+}
+
+/** History-based progress (0..1) over a mask's solved + EO facelets. */
+export function maskProgressFromHistory(history: Move3x3[], mask: Cube3x3Mask): number {
+  const cur = new Cube3x3().applyMask(mask).applyMoves([...history]).stateData;
+  const solved = new Cube3x3().applyMask(mask).stateData;
+  const idxs = [...mask.solvedFaceletIndices, ...(mask.eoFaceletIndices ?? [])];
+  if (idxs.length === 0) return 1;
+  let ok = 0;
+  for (const i of idxs) if (cur[i] === solved[i]) ok++;
+  return ok / idxs.length;
+}
+
 /** Fraction (0..1) of a mask's solved-facelets currently matching the solved cube. */
 export function maskProgress(state: Cube3x3, mask: Cube3x3Mask): number {
   const facelets = state.stateData;
