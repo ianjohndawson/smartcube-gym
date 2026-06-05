@@ -95,7 +95,7 @@ export const TRAINERS: TrainerDef[] = [
   { id: 'apb', label: 'APB', category: 'Blocks', description: 'Advanced Petrus Blocks: 2×2×2, then a 2×2×3.', steps: [STEP_222, STEP_223] },
   { id: 'roux', label: 'Roux', category: 'Blocks', description: 'Build a 1×2×3 first block, then a second on the opposite side.', steps: [STEP_123_LEFT, STEP_123_RIGHT] },
   { id: 'leor', label: 'LEOR', category: 'Blocks', description: 'LEOR opening: a 1×2×3 first block, then the second-side block.', steps: [STEP_123_LEFT, STEP_123_RIGHT] },
-  { id: 'eo', label: 'EO', category: 'EO', description: 'Orient all edges (the Petrus-style EO skill, drilled in isolation).', steps: [STEP_EO] },
+  { id: 'eo', label: 'Full EO', category: 'EO', description: 'Orient all 12 edges (free — no block kept). The core EO skill.', steps: [STEP_EO] },
   { id: 'eoline', label: 'EOLine', category: 'EO', description: 'ZZ first step: orient all edges and place the bottom line.', steps: [STEP_EOLINE] },
   { id: 'eocross', label: 'EOCross', category: 'EO', description: 'Orient all edges and solve the bottom cross together.', steps: [STEP_EOCROSS] },
 ];

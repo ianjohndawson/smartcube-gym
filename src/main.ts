@@ -36,7 +36,7 @@ interface State {
   base: Cube3x3; // cube state when the current scramble was issued
   target: Cube3x3; // base + scramble
   scrambleMoves: Move3x3[];
-  prefixEncodes: string[]; // encodes of base..target prefixes (for progress highlight)
+  scrambleBaseLen: number; // history length when this scramble was issued
   history: Move3x3[]; // all moves from solved
   stepStartHistory: Move3x3[];
   movesThisStep: Move3x3[];
@@ -53,7 +53,7 @@ interface State {
   lastError: string;
 }
 
-const app = document.getElementById('app')!;
+const appEl = document.getElementById('app')!;
 
 function trainer() {
   return trainerById(state.trainerId);
@@ -67,8 +67,9 @@ function currentStep(): StepDef | null {
 
 function makeScramble(base: Cube3x3, baseHistory: Move3x3[], stepsList: StepDef[]): Move3x3[] {
   const first = stepsList[0];
+  const n = first.kind === 'eo' ? 10 : 16; // EO needs only a short scramble
   for (let attempt = 0; attempt < 25; attempt++) {
-    const moves = genScramble(16);
+    const moves = genScramble(n);
     const targetHistory = [...baseHistory, ...moves];
     const solved =
       first.kind === 'eo'
@@ -76,17 +77,7 @@ function makeScramble(base: Cube3x3, baseHistory: Move3x3[], stepsList: StepDef[
         : anySolved(applyMoves(newSolved(), targetHistory), [first.canonicalMask]);
     if (!solved) return moves;
   }
-  return genScramble(16);
-}
-
-function prefixEncodes(base: Cube3x3, moves: Move3x3[]): string[] {
-  const encs: string[] = [base.encode()];
-  let c = base;
-  for (const m of moves) {
-    c = applyMove(c, m);
-    encs.push(c.encode());
-  }
-  return encs;
+  return genScramble(n);
 }
 
 /** Begin a new scramble from a given base cube + history (continuous reps). */
@@ -102,7 +93,7 @@ function startScramble(base: Cube3x3, baseHistory: Move3x3[]): State {
     base,
     target: applyMoves(base, moves),
     scrambleMoves: moves,
-    prefixEncodes: prefixEncodes(base, moves),
+    scrambleBaseLen: baseHistory.length,
     history: [...baseHistory],
     stepStartHistory: [...baseHistory],
     movesThisStep: [],
@@ -127,11 +118,6 @@ function freshTrainer(trainerId: string): State {
 }
 
 let state: State;
-
-function pushLog(line: string) {
-  state.log = [`${new Date().toLocaleTimeString()}  ${line}`, ...state.log].slice(0, 12);
-  render();
-}
 
 // --- move handling ---
 
@@ -169,7 +155,7 @@ function checkStepCompletion() {
   if (!s || state.stepDone[state.stepIndex]) return;
   if (stepSolved(s)) {
     const optimal = optimalToMask(state.stepStartHistory, s.canonicalMask, s.solver);
-    state.lastResult = { step: s.label, used: state.movesThisStep.length, optimal: optimal ? optimal.length : null };
+    state.lastResult = { step: s.label, used: htmCount(state.movesThisStep), optimal: optimal ? optimal.length : null };
     state.stepDone[state.stepIndex] = true;
     state.assist = null;
     state.status = `${s.label} done!`;
@@ -198,8 +184,31 @@ const cube = new CubeManager({
   onConnect: (name) => { state.connected = true; state.lastError = ''; state.status = `Connected to ${name}.`; render(); },
   onDisconnect: () => { state.connected = false; state.status = 'Cube disconnected.'; render(); },
   onError: (e) => { state.lastError = String((e as Error)?.message ?? e); state.status = `Bluetooth error: ${state.lastError}`; render(); },
-  onLog: (line) => pushLog(line),
 });
+
+// Count moves in HTM (half-turn metric): merge consecutive same-face turns, so a
+// physical D2 (two quarter-turn events from the cube) counts as 1, matching the
+// solver's optimal length.
+function moveFace(m: Move3x3): string {
+  return m[0];
+}
+function moveAmount(m: Move3x3): number {
+  return m.includes('2') ? 2 : m.includes("'") ? 3 : 1;
+}
+function htmCount(moves: Move3x3[]): number {
+  let count = 0;
+  let i = 0;
+  while (i < moves.length) {
+    const f = moveFace(moves[i]);
+    let net = 0;
+    while (i < moves.length && moveFace(moves[i]) === f) {
+      net = (net + moveAmount(moves[i])) % 4;
+      i++;
+    }
+    if (net !== 0) count++;
+  }
+  return count;
+}
 
 async function toggleConnect() {
   if (state.connected) { await cube.disconnect(); return; }
@@ -312,7 +321,8 @@ function render() {
     : 100;
   const allDone = state.stepDone.every(Boolean);
 
-  app.innerHTML = '';
+  // Build into a fragment and swap atomically (avoids the blank-then-repaint flash).
+  const app = document.createDocumentFragment();
 
   // Top bar
   const top = el('div', 'topbar');
@@ -322,8 +332,6 @@ function render() {
   top.appendChild(btn(state.connected ? 'Disconnect' : 'Connect cube', toggleConnect, state.connected ? 'ghost' : 'primary'));
   top.appendChild(btn('⚙', () => { state.showSettings = true; render(); }, 'ghost'));
   app.appendChild(top);
-
-  if (state.connected || state.lastError || state.log.length) app.appendChild(diagnosticsCard());
 
   // Category + trainer selector
   const pick = el('div', 'card');
@@ -418,7 +426,7 @@ function render() {
     fill.style.width = `${progress}%`;
     bar.appendChild(fill);
     cur.appendChild(bar);
-    cur.appendChild(el('div', 'hint', `${progress}% complete · your moves: ${state.movesThisStep.length}${ideal != null ? ` · ideal: ${ideal}` : ''}`));
+    cur.appendChild(el('div', 'hint', `${progress}% complete · your moves: ${htmCount(state.movesThisStep)}${ideal != null ? ` · ideal: ${ideal}` : ''}`));
 
     const actions = el('div', 'row');
     actions.style.marginTop = '12px';
@@ -485,35 +493,42 @@ function render() {
 
   app.appendChild(el('div', 'hint', state.status));
 
+  appEl.replaceChildren(app);
   if (state.showSettings) renderSettings();
+}
+
+// Track scramble progress at the face level: tokens completed in order, plus the
+// index of a token the solver is mid-applying incorrectly (wrong face) -> red.
+function scrambleProgress(tokens: Move3x3[], moves: Move3x3[]): { done: number; errorIndex: number } {
+  let ti = 0;
+  let acc = 0;
+  for (const mv of moves) {
+    if (ti >= tokens.length) break;
+    if (moveFace(mv) === moveFace(tokens[ti])) {
+      acc = (acc + moveAmount(mv)) % 4;
+      if (acc === moveAmount(tokens[ti]) % 4) {
+        ti++;
+        acc = 0;
+      }
+    } else {
+      return { done: ti, errorIndex: ti }; // turned the wrong face
+    }
+  }
+  return { done: ti, errorIndex: -1 };
 }
 
 function renderScramble(): HTMLElement {
   const box = el('div', 'scramble mono');
-  // how many leading scramble moves are already applied (prefix-state match)
-  let matched = 0;
-  const cur = state.cube.encode();
-  for (let k = 0; k < state.prefixEncodes.length; k++) if (state.prefixEncodes[k] === cur) matched = k;
+  const phaseMoves = state.history.slice(state.scrambleBaseLen);
+  const { done, errorIndex } = scrambleProgress(state.scrambleMoves, phaseMoves);
   state.scrambleMoves.forEach((mv, i) => {
-    const span = el('span', i < matched ? 'tok done' : 'tok');
+    const cls = i < done ? 'tok done' : i === errorIndex ? 'tok error' : 'tok';
+    const span = el('span', cls);
     span.textContent = mv;
     box.appendChild(span);
     box.appendChild(document.createTextNode(' '));
   });
   return box;
-}
-
-function diagnosticsCard(): HTMLElement {
-  const c = el('div', 'card');
-  const head = el('div', 'row');
-  head.style.justifyContent = 'space-between';
-  head.appendChild(el('h2', '', 'Cube'));
-  head.appendChild(el('span', `pill ${state.connected ? 'ok' : state.lastError ? 'bad' : ''}`,
-    state.connected ? `Connected · ${cube.deviceName || 'GAN'}${state.battery != null ? ` · ${state.battery}%` : ''}` : state.lastError ? 'Error' : 'Idle'));
-  c.appendChild(head);
-  if (state.lastError) c.appendChild(el('div', 'coach', `⚠ ${state.lastError}`));
-  if (state.log.length) { const b = el('div', 'coach mono'); b.style.fontSize = '13px'; b.textContent = state.log.join('\n'); c.appendChild(b); }
-  return c;
 }
 
 function renderSettings() {
@@ -539,7 +554,7 @@ function renderSettings() {
   modal.appendChild(macRow);
   backdrop.appendChild(modal);
   backdrop.addEventListener('click', (e) => { if (e.target === backdrop) { state.showSettings = false; render(); } });
-  app.appendChild(backdrop);
+  appEl.appendChild(backdrop);
 }
 
 function renderCubeNet(f: string, highlight: Set<number> | null = null): HTMLElement {

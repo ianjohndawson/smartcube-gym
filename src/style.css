@@ -135,13 +135,17 @@ button:disabled {
 }
 .scramble .tok {
   color: var(--muted);
-  opacity: 0.55;
-  transition: color 0.12s, opacity 0.12s;
+  opacity: 0.5;
 }
 .scramble .tok.done {
   color: var(--accent-2);
   opacity: 1;
   font-weight: 600;
+}
+.scramble .tok.error {
+  color: var(--danger);
+  opacity: 1;
+  font-weight: 700;
 }
 
 .phases {
@@ -289,7 +293,6 @@ input[type='password'] {
   border-radius: 5px;
   border: 1px solid rgba(0, 0, 0, 0.45);
   box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.06);
-  transition: opacity 0.15s;
 }
 .sticker.dim {
   opacity: 0.18;
