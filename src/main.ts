@@ -43,6 +43,7 @@ interface State {
   target: Cube3x3; // base + scramble
   scrambleMoves: Move3x3[];
   scrambleBaseLen: number; // history length when this scramble was issued
+  pendingLearn: boolean; // after this setup completes, start the ideal walkthrough
   history: Move3x3[]; // all moves from solved
   stepStartHistory: Move3x3[];
   movesThisStep: Move3x3[];
@@ -87,10 +88,12 @@ function makeScramble(base: Cube3x3, baseHistory: Move3x3[], stepsList: StepDef[
   return genScramble(n);
 }
 
-/** Begin a new scramble from a given base cube + history (continuous reps). */
-function startScramble(base: Cube3x3, baseHistory: Move3x3[]): State {
+/** Begin a new scramble from a given base cube + history (continuous reps).
+ *  `explicit` lets callers supply the exact setup sequence (e.g. an undo back to
+ *  the same case) instead of a fresh random scramble. */
+function startScramble(base: Cube3x3, baseHistory: Move3x3[], explicit?: Move3x3[]): State {
   const t = trainerById(state?.trainerId ?? 'petrus');
-  const moves = makeScramble(base, baseHistory, t.steps);
+  const moves = explicit ?? makeScramble(base, baseHistory, t.steps);
   return {
     category: state?.category ?? 'Blocks',
     trainerId: t.id,
@@ -105,6 +108,7 @@ function startScramble(base: Cube3x3, baseHistory: Move3x3[]): State {
     target: applyMoves(base, moves),
     scrambleMoves: moves,
     scrambleBaseLen: baseHistory.length,
+    pendingLearn: false,
     history: [...baseHistory],
     stepStartHistory: [...baseHistory],
     movesThisStep: [],
@@ -169,6 +173,11 @@ function afterChange() {
       state.solveStartMs = Date.now();
       state.solveStartLen = state.history.length;
       state.finishedMs = null;
+      if (state.pendingLearn) {
+        state.pendingLearn = false;
+        enterLearn();
+        return;
+      }
       state.status = `Scrambled! ${currentStep()?.label ?? ''} — find your solution.`;
     }
   } else {
@@ -330,21 +339,28 @@ function setMode(m: TrainMode) {
   render();
 }
 
-// Retry the same scramble from the scrambled state (a fresh attempt at the case).
+function invertSeq(moves: Move3x3[]): Move3x3[] {
+  return [...moves].reverse().map((m) => (m.endsWith('2') ? m : m.endsWith("'") ? (m[0] as Move3x3) : (`${m}'` as Move3x3)));
+}
+
+// The sequence to bring the cube from its current (post-solve) state back to the
+// same post-scramble state: undo the solve-phase moves.
+function undoToScramble(): Move3x3[] {
+  return simplifyMoves(invertSeq(state.history.slice(state.solveStartLen)));
+}
+
+// Retry the same case: give the user the moves to return to the scrambled state.
 function tryAgain() {
-  const base = state.history.slice(0, state.solveStartLen);
-  state.cube = applyMoves(newSolved(), base);
-  state.history = [...base];
-  state.stepIndex = 0;
-  state.stepStartHistory = [...base];
-  state.movesThisStep = [];
-  state.stepDone = steps().map(() => false);
-  state.assist = null;
-  state.learn = null;
-  state.solveStartMs = Date.now();
-  state.finishedMs = null;
-  state.lastResult = null;
-  state.status = 'Same scramble again — go!';
+  state = startScramble(state.cube, state.history, undoToScramble());
+  state.status = 'Apply the sequence above to return to the scramble, then solve it again.';
+  render();
+}
+
+// Learn the ideal on this case: return to the scramble first, then walk the ideal.
+function learnFromReview() {
+  state = startScramble(state.cube, state.history, undoToScramble());
+  state.pendingLearn = true;
+  state.status = 'Apply the sequence above to return to the scramble, then follow the ideal.';
   render();
 }
 
@@ -545,7 +561,7 @@ function render() {
     }
     const row = el('div', 'row');
     row.style.marginTop = '12px';
-    row.appendChild(btn('Learn the ideal', enterLearn, 'primary'));
+    row.appendChild(btn('Learn the ideal', learnFromReview, 'primary'));
     row.appendChild(btn('Try again', tryAgain));
     row.appendChild(btn('Next scramble', nextScramble, 'ghost'));
     done.appendChild(row);
