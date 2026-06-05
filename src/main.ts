@@ -27,11 +27,17 @@ import { getApiKey, getCoaching, hasApiKey, setApiKey } from './coaching.ts';
 
 type Mode = 'scramble' | 'solve';
 
+type TrainMode = 'efficiency' | 'timed';
+
 interface State {
   category: Category;
   trainerId: string;
+  trainMode: TrainMode;
   stepIndex: number;
   mode: Mode;
+  solveStartMs: number | null; // when solving began (scramble completed)
+  solveStartLen: number; // history length when solving began
+  finishedMs: number | null; // when the whole journey completed
   cube: Cube3x3; // live tracked state
   base: Cube3x3; // cube state when the current scramble was issued
   target: Cube3x3; // base + scramble
@@ -88,8 +94,12 @@ function startScramble(base: Cube3x3, baseHistory: Move3x3[]): State {
   return {
     category: state?.category ?? 'Blocks',
     trainerId: t.id,
+    trainMode: state?.trainMode ?? 'efficiency',
     stepIndex: 0,
     mode: 'scramble',
+    solveStartMs: null,
+    solveStartLen: 0,
+    finishedMs: null,
     cube: base,
     base,
     target: applyMoves(base, moves),
@@ -156,10 +166,16 @@ function afterChange() {
       state.stepStartHistory = [...state.history];
       state.movesThisStep = [];
       state.assist = null;
+      state.solveStartMs = Date.now();
+      state.solveStartLen = state.history.length;
+      state.finishedMs = null;
       state.status = `Scrambled! ${currentStep()?.label ?? ''} — find your solution.`;
     }
   } else {
     checkStepCompletion();
+    if (state.stepDone.every(Boolean) && state.finishedMs == null && state.solveStartMs != null) {
+      state.finishedMs = Date.now();
+    }
   }
 }
 
@@ -296,6 +312,30 @@ function stopLearn() {
   render();
 }
 
+function setMode(m: TrainMode) {
+  state.trainMode = m;
+  render();
+}
+
+function fmtTime(ms: number): string {
+  const s = ms / 1000;
+  const m = Math.floor(s / 60);
+  return `${m}:${(s - m * 60).toFixed(2).padStart(5, '0')}`;
+}
+
+// --- theming ---
+const THEME_KEY = 'cube-trainer.theme';
+function getTheme(): string {
+  return localStorage.getItem(THEME_KEY) || 'dark';
+}
+function setTheme(t: string) {
+  localStorage.setItem(THEME_KEY, t);
+  applyTheme(t);
+}
+function applyTheme(t: string) {
+  document.body.className = t === 'dark' ? '' : `theme-${t}`;
+}
+
 function continuation(): Move3x3[] {
   const s = currentStep();
   if (!s) return [];
@@ -386,6 +426,11 @@ function render() {
   for (const t of trainersIn(state.category)) trs.appendChild(btn(t.label, () => selectTrainer(t.id), state.trainerId === t.id ? 'active' : ''));
   pick.appendChild(trs);
   pick.appendChild(el('p', 'blurb', trainer().description));
+  const modeRow = el('div', 'segmented');
+  modeRow.appendChild(btn('Efficiency', () => setMode('efficiency'), state.trainMode === 'efficiency' ? 'active' : ''));
+  modeRow.appendChild(btn('Timed', () => setMode('timed'), state.trainMode === 'timed' ? 'active' : ''));
+  pick.appendChild(modeRow);
+  pick.appendChild(el('div', 'hint', state.trainMode === 'timed' ? 'Timed: a timer runs from scramble-complete until solved — train for speed.' : 'Efficiency: compare your move count to the solver-optimal.'));
   app.appendChild(pick);
 
   // Scramble (with progress highlight)
@@ -449,6 +494,12 @@ function render() {
   } else if (allDone) {
     const done = el('div', 'card');
     done.appendChild(el('div', 'solved-banner', '🎉 Done! Click “Next scramble” to keep practising from here.'));
+    if (state.trainMode === 'timed' && state.solveStartMs != null && state.finishedMs != null) {
+      const ms = state.finishedMs - state.solveStartMs;
+      const moves = htmCount(state.history.slice(state.solveStartLen));
+      const tps = ms > 0 ? (moves / (ms / 1000)).toFixed(1) : '–';
+      done.appendChild(el('div', 'coach', `⏱ ${fmtTime(ms)} · ${moves} moves · ${tps} TPS`));
+    }
     const r = el('div', 'row');
     r.style.marginTop = '12px';
     r.appendChild(btn('Next scramble', nextScramble, 'primary'));
@@ -480,7 +531,14 @@ function render() {
     const head = el('div', 'row');
     head.style.justifyContent = 'space-between';
     head.appendChild(el('h2', '', `Current step — ${s.label}`));
-    if (ideal != null) head.appendChild(el('span', 'pill ok', `ideal ${ideal} moves`));
+    const pills = el('div', 'row');
+    if (state.trainMode === 'timed' && state.solveStartMs != null) {
+      const t = el('span', 'pill', state.finishedMs != null ? fmtTime(state.finishedMs - state.solveStartMs) : fmtTime(Date.now() - state.solveStartMs));
+      t.id = 'live-timer';
+      pills.appendChild(t);
+    }
+    if (ideal != null) pills.appendChild(el('span', 'pill ok', `ideal ${ideal}`));
+    head.appendChild(pills);
     cur.appendChild(head);
     cur.appendChild(el('p', 'blurb', s.blurb));
     const bar = el('div', 'progress');
@@ -615,6 +673,13 @@ function renderSettings() {
   const macRow = el('div', 'row');
   macRow.appendChild(btn('Forget cube MAC', () => { clearSavedMac(); state.status = 'Saved cube MAC cleared.'; render(); }, 'ghost'));
   modal.appendChild(macRow);
+
+  modal.appendChild(el('h2', '', 'Theme'));
+  const themeRow = el('div', 'segmented');
+  const themes: [string, string][] = [['dark', 'Dark'], ['borland', 'Borland']];
+  for (const [id, label] of themes) themeRow.appendChild(btn(label, () => { setTheme(id); render(); }, getTheme() === id ? 'active' : ''));
+  modal.appendChild(themeRow);
+
   backdrop.appendChild(modal);
   backdrop.addEventListener('click', (e) => { if (e.target === backdrop) { state.showSettings = false; render(); } });
   appEl.appendChild(backdrop);
@@ -652,5 +717,14 @@ function btn(label: string, onClick: () => void, className = '', disabled = fals
 }
 
 // --- boot ---
+applyTheme(getTheme());
 state = freshTrainer('petrus');
 render();
+
+// Tick the live timer (timed mode) without a full re-render.
+setInterval(() => {
+  const t = document.getElementById('live-timer');
+  if (t && state.trainMode === 'timed' && state.mode === 'solve' && state.solveStartMs != null && state.finishedMs == null) {
+    t.textContent = fmtTime(Date.now() - state.solveStartMs);
+  }
+}, 100);

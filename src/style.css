@@ -40,6 +40,23 @@ body {
   gap: 16px;
 }
 
+/* Landscape / wide (e.g. iPad landscape): flow cards into two columns. */
+@media (min-width: 920px) {
+  #app {
+    display: block;
+    column-count: 2;
+    column-gap: 16px;
+    max-width: 1180px;
+  }
+  #app > * {
+    break-inside: avoid;
+    margin-bottom: 16px;
+  }
+  .topbar {
+    column-span: all;
+  }
+}
+
 .topbar {
   display: flex;
   align-items: center;
@@ -337,4 +354,65 @@ input[type='password'] {
 }
 .mono {
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+/* --- Borland Pascal theme (demonstrates skinning via CSS variables + a few overrides) --- */
+body.theme-borland {
+  --bg: #0000a8;
+  --panel: #0000a8;
+  --panel-2: #000078;
+  --line: #aaaaaa;
+  --text: #d8d8d8;
+  --muted: #7f7fbf;
+  --accent: #ffff55;
+  --accent-2: #55ffff;
+  --warn: #ffff55;
+  --danger: #ff5555;
+  --radius: 0;
+  font-family: ui-monospace, 'Courier New', Consolas, monospace;
+}
+body.theme-borland .card,
+body.theme-borland .modal {
+  background: var(--panel-2);
+  border: 2px solid var(--line);
+  box-shadow: 4px 4px 0 rgba(0, 0, 0, 0.5);
+}
+body.theme-borland button {
+  border-radius: 0;
+  border: 1px solid var(--line);
+  background: #aaaaaa;
+  color: #000000;
+  font-weight: 700;
+}
+body.theme-borland button.primary,
+body.theme-borland .segmented button.active {
+  background: var(--accent);
+  color: #0000a8;
+}
+body.theme-borland button.ghost {
+  background: transparent;
+  color: var(--text);
+}
+body.theme-borland .segmented {
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+}
+body.theme-borland .progress {
+  border: 1px solid var(--line);
+  background: #000078;
+}
+body.theme-borland .progress > div {
+  background: var(--accent);
+}
+body.theme-borland h1,
+body.theme-borland .scramble .tok.done {
+  color: var(--accent-2);
+}
+body.theme-borland input[type='text'],
+body.theme-borland input[type='password'] {
+  border-radius: 0;
+  background: #000078;
+}
+body.theme-borland .pill {
+  border-radius: 0;
 }
