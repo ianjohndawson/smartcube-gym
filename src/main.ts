@@ -22,6 +22,7 @@ import {
   type StepDef,
 } from './steps.ts';
 import { nextFocusPiece, type FocusPiece } from './pieces.ts';
+import { sampleEoScramble } from './eo-scramble.ts';
 import { ORIENT_LABEL, rotateHighlight, rotatedFacelets, toDisplayMoves, toModelMoves } from './orient.ts';
 import { CubeManager, clearSavedMac, getSavedMac } from './bluetooth.ts';
 import { getApiKey, getCoaching, hasApiKey, setApiKey } from './coaching.ts';
@@ -77,19 +78,17 @@ function currentStep(): StepDef | null {
 
 function makeScramble(base: Cube3x3, baseHistory: Move3x3[], stepsList: StepDef[]): Move3x3[] {
   const first = stepsList[0];
-  // EO: a long scramble so edge orientation reaches the true (binomial) spread of
-  // bad edges (short scrambles skew easy). Blocks: a normal-length scramble.
-  const n = first.kind === 'eo' ? 28 : 16;
+  // EO: pick the bad-edge count from the binomial, then use the shortest sequence
+  // that yields it (exact distribution, ~5-move scrambles). Permutation-independent,
+  // so it works applied from the current cube.
+  if (first.kind === 'eo') return sampleEoScramble();
+  // Blocks: a normal-length random scramble, rejecting any that pre-solve the step.
   for (let attempt = 0; attempt < 25; attempt++) {
-    const moves = genScramble(n);
+    const moves = genScramble(16);
     const targetHistory = [...baseHistory, ...moves];
-    const solved =
-      first.kind === 'eo'
-        ? isMaskSolvedFromHistory(targetHistory, first.canonicalMask)
-        : anySolved(applyMoves(newSolved(), targetHistory), [first.canonicalMask]);
-    if (!solved) return moves;
+    if (!anySolved(applyMoves(newSolved(), targetHistory), [first.canonicalMask])) return moves;
   }
-  return genScramble(n);
+  return genScramble(16);
 }
 
 function computePrefixEncodes(base: Cube3x3, moves: Move3x3[]): string[] {
