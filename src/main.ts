@@ -263,15 +263,22 @@ function handleMove(move: string) {
   render();
 }
 
-// Resync the model to the cube's true state (from a GAN FACELETS event or Sync).
+// Resync the model to the cube's true state. Only act on an *explicit* Sync —
+// gan-web-bluetooth requests facelets in the background to validate its own move
+// stream, and those snapshots can lag a fraction behind the live moves. Acting on
+// them would "correct" the model backwards by a move (undoing a turn you just made,
+// so progress never advances). The Sync button sets awaitingSync first.
+let awaitingSync = false;
 function handleFacelets(kociemba: string) {
+  if (!awaitingSync) return;
+  awaitingSync = false;
   let trueCube: Cube3x3;
   try {
     trueCube = cubeFromFacelets(kociembaToNet(kociemba));
   } catch {
     return;
   }
-  if (trueCube.encode() === state.cube.encode()) return; // already in sync
+  if (trueCube.encode() === state.cube.encode()) { state.status = 'Already in sync with your cube.'; render(); return; }
 
   // Small drift (a missed move or two): find the bridging moves so history stays valid.
   const bridge = findBridge(state.cube, trueCube, 4);
@@ -613,7 +620,7 @@ function buildTopBar(): HTMLElement {
     themeSeg.appendChild(segBtn(label, () => { setTheme(id); render(); }, getTheme() === id));
   top.appendChild(themeSeg);
 
-  if (state.connected) top.appendChild(iconBtn('Sync', () => { cube.requestFacelets(); state.status = 'Reading cube state…'; render(); }));
+  if (state.connected) top.appendChild(iconBtn('Sync', () => { awaitingSync = true; cube.requestFacelets(); state.status = 'Reading cube state…'; render(); }));
   top.appendChild(iconBtn('⚙', () => { state.showSettings = true; render(); }));
   return top;
 }
