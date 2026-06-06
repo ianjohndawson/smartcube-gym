@@ -31,6 +31,67 @@ export function newSolved(): Cube3x3 {
   return new Cube3x3();
 }
 
+/** Build a tracked cube directly from a net-order facelet string (for resync). */
+export function cubeFromFacelets(netFacelets: string): Cube3x3 {
+  return new Cube3x3(MOVESETS.Full, netFacelets.split('') as never);
+}
+
+/**
+ * Find a short move sequence (<= maxDepth outer turns) that takes `from` to `to`,
+ * for reconciling small BLE drift (a missed move or two) without losing the move
+ * history. Returns the moves, or null if not reachable within the cap.
+ */
+export function findBridge(from: Cube3x3, to: Cube3x3, maxDepth = 4): Move3x3[] | null {
+  const target = to.encode();
+  if (from.encode() === target) return [];
+  const moves = MOVESETS.RUFLDB;
+  const dfs = (cube: Cube3x3, depth: number, last: string, path: Move3x3[]): Move3x3[] | null => {
+    if (cube.encode() === target) return [...path];
+    if (depth === 0) return null;
+    for (const m of moves) {
+      if (m[0] === last) continue;
+      const r = dfs(cube.clone().applyMove(m), depth - 1, m[0], [...path, m]);
+      if (r) return r;
+    }
+    return null;
+  };
+  for (let d = 1; d <= maxDepth; d++) {
+    const r = dfs(from, d, '', []);
+    if (r) return r;
+  }
+  return null;
+}
+
+/**
+ * State-based "is this step solved?" — works from ANY cube state (no move history
+ * needed), so it stays correct after a resync. A mask is solved when its
+ * solved-facelets match the solved cube and (for EO masks) all edges are oriented.
+ */
+export function isMaskSolvedState(cube: Cube3x3, mask: Cube3x3Mask): boolean {
+  const f = cube.stateData;
+  for (const i of mask.solvedFaceletIndices) if (f[i] !== SOLVED_FACELET_CUBE[i]) return false;
+  if (mask.eoFaceletIndices && !cube.EO.every((good) => good)) return false;
+  return true;
+}
+
+/** State-based progress (0..1) toward a mask: solved-facelets matching + edges oriented. */
+export function maskProgressState(cube: Cube3x3, mask: Cube3x3Mask): number {
+  const f = cube.stateData;
+  let total = 0;
+  let ok = 0;
+  for (const i of mask.solvedFaceletIndices) {
+    total++;
+    if (f[i] === SOLVED_FACELET_CUBE[i]) ok++;
+  }
+  if (mask.eoFaceletIndices) {
+    cube.EO.forEach((good) => {
+      total++;
+      if (good) ok++;
+    });
+  }
+  return total === 0 ? 1 : ok / total;
+}
+
 export function parseMoves(s: string): Move3x3[] {
   return Cube3x3.parseNotation(s) ?? [];
 }

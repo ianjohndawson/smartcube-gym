@@ -7,12 +7,13 @@ import {
   newSolved,
   optimalToMask,
   parseMoves,
-  maskProgress,
-  maskProgressFromHistory,
-  anySolved,
-  isMaskSolvedFromHistory,
+  maskProgressState,
+  isMaskSolvedState,
+  cubeFromFacelets,
+  findBridge,
   type Move3x3,
 } from './engine-api.ts';
+import { kociembaToNet } from './resync.ts';
 import {
   CATEGORIES,
   genScramble,
@@ -62,6 +63,7 @@ interface State {
   prefixEncodes: string[]; // encoded states base..target (for green progress)
   pendingLearn: boolean; // after this setup completes, start the ideal walkthrough
   history: Move3x3[]; // all moves from solved
+  historyValid: boolean; // false after a hard resync (history unknown) — hints need it
   stepStartHistory: Move3x3[];
   movesThisStep: Move3x3[];
   stepDone: boolean[];
@@ -102,7 +104,7 @@ function makeScramble(base: Cube3x3, baseHistory: Move3x3[], stepsList: StepDef[
   for (let attempt = 0; attempt < 25; attempt++) {
     const moves = genScramble(16);
     const targetHistory = [...baseHistory, ...moves];
-    if (!anySolved(applyMoves(newSolved(), targetHistory), [first.canonicalMask])) return moves;
+    if (!isMaskSolvedState(applyMoves(newSolved(), targetHistory), first.canonicalMask)) return moves;
   }
   return genScramble(16);
 }
@@ -140,6 +142,7 @@ function startScramble(base: Cube3x3, baseHistory: Move3x3[], explicit?: Move3x3
     prefixEncodes: computePrefixEncodes(base, moves),
     pendingLearn: false,
     history: [...baseHistory],
+    historyValid: true,
     stepStartHistory: [...baseHistory],
     movesThisStep: [],
     stepDone: t.steps.map(() => false),
@@ -220,23 +223,26 @@ function afterChange() {
 }
 
 function stepSolved(s: StepDef): boolean {
-  return s.kind === 'eo'
-    ? isMaskSolvedFromHistory(state.history, s.canonicalMask)
-    : anySolved(state.cube, [s.canonicalMask]);
+  return isMaskSolvedState(state.cube, s.canonicalMask);
 }
 
 function checkStepCompletion() {
   const s = currentStep();
   if (!s || state.stepDone[state.stepIndex]) return;
   if (stepSolved(s)) {
-    const optimal = optimalToMask(state.stepStartHistory, s.canonicalMask, s.solver) ?? [];
-    state.lastResult = {
-      step: s.label,
-      used: htmCount(state.movesThisStep),
-      optimal: optimal.length,
-      yourMoves: [...state.movesThisStep],
-      idealMoves: optimal,
-    };
+    // Without a trustworthy history (post hard-resync) we can't score this step.
+    const optimal = state.historyValid
+      ? optimalToMask(state.stepStartHistory, s.canonicalMask, s.solver) ?? []
+      : [];
+    state.lastResult = state.historyValid
+      ? {
+          step: s.label,
+          used: htmCount(state.movesThisStep),
+          optimal: optimal.length,
+          yourMoves: [...state.movesThisStep],
+          idealMoves: optimal,
+        }
+      : null;
     state.stepDone[state.stepIndex] = true;
     state.assist = null;
     state.status = `${s.label} done!`;
@@ -252,6 +258,37 @@ function handleMove(move: string) {
   step(move as Move3x3);
   render();
 }
+
+// Resync the model to the cube's true state (from a GAN FACELETS event or Sync).
+function handleFacelets(kociemba: string) {
+  let trueCube: Cube3x3;
+  try {
+    trueCube = cubeFromFacelets(kociembaToNet(kociemba));
+  } catch {
+    return;
+  }
+  if (trueCube.encode() === state.cube.encode()) return; // already in sync
+
+  // Small drift (a missed move or two): find the bridging moves so history stays valid.
+  const bridge = findBridge(state.cube, trueCube, 4);
+  if (bridge) {
+    state.cube = trueCube;
+    state.history.push(...bridge);
+    if (state.mode === 'solve') state.movesThisStep.push(...bridge);
+    afterChange();
+    render();
+    return;
+  }
+  // Large drift: hard resync — fixes the view + (state-based) detection; the move
+  // history can't be reconstructed, so hints pause until the next scramble.
+  state.cube = trueCube;
+  state.historyValid = false;
+  state.assist = null;
+  if (state.mode === 'scramble' && state.cube.encode() === state.target.encode()) afterChange();
+  else if (state.mode === 'solve') checkStepCompletion();
+  state.status = 'Resynced from cube — press “Next scramble” for fresh hints.';
+  render();
+}
 function handleManualMoves(text: string) {
   // In the solve frame the user types what they see (held frame); translate to model.
   const toks = solveFrame() ? toModelMoves(parseMoves(text)) : parseMoves(text);
@@ -263,6 +300,7 @@ function handleManualMoves(text: string) {
 
 const cube = new CubeManager({
   onMove: (m) => handleMove(m),
+  onFacelets: (f) => handleFacelets(f),
   onBattery: (b) => { state.battery = b; render(); },
   onConnect: (name) => { state.connected = true; state.lastError = ''; state.status = `Connected to ${name}.`; render(); },
   onDisconnect: () => { state.connected = false; state.status = 'Cube disconnected.'; render(); },
@@ -319,7 +357,26 @@ function freshTrainerInPlace(id: string) {
   state = freshTrainer(id);
   render();
 }
+// Hints/rewind/efficiency all need a trustworthy move history (moves from solved).
+// After a hard resync that can't be bridged, history is unknown — block those
+// actions and point the user at a fresh scramble (which rebuilds valid history).
+function requireHistory(): boolean {
+  if (state.historyValid) return true;
+  state.status = 'Move history was lost on resync — press “Next scramble” for fresh hints.';
+  render();
+  return false;
+}
+
 function nextScramble() {
+  // After an unbridgeable hard resync the move history is unknown, so we can't
+  // chain a new scramble onto it (the "history = moves from solved" invariant
+  // would break). Reset to a solved model and ask the user to solve their cube.
+  if (!state.historyValid) {
+    state = freshTrainer(state.trainerId);
+    state.status = 'Reset after resync — solve your cube, then apply the scramble.';
+    render();
+    return;
+  }
   // continuous: new scramble applied from the current cube state
   state = startScramble(state.cube, state.history);
   render();
@@ -335,6 +392,7 @@ function applyScrambleNow() {
   render();
 }
 function rewindStep() {
+  if (!requireHistory()) return;
   state.cube = applyMoves(newSolved(), state.stepStartHistory);
   state.history = [...state.stepStartHistory];
   state.movesThisStep = [];
@@ -346,6 +404,7 @@ function rewindStep() {
 }
 
 function enterLearn() {
+  if (!requireHistory()) return;
   const s = currentStep();
   if (!s) return;
   const ideal = optimalToMask(state.stepStartHistory, s.canonicalMask, s.solver) ?? [];
@@ -384,6 +443,7 @@ function undoToScramble(): Move3x3[] {
 
 // Retry the same case: give the user the moves to return to the scrambled state.
 function tryAgain() {
+  if (!requireHistory()) return;
   state = startScramble(state.cube, state.history, undoToScramble());
   state.status = 'Apply the sequence above to return to the scramble, then solve it again.';
   render();
@@ -391,6 +451,7 @@ function tryAgain() {
 
 // Learn the ideal on this case: return to the scramble first, then walk the ideal.
 function learnFromReview() {
+  if (!requireHistory()) return;
   state = startScramble(state.cube, state.history, undoToScramble());
   state.pendingLearn = true;
   state.status = 'Apply the sequence above to return to the scramble, then follow the ideal.';
@@ -437,17 +498,18 @@ function disp(moves: Move3x3[]): Move3x3[] {
 
 function continuation(): Move3x3[] {
   const s = currentStep();
-  if (!s) return [];
+  if (!s || !state.historyValid) return [];
   return optimalToMask(state.history, s.canonicalMask, s.solver) ?? [];
 }
 function idealFromStart(): number | null {
   const s = currentStep();
-  if (!s) return null;
+  if (!s || !state.historyValid) return null;
   const m = optimalToMask(state.stepStartHistory, s.canonicalMask, s.solver);
   return m ? m.length : null;
 }
 
 function assist(kind: 'nudge' | 'move' | 'ideal') {
+  if (!requireHistory()) return;
   const s = currentStep();
   if (!s) return;
   // EO nudge: point at the misoriented edges (no move revealed).
@@ -475,9 +537,7 @@ function assist(kind: 'nudge' | 'move' | 'ideal') {
 
 function render() {
   const s = currentStep();
-  const progress = s
-    ? Math.round((s.kind === 'eo' ? maskProgressFromHistory(state.history, s.canonicalMask) : maskProgress(state.cube, s.canonicalMask)) * 100)
-    : 100;
+  const progress = s ? Math.round(maskProgressState(state.cube, s.canonicalMask) * 100) : 100;
   const allDone = state.stepDone.every(Boolean);
 
   // Build into a fragment and swap atomically (avoids the blank-then-repaint flash).
@@ -488,6 +548,7 @@ function render() {
   top.appendChild(el('h1', '', 'SmartCube Gym'));
   const battery = state.battery != null ? ` · ${state.battery}%` : '';
   top.appendChild(el('span', `pill ${state.connected ? 'ok' : ''}`, state.connected ? `${cube.deviceName || 'Cube'}${battery}` : 'No cube'));
+  if (state.connected) top.appendChild(btn('Sync', () => { cube.requestFacelets(); state.status = 'Reading cube state…'; render(); }, 'ghost'));
   top.appendChild(btn(state.connected ? 'Disconnect' : 'Connect cube', toggleConnect, state.connected ? 'ghost' : 'primary'));
   top.appendChild(btn('⚙', () => { state.showSettings = true; render(); }, 'ghost'));
   app.appendChild(top);

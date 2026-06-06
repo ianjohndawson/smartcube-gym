@@ -283,6 +283,18 @@ export const EDGE_COORDS: [number, number, number][] = [
   [2, 1, 0], // BR
 ];
 
+// For each Kociemba facelet index (0..53), the cubie coordinate (x,y,z) it sits on.
+// Used to map the GAN cube's Kociemba facelet string into the engine's net order.
+export const KOCIEMBA_FACELET_COORDS: [number, number, number][] = (() => {
+  const out: [number, number, number][] = new Array(54);
+  // centres: U=4 R=13 F=22 D=31 L=40 B=49
+  out[4] = [1, 2, 1]; out[13] = [2, 1, 1]; out[22] = [1, 1, 2];
+  out[31] = [1, 0, 1]; out[40] = [0, 1, 1]; out[49] = [1, 1, 0];
+  for (let c = 0; c < 8; c++) for (let k = 0; k < 3; k++) out[cornerFacelet[c][k]] = CORNER_COORDS[c];
+  for (let e = 0; e < 12; e++) for (let k = 0; k < 2; k++) out[edgeFacelet[e][k]] = EDGE_COORDS[e];
+  return out;
+})();
+
 export interface BlockGoal {
   corners: number[]; // corner slot indices that must be home + oriented
   edges: number[]; // edge slot indices that must be home + oriented
