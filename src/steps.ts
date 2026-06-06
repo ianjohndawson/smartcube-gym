@@ -86,14 +86,11 @@ const MASK_123_EO: Cube3x3Mask = {
   eoFaceletIndices: EO_FACELETS,
 };
 
-// Two 1×2×2 squares — one on the left, one on the right (bottom, front side).
-const MASK_122_L = blockMaskFromRanges([0], [0, 1], [1, 2]);
-const MASK_122_R = blockMaskFromRanges([2], [0, 1], [1, 2]);
-const MASK_122_LR: Cube3x3Mask = {
-  solvedFaceletIndices: [...MASK_122_L.solvedFaceletIndices, ...MASK_122_R.solvedFaceletIndices],
-};
-const MASK_122_LR_EO: Cube3x3Mask = {
-  solvedFaceletIndices: MASK_122_LR.solvedFaceletIndices,
+// 2×2×3 built at the BACK-bottom (full width, bottom two, back two) — the Petrus
+// position so the block is in front after a y, for the held-back EO.
+const MASK_223_BACK = blockMaskFromRanges([0, 1, 2], [0, 1], [0, 1]);
+const MASK_223B_EO: Cube3x3Mask = {
+  solvedFaceletIndices: MASK_223_BACK.solvedFaceletIndices,
   eoFaceletIndices: EO_FACELETS,
 };
 // Both side 1×2×3 blocks (left already built, right being built) — Roux F2B sides.
@@ -138,17 +135,17 @@ const STEP_EO_223: StepDef = {
   solver: { moveSet: BLOCK_MOVES, pruningDepth: 5, depthLimit: 14 },
 };
 const STEP_EO_123: StepDef = {
-  id: 'eo123', label: '1×2×3 L', kind: 'eo',
-  blurb: 'Starting from a finished 1×2×3 first block, orient all 12 edges without breaking it (LEOR/Roux-style EO).',
+  id: 'eo123', label: '1×2×3', kind: 'eo',
+  blurb: 'Starting from a finished 1×2×3 first block (Roux first block / LEOR start), orient all 12 edges without breaking it.',
   candidateMasks: [MASK_123_EO], canonicalMask: MASK_123_EO, prereqMask: MASK_123_LEFT,
   hold: 'Keep the 1×2×3 intact; orient edges on the F/B axis.',
   solver: { moveSet: BLOCK_MOVES, pruningDepth: 5, depthLimit: 14 },
 };
-const STEP_EO_122LR: StepDef = {
-  id: 'eo122lr', label: '1×2×2 L+R', kind: 'eo',
-  blurb: 'Starting from two 1×2×2 squares (left + right), orient all 12 edges without breaking either.',
-  candidateMasks: [MASK_122_LR_EO], canonicalMask: MASK_122_LR_EO, prereqMask: MASK_122_LR,
-  hold: 'Keep both 1×2×2 squares (left + right); orient on the F/B axis.',
+const STEP_EO_223B: StepDef = {
+  id: 'eo223B', label: '2×2×3 B', kind: 'eo',
+  blurb: 'Starting from a 2×2×3 built at the back, orient all 12 edges keeping it — the Petrus EO hold after a y.',
+  candidateMasks: [MASK_223B_EO], canonicalMask: MASK_223B_EO, prereqMask: MASK_223_BACK,
+  hold: '2×2×3 built at the back (so it sits in front after a y); orient on the F/B axis.',
   solver: { moveSet: BLOCK_MOVES, pruningDepth: 5, depthLimit: 14 },
 };
 
@@ -172,9 +169,9 @@ export const TRAINERS: TrainerDef[] = [
   // EO — orient edges, keeping progressively more built. (2×3×3 B is coming once
   // its scramble generator can pre-build two full layers cheaply.)
   { id: 'eo', label: 'Full', category: 'EO', description: 'Orient all 12 edges (free — no block kept). The core EO skill.', steps: [STEP_EO] },
-  { id: 'eo123L', label: '1×2×3 L', category: 'EO', description: 'Orient all edges while preserving a finished 1×2×3 first block (LEOR/Roux).', steps: [STEP_EO_123] },
-  { id: 'eo122LR', label: '1×2×2 L+R', category: 'EO', description: 'Orient all edges while preserving two 1×2×2 squares (left + right).', steps: [STEP_EO_122LR] },
-  { id: 'eo223L', label: '2×2×3 L', category: 'EO', description: 'Orient all edges while preserving a finished 2×2×3 (Petrus EO, drilled alone).', steps: [STEP_EO_223] },
+  { id: 'eo123', label: '1×2×3', category: 'EO', description: 'Orient all edges while preserving a 1×2×3 first block (Roux first block / LEOR start).', steps: [STEP_EO_123] },
+  { id: 'eo223L', label: '2×2×3 L', category: 'EO', description: 'Orient all edges while preserving a 2×2×3 on the left (Petrus, block on the side).', steps: [STEP_EO_223] },
+  { id: 'eo223B', label: '2×2×3 B', category: 'EO', description: 'Orient all edges while preserving a 2×2×3 at the back (Petrus EO after a y).', steps: [STEP_EO_223B] },
 
   // Block building — individual block skills.
   { id: 'b123L', label: '1×2×3 L', category: 'Blocks', description: 'Build a 1×2×3 first block against a centre.', steps: [STEP_123_LEFT] },
