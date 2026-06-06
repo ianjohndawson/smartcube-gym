@@ -315,7 +315,7 @@ html[data-theme='dark'] .tab.active { box-shadow: inset 0 -2px 0 var(--accent); 
 .sticker { border-radius: var(--sticker-r); border: 1px solid rgba(0,0,0,0.45); box-shadow: inset -2px -2px 0 rgba(0,0,0,0.16), inset 2px 2px 0 rgba(255,255,255,0.18); }
 .sticker.hl { outline: 2px solid var(--accent); outline-offset: -1px; z-index: 2; }
 .sticker.dim { opacity: 0.2; }
-.sticker.blank { background: var(--track-bg); border: 1px solid rgba(255,255,255,0.10); box-shadow: none; }
+.sticker.blank { background: #6b7280; border: 1px solid rgba(255,255,255,0.10); box-shadow: none; }
 .sticker.U { background: #f5f7fa; }
 .sticker.D { background: #ffd21e; }
 .sticker.F { background: #16b14b; }
