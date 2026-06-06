@@ -208,11 +208,17 @@ export function solveToMask(
   const translated = [...invertMoves(preRotation), ...scramble, ...preRotation];
   const puzzle = new Cube3x3([...cfg.moveSet]).applyMask(mask).applyMoves(translated);
   const table = getTable(mask, cfg);
-  return solve(puzzle, table, {
-    pruningDepth: cfg.pruningDepth,
-    depthLimit: cfg.depthLimit,
-    maxSolutionCount,
-  });
+  try {
+    return solve(puzzle, table, {
+      pruningDepth: cfg.pruningDepth,
+      depthLimit: cfg.depthLimit,
+      maxSolutionCount,
+    });
+  } catch {
+    // The vendored solver throws if no solution exists within depthLimit.
+    // Treat that as "no suggestion" rather than crashing a hint/score.
+    return [];
+  }
 }
 
 /** Single optimal solution, or null. */

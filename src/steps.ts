@@ -25,6 +25,8 @@ export interface StepDef {
   family?: BlockFamily;
   candidateMasks: Cube3x3Mask[];
   canonicalMask: Cube3x3Mask;
+  /** Optional how-to-hold / which-axis note shown during the step. */
+  hold?: string;
   solver: StepSolverConfig;
 }
 
@@ -70,28 +72,48 @@ const STEP_123_RIGHT: StepDef = {
 const EO_MASK = MASKS.EO as Cube3x3Mask;
 const EOLINE_MASK = MASKS.EOLine as Cube3x3Mask;
 const EOCROSS_MASK = MASKS.EOCross as Cube3x3Mask;
+// EO orbit facelets (F/B axis) reused to compose block-preserving EO targets.
+const EO_FACELETS = MASKS.EO.eoFaceletIndices!;
+
+// Petrus EO: orient all edges while keeping the 2×2×3. Target = the 2×2×3 block
+// AND every edge oriented; the optimal solver may break the block mid-solution
+// but must restore it (that's exactly the real Petrus EO step).
+const MASK_223_EO: Cube3x3Mask = {
+  solvedFaceletIndices: MASK_223_BOTTOM_LEFT.solvedFaceletIndices,
+  eoFaceletIndices: EO_FACELETS,
+};
 
 const STEP_EO: StepDef = {
   id: 'eo', label: 'EO', kind: 'eo',
   blurb: 'Orient all 12 edges so the rest can be solved with R, L, U and D only.',
   candidateMasks: [EO_MASK], canonicalMask: EO_MASK,
+  hold: 'Orient all 12 edges on the F/B axis — no block to keep.',
   solver: { moveSet: BLOCK_MOVES, pruningDepth: 4, depthLimit: 8 },
 };
 const STEP_EOLINE: StepDef = {
   id: 'eoline', label: 'EOLine', kind: 'eo',
   blurb: 'Orient all edges and place the DF and DB edges — the ZZ first step.',
   candidateMasks: [EOLINE_MASK], canonicalMask: EOLINE_MASK,
+  hold: 'White on top; orient on the F/B axis and place the DF/DB line (ZZ).',
   solver: { moveSet: BLOCK_MOVES, pruningDepth: 4, depthLimit: 9 },
 };
 const STEP_EOCROSS: StepDef = {
   id: 'eocross', label: 'EOCross', kind: 'eo',
   blurb: 'Orient all edges and solve the bottom cross in one — an advanced ZZ start.',
   candidateMasks: [EOCROSS_MASK], canonicalMask: EOCROSS_MASK,
+  hold: 'White on top; orient on the F/B axis while building the D-cross (ZZ).',
   solver: { moveSet: BLOCK_MOVES, pruningDepth: 4, depthLimit: 10 },
+};
+const STEP_PETRUS_EO: StepDef = {
+  id: 'petrus-eo', label: 'EO (keep the block)', kind: 'eo',
+  blurb: 'Orient all 12 edges while keeping your 2×2×3 intact — the Petrus EO step.',
+  candidateMasks: [MASK_223_EO], canonicalMask: MASK_223_EO,
+  hold: 'Keep the 2×2×3 intact and orient edges on the F/B axis (Petrus holds the block at the back).',
+  solver: { moveSet: BLOCK_MOVES, pruningDepth: 5, depthLimit: 14 },
 };
 
 export const TRAINERS: TrainerDef[] = [
-  { id: 'petrus', label: 'Petrus', category: 'Blocks', description: 'Build a 2×2×2 block, then expand it to a 2×2×3.', steps: [STEP_222, STEP_223] },
+  { id: 'petrus', label: 'Petrus', category: 'Blocks', description: 'Build a 2×2×2, expand to a 2×2×3, then orient all edges keeping the block.', steps: [STEP_222, STEP_223, STEP_PETRUS_EO] },
   { id: 'apb', label: 'APB', category: 'Blocks', description: "Athefre's Pair and Block: 2×2×2, then a 2×2×3.", steps: [STEP_222, STEP_223] },
   { id: 'roux', label: 'Roux', category: 'Blocks', description: 'Build a 1×2×3 first block, then a second on the opposite side.', steps: [STEP_123_LEFT, STEP_123_RIGHT] },
   { id: 'leor', label: 'LEOR', category: 'Blocks', description: 'LEOR opening: a 1×2×3 first block, then the second-side block.', steps: [STEP_123_LEFT, STEP_123_RIGHT] },

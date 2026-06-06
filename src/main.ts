@@ -694,12 +694,17 @@ function buildCubePanel(s: StepDef | null): HTMLElement {
     else if (state.assist.focus) { highlight = new Set(state.assist.focus.current); note = `highlighted: the ${state.assist.focus.description}`; }
   }
   if (solveFrame() && highlight) highlight = rotateHighlight(highlight);
-  const blank = s?.kind === 'eo' ? new Set(CORNER_FACELETS) : null;
+  // Blank the corners only for *pure* EO (no block kept). A block-preserving EO
+  // step (e.g. Petrus) needs its corners visible.
+  const pureEo = s?.kind === 'eo' && s.canonicalMask.solvedFaceletIndices.length <= 6;
+  const blank = pureEo ? new Set(CORNER_FACELETS) : null;
   const facelets = solveFrame() ? rotatedFacelets(state.cube) : faceletString(state.cube);
   wrap.appendChild(renderCubeNet(facelets, highlight, blank));
   p.appendChild(wrap);
-  const holdNote = orientEnabled && state.mode === 'solve' ? `hold ${ORIENT_LABEL}` : 'hold white-up / green-front';
-  p.appendChild(el('div', 'meter-cap', note || `${holdNote}${s ? ` · ${s.label} target` : ''}`));
+  const holdNote = s?.hold
+    ? s.hold
+    : `${orientEnabled && state.mode === 'solve' ? `hold ${ORIENT_LABEL}` : 'hold white-up / green-front'}${s ? ` · ${s.label} target` : ''}`;
+  p.appendChild(el('div', 'meter-cap', note || holdNote));
   return p;
 }
 
