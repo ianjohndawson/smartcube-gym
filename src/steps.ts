@@ -187,11 +187,18 @@ const COURSE_223: CourseBand[] = [
   { label: 'L3', min: 10, max: 11 },
   { label: 'L4 · full', min: 12, max: 99 },
 ];
+const COURSE_123: CourseBand[] = [
+  { label: 'L1 · easy', min: 1, max: 6 },
+  { label: 'L2', min: 7, max: 8 },
+  { label: 'L3', min: 9, max: 10 },
+  { label: 'L4 · full', min: 11, max: 99 },
+];
 
 export const TRAINERS: TrainerDef[] = [
   // Course — graded block-building ladders (the founding objective).
   { id: 'course222', label: '2×2×2', category: 'Course', description: 'Graded 2×2×2 course — levels by optimal move count; clear by efficiency to unlock the next.', steps: [STEP_222], course: COURSE_222 },
   { id: 'course223', label: '2×2×3', category: 'Course', description: 'Graded 2×2×3 course — levels by optimal move count; clear by efficiency to unlock the next.', steps: [STEP_223], course: COURSE_223 },
+  { id: 'course123', label: '1×2×3', category: 'Course', description: 'Graded 1×2×3 first-block course (Roux/LEOR) — levels by optimal move count.', steps: [STEP_123_LEFT], course: COURSE_123 },
 
   // EO — orient edges, keeping progressively more built. (2×3×3 B is coming once
   // its scramble generator can pre-build two full layers cheaply.)

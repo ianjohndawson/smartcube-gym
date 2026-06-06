@@ -954,6 +954,35 @@ function buildLearnPane(right: HTMLElement, s: StepDef) {
 }
 
 // --- right pane: stats ---
+// Course progress for the Stats tab: stars climbed per track.
+function buildCourseStats(): HTMLElement {
+  const sect = el('div', 'stat-sect');
+  sect.appendChild(el('div', 'sh', 'course progress · stars per level'));
+  const prog = loadCourse();
+  for (const t of trainersIn('Course')) {
+    const bands = t.course!;
+    const track = prog[t.id];
+    const row = el('div', 'steprow');
+    row.appendChild(el('div', 'nm', t.label));
+    const cells = el('div', 'row');
+    cells.style.flex = '1';
+    cells.style.gap = '12px';
+    bands.forEach((b, i) => {
+      const locked = i > (track?.unlocked ?? 0);
+      const stars = track?.levels?.[i]?.stars ?? 0;
+      const cell = el('span', '', locked ? '🔒' : `${'★'.repeat(stars)}${'☆'.repeat(3 - stars)}`);
+      cell.title = b.label;
+      cell.style.opacity = locked ? '0.5' : '1';
+      cells.appendChild(cell);
+    });
+    row.appendChild(cells);
+    const total = bands.reduce((a, _b, i) => a + (track?.levels?.[i]?.stars ?? 0), 0);
+    row.appendChild(el('div', 'val', `${total}/${bands.length * 3}`));
+    sect.appendChild(row);
+  }
+  return sect;
+}
+
 function buildStatsBody(): HTMLElement {
   const wrap = el('div', 'stats');
   const st = computeStats();
@@ -967,6 +996,9 @@ function buildStatsBody(): HTMLElement {
   t2.appendChild(el('div', 'cap', 'optimal solves'));
   tiles.appendChild(t2);
   wrap.appendChild(tiles);
+
+  // Course progress — stars climbed per track (always shown).
+  wrap.appendChild(buildCourseStats());
 
   if (!st.solves) {
     wrap.appendChild(el('div', 'blurb', 'No solves logged yet. Finish a step to start tracking efficiency.'));
