@@ -15,9 +15,10 @@ import {
 } from './engine-api.ts';
 import { kociembaToNet } from './resync.ts';
 import {
-  TRAINERS,
+  CATEGORIES,
   genScramble,
   trainerById,
+  trainersIn,
   type Category,
   type StepDef,
 } from './steps.ts';
@@ -96,23 +97,24 @@ function makeScramble(base: Cube3x3, baseHistory: Move3x3[], stepsList: StepDef[
   // that yields it (exact distribution, ~5-move scrambles). Permutation-independent,
   // so it works applied from the current cube. From a solved cube, prepend an
   // EO-preserving permutation scramble so the first case still looks messed up.
-  if (first.kind === 'eo') {
-    // Block-preserving EO drills (keep 2×2×3 / 1×2×3): the scramble must START
-    // with the block built and only the edges misoriented. Random-scramble, then
-    // solve to the block ONLY (no EO constraint) so EO is left scrambled. Reject
-    // cases where EO already happens to be solved (nothing to practise).
-    if (first.canonicalMask.solvedFaceletIndices.length > 6) {
-      const blockOnly = { solvedFaceletIndices: first.canonicalMask.solvedFaceletIndices };
-      for (let attempt = 0; attempt < 30; attempt++) {
-        const scr = genScramble(16);
-        const build = optimalToMask([...baseHistory, ...scr], blockOnly, first.solver) ?? [];
-        const full = [...scr, ...build];
-        const cube = applyMoves(base, full);
-        if (isMaskSolvedState(cube, blockOnly) && !isMaskSolvedState(cube, first.canonicalMask)) return full;
-      }
+  // Drills with a prerequisite (e.g. "EO keep 2×2×3", "1×2×3 R with L solved",
+  // "2×2 → 2×2×3"): the scramble must START with the prereq block built and the
+  // rest scrambled. Random-scramble, then solve to the prereq only; reject cases
+  // where this step's target is already complete (nothing to practise).
+  if (first.prereqMask) {
+    const prereq = first.prereqMask;
+    const buildCfg = { ...first.solver, depthLimit: 16 };
+    for (let attempt = 0; attempt < 20; attempt++) {
       const scr = genScramble(16);
-      return [...scr, ...(optimalToMask([...baseHistory, ...scr], { solvedFaceletIndices: first.canonicalMask.solvedFaceletIndices }, first.solver) ?? [])];
+      const build = optimalToMask([...baseHistory, ...scr], prereq, buildCfg) ?? [];
+      const full = [...scr, ...build];
+      const cube = applyMoves(base, full);
+      if (isMaskSolvedState(cube, prereq) && !isMaskSolvedState(cube, first.canonicalMask)) return full;
     }
+    const scr = genScramble(16);
+    return [...scr, ...(optimalToMask([...baseHistory, ...scr], prereq, buildCfg) ?? [])];
+  }
+  if (first.kind === 'eo') {
     const eoSeq = sampleEoScramble();
     return base.encode() === SOLVED_ENCODE ? [...genEoSafeScramble(10), ...eoSeq] : eoSeq;
   }
@@ -373,9 +375,14 @@ async function toggleConnect() {
   try { await cube.connect(); } catch (e) { state.status = `Connection failed: ${String((e as Error)?.message ?? e)}`; render(); }
 }
 
-// Method picker is now a flat list of all trainers; selecting one resets the session.
+// Selecting a trainer resets the session to its first scramble.
 function selectTrainerFlat(id: string) {
   freshTrainerInPlace(id);
+}
+// Switching category jumps to the first trainer in that category.
+function selectCategory(c: Category) {
+  const first = trainersIn(c)[0];
+  if (first) freshTrainerInPlace(first.id);
 }
 function freshTrainerInPlace(id: string) {
   state = freshTrainer(id);
@@ -641,14 +648,21 @@ function buildTopBar(): HTMLElement {
   return top;
 }
 
+function catLabel(c: Category): string {
+  return c === 'Blocks' ? 'Block building' : c;
+}
 function buildToolbar(): HTMLElement {
   const tb = el('div', 'toolbar');
-  tb.appendChild(el('span', 'lbl', 'Method'));
-  const ms = el('div', 'seg');
-  for (const t of TRAINERS) ms.appendChild(segBtn(t.label, () => selectTrainerFlat(t.id), state.trainerId === t.id));
-  tb.appendChild(ms);
+  // Category (EO / Block building / Journey)
+  const cs = el('div', 'seg');
+  for (const c of CATEGORIES) cs.appendChild(segBtn(catLabel(c), () => selectCategory(c), state.category === c));
+  tb.appendChild(cs);
   tb.appendChild(el('span', 'div', '│'));
-  tb.appendChild(el('span', 'lbl', 'Mode'));
+  // Trainer within the chosen category
+  const ts = el('div', 'seg');
+  for (const t of trainersIn(state.category)) ts.appendChild(segBtn(t.label, () => selectTrainerFlat(t.id), state.trainerId === t.id));
+  tb.appendChild(ts);
+  tb.appendChild(el('span', 'div', '│'));
   const mo = el('div', 'seg');
   mo.appendChild(segBtn('Efficiency', () => setMode('efficiency'), state.trainMode === 'efficiency'));
   mo.appendChild(segBtn('Timed', () => setMode('timed'), state.trainMode === 'timed'));
