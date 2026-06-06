@@ -84,3 +84,13 @@ export const MASK_222_DLF = blockMaskFromRanges([0, 1], [0, 1], [1, 2]); // down
 export const MASK_223_BOTTOM_LEFT = blockMaskFromRanges([0, 1], [0, 1], [0, 1, 2]); // contains DLF block
 export const MASK_123_LEFT = blockMaskFromRanges([0], [0, 1], [0, 1, 2]); // L-side 1x2x3 (Roux left)
 export const MASK_123_RIGHT = blockMaskFromRanges([2], [0, 1], [0, 1, 2]); // R-side 1x2x3 (Roux right)
+
+// The 24 corner facelets (3 per corner). Used to blank corners on the EO view.
+export const CORNER_FACELETS: number[] = (() => {
+  const byCoord = new Map<string, number[]>();
+  NET_COORDS.forEach((c, i) => {
+    const k = c.join(',');
+    (byCoord.get(k) ?? byCoord.set(k, []).get(k)!).push(i);
+  });
+  return [...byCoord.values()].filter((g) => g.length === 3).flat();
+})();

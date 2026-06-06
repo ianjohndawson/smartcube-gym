@@ -24,8 +24,20 @@ import {
 import { nextFocusPiece, type FocusPiece } from './pieces.ts';
 import { sampleEoScramble } from './eo-scramble.ts';
 import { genEoSafeScramble } from './steps.ts';
+import { CORNER_FACELETS } from './blocks.ts';
 
 const SOLVED_ENCODE = newSolved().encode();
+
+// EO orbit facelets (mirror the engine's getEO) so we can highlight bad edges.
+const EO_PRIMARY = [1, 3, 5, 7, 32, 24, 26, 30, 46, 48, 50, 52];
+const EO_SECONDARY = [19, 10, 16, 13, 21, 23, 27, 29, 37, 34, 40, 43];
+function badEdgeStickers(c: Cube3x3): number[] {
+  const out: number[] = [];
+  c.EO.forEach((good, i) => {
+    if (!good) out.push(EO_PRIMARY[i], EO_SECONDARY[i]);
+  });
+  return out;
+}
 import { ORIENT_LABEL, rotateHighlight, rotatedFacelets, toDisplayMoves, toModelMoves } from './orient.ts';
 import { CubeManager, clearSavedMac, getSavedMac } from './bluetooth.ts';
 import { getApiKey, getCoaching, hasApiKey, setApiKey } from './coaching.ts';
@@ -443,6 +455,14 @@ function idealFromStart(): number | null {
 function assist(kind: 'nudge' | 'move' | 'ideal') {
   const s = currentStep();
   if (!s) return;
+  // EO nudge: point at the misoriented edges (no move revealed).
+  if (kind === 'nudge' && s.kind === 'eo') {
+    const bad = s.canonicalMask ? state.cube.EO.filter((g) => !g).length : 0;
+    state.assist = { kind: 'nudge', moves: [], focus: null };
+    state.status = `${bad} bad edges highlighted — work out how to orient them.`;
+    render();
+    return;
+  }
   const moves = continuation();
   if (moves.length === 0) { state.assist = null; state.status = 'Nothing to suggest from here — try the AI coach.'; render(); return; }
   const focus = kind !== 'ideal' && s.kind === 'block' ? nextFocusPiece(state.cube, s.canonicalMask, moves) : null;
@@ -570,11 +590,14 @@ function render() {
   let highlightNote = '';
   if (state.assist) {
     if (state.assist.kind === 'ideal') { highlight = new Set(s!.canonicalMask.solvedFaceletIndices); highlightNote = 'Highlighted: the target facelets.'; }
+    else if (state.assist.kind === 'nudge' && s?.kind === 'eo') { highlight = new Set(badEdgeStickers(state.cube)); highlightNote = 'Highlighted: the misoriented edges.'; }
     else if (state.assist.focus) { highlight = new Set(state.assist.focus.current); highlightNote = `Highlighted: the ${state.assist.focus.description} to place next.`; }
   }
   if (solveFrame() && highlight) highlight = rotateHighlight(highlight);
+  // EO is about edges only — blank the corners so they don't distract.
+  const blank = s?.kind === 'eo' ? new Set(CORNER_FACELETS) : null;
   const facelets = solveFrame() ? rotatedFacelets(state.cube) : faceletString(state.cube);
-  wrap.appendChild(renderCubeNet(facelets, highlight));
+  wrap.appendChild(renderCubeNet(facelets, highlight, blank));
   viewCard.appendChild(wrap);
   const holdNote = orientEnabled
     ? (state.mode === 'solve' ? `Hold ${ORIENT_LABEL} (rotate x2 from the scramble).` : 'Hold white-top / green-front to scramble.')
@@ -682,9 +705,10 @@ function render() {
     actions.appendChild(btn('Reveal move', () => assist('move')));
     actions.appendChild(btn('Show ideal', () => assist('ideal')));
     actions.appendChild(btn('Learn by example', enterLearn));
+    actions.appendChild(btn(state.coachBusy ? 'Thinking…' : 'AI tip', () => askCoach(), '', state.coachBusy));
     actions.appendChild(btn('Rewind', rewindStep, 'ghost'));
     cur.appendChild(actions);
-    cur.appendChild(el('div', 'hint', 'Nudge = point at the piece · Reveal move = next turn · Show ideal = whole solution · Learn by example = walk the ideal.'));
+    cur.appendChild(el('div', 'hint', 'Nudge = point at the piece(s) · Reveal move = next turn · Show ideal = whole solution · Learn = walk it · AI tip = coaching.'));
 
     if (state.assist) {
       const a = state.assist;
@@ -692,6 +716,7 @@ function render() {
       else if (a.kind === 'move') { const box = el('div', 'ideal mono'); box.innerHTML = `<span style="color:var(--accent-2)">next ▸ ${disp([a.moves[0]])[0]}</span>`; cur.appendChild(box); }
       else if (a.kind === 'ideal') { cur.appendChild(el('div', 'ideal mono', disp(a.moves).join(' '))); cur.appendChild(el('div', 'hint', 'Full solution from your current position.')); }
     }
+    if (state.coachText) cur.appendChild(el('div', 'coach', `> ${state.coachText}`));
     app.appendChild(cur);
   }
 
@@ -807,15 +832,16 @@ function renderSettings() {
   appEl.appendChild(backdrop);
 }
 
-function renderCubeNet(f: string, highlight: Set<number> | null = null): HTMLElement {
+function renderCubeNet(f: string, highlight: Set<number> | null = null, blank: Set<number> | null = null): HTMLElement {
   const net = el('div', 'cube-net');
   for (let i = 0; i < 54; i++) {
     let row: number, col: number;
     if (i < 9) { row = Math.floor(i / 3); col = 3 + (i % 3); }
     else if (i < 45) { const p = i - 9; row = 3 + Math.floor(p / 12); col = p % 12; }
     else { const j = i - 45; row = 6 + Math.floor(j / 3); col = 3 + (j % 3); }
-    const dim = highlight && !highlight.has(i) ? ' dim' : '';
-    const sticker = el('div', `sticker ${f[i]}${dim}`);
+    const isBlank = blank?.has(i);
+    const dim = !isBlank && highlight && !highlight.has(i) ? ' dim' : '';
+    const sticker = el('div', isBlank ? 'sticker blank' : `sticker ${f[i]}${dim}`);
     sticker.style.gridRow = `${row + 1}`;
     sticker.style.gridColumn = `${col + 1}`;
     net.appendChild(sticker);
