@@ -366,7 +366,7 @@ input[type='password'] {
 }
 
 /* --- Borland Pascal theme (demonstrates skinning via CSS variables + a few overrides) --- */
-body.theme-borland {
+.theme-borland {
   --bg: #0000a8;
   --panel: #0000a8;
   --panel-2: #000078;
@@ -383,67 +383,67 @@ body.theme-borland {
   letter-spacing: 0.4px;
 }
 /* VT323 is a small-per-em DOS font; nudge the base size up for readability. */
-body.theme-borland #app {
+.theme-borland #app {
   font-size: 20px;
 }
-body.theme-borland .card,
-body.theme-borland .modal {
+.theme-borland .card,
+.theme-borland .modal {
   background: var(--panel-2);
   border: 2px solid var(--line);
 }
-body.theme-borland button {
+.theme-borland button {
   border-radius: 0;
   border: 1px solid var(--line);
   background: #aaaaaa;
   color: #000000;
   font-weight: 700;
 }
-body.theme-borland button.primary,
-body.theme-borland .segmented button.active {
+.theme-borland button.primary,
+.theme-borland .segmented button.active {
   background: var(--accent);
   color: #0000a8;
 }
-body.theme-borland button.ghost {
+.theme-borland button.ghost {
   background: transparent;
   color: var(--text);
 }
-body.theme-borland .segmented {
+.theme-borland .segmented {
   background: var(--panel-2);
   border: 1px solid var(--line);
 }
-body.theme-borland .progress {
+.theme-borland .progress {
   border: 1px solid var(--line);
   background: #000078;
 }
-body.theme-borland .progress > div {
+.theme-borland .progress > div {
   background: var(--accent);
 }
-body.theme-borland h1,
-body.theme-borland .scramble .tok.done {
+.theme-borland h1,
+.theme-borland .scramble .tok.done {
   color: var(--accent-2);
 }
-body.theme-borland input[type='text'],
-body.theme-borland input[type='password'] {
+.theme-borland input[type='text'],
+.theme-borland input[type='password'] {
   border-radius: 0;
   background: #000078;
 }
-body.theme-borland .pill {
+.theme-borland .pill {
   border-radius: 0;
 }
-body.theme-borland .segmented {
+.theme-borland .segmented {
   border-radius: 0;
 }
-body.theme-borland .sticker {
+.theme-borland .sticker {
   border-radius: 0;
 }
-body.theme-borland .ideal,
-body.theme-borland .coach {
+.theme-borland .ideal,
+.theme-borland .coach {
   border-radius: 0;
 }
 
 /* Borland: make monospace elements (scramble, ideal, results) use the DOS font too */
-body.theme-borland .mono,
-body.theme-borland .scramble {
+.theme-borland .mono,
+.theme-borland .scramble {
   font-family: 'VT323', ui-monospace, 'Courier New', monospace;
 }
 
@@ -455,4 +455,22 @@ body.theme-borland .scramble {
 .cube-net {
   width: max-content;
   margin: 4px auto 0;
+}
+
+/* Ensure the whole viewport is filled (html paints the canvas) */
+html, body { min-height: 100vh; }
+
+/* Turbo-Vision-style panel title bars in the Borland theme */
+.theme-borland .card h2 {
+  background: var(--line);
+  color: #000000;
+  display: inline-block;
+  padding: 2px 12px 1px;
+  margin: 0 0 10px;
+  letter-spacing: 0.06em;
+}
+
+/* Theme is on <html>; body has its own font-family rule, so re-apply the DOS font */
+.theme-borland body {
+  font-family: 'VT323', ui-monospace, 'Courier New', Consolas, monospace;
 }

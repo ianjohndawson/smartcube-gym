@@ -406,7 +406,8 @@ function setTheme(t: string) {
   applyTheme(t);
 }
 function applyTheme(t: string) {
-  document.body.className = t === 'dark' ? '' : `theme-${t}`;
+  // Apply to <html> so the whole page background (not just the app) gets themed.
+  document.documentElement.className = t === 'dark' ? '' : `theme-${t}`;
 }
 
 // --- solving orientation (phase-flip; static x2 for now) ---
