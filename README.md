@@ -1,16 +1,18 @@
 # SmartCube Gym
 
-An extensible trainer for speedcubing skills — currently **block building** for
-Petrus, APB, Roux and LEOR — with live input from **GAN Bluetooth smart cubes**,
-**solver-backed coaching**, and a live cube view.
+An extensible trainer for the *intuitive fundamentals* of niche speedcubing
+methods — **block building** (2×2×2 / 2×2×3 / 1×2×3 for Petrus/APB/Roux/LEOR)
+and **edge orientation** (Full EO / EOLine / EOCross for ZZ and others) — with
+live input from **GAN Bluetooth smart cubes** and a live cube view.
 
 Live: **https://ianjohndawson.github.io/smartcube-gym/**
 
-## Design: solver is the brain, AI is the voice
+## Design: the solver is the brain
 
-A fast, mask-driven optimal solver provides ground truth — difficulty, your
-moves vs optimal, hints, detection. The Anthropic API explains the *why* in
-prose. The solver never lies about optimality; the AI never claims it.
+A fast, mask-driven optimal solver is the source of truth — difficulty, your
+moves vs optimal, hints, detection. All hints and feedback are **deterministic**
+(computed from the solver + cube state); there is **no AI/LLM and no external
+calls** — the app is fully self-contained.
 
 ## How it works
 
@@ -19,11 +21,10 @@ prose. The solver never lies about optimality; the AI never claims it.
   EOCross / Cross live in the engine and slot in next.
 - **Single-scramble journeys** — start solved, apply the scramble (the cube view
   follows), then solving begins automatically and steps are tracked in order.
-- **Hint** — optimal next move to the target block, with its home highlighted.
-- **Show ideal** — optimal solution for the current step from its start.
-- **Efficiency** — your move count vs the solver's optimal, per block.
-- **AI coach** — method/step-aware tips (model `claude-sonnet-4-20250514`).
-- **GAN BLE** via `gan-web-bluetooth` (v3), iPad/**Bluefy** dark UI.
+- **Help ladder** — Nudge (highlight the piece / bad edges) → Reveal move (next
+  optimal turn) → Show ideal (full optimal) → Learn by example (walk the ideal).
+- **Efficiency / Timed** — your move count vs the solver's optimal, or a timer + TPS.
+- **GAN BLE** via `gan-web-bluetooth` (v3); Borland/Modern-Dark themes; iPad/**Bluefy**.
 
 ## Tech & layout
 
@@ -36,7 +37,8 @@ Vite + TypeScript, no framework.
 | `src/engine-api.ts` | Shell-facing API: state tracking, mask detection, cached pruning tables, solving, progress |
 | `src/steps.ts` | Step registry (methods → steps) + scrambles |
 | `src/bluetooth.ts` | GAN BLE manager (MAC provider, event log) |
-| `src/coaching.ts` | Anthropic API client |
+| `src/eo-scramble.ts` | Targeted EO scrambles (BFS the 2048 EO states; sample bad-edge count from the binomial) |
+| `src/orient.ts` | Solving-orientation transforms (rotate view + translate notation) |
 | `src/main.ts` | UI + state machine |
 | `src/cube.ts`, `src/solver.ts` | Independent cubie model + IDA\* used to cross-validate the engine masks (`scripts/parity-blocks.ts`) |
 
@@ -53,11 +55,7 @@ npm run build   # type-check + production build
 On the iPad, open the printed Network address in **Bluefy** (Safari has no Web
 Bluetooth). For desktop GAN connection in Chrome/Edge, enable
 `chrome://flags/#enable-experimental-web-platform-features` so the cube's MAC is
-read automatically. Use the **Manual moves** box to test without a cube.
-
-### AI coaching
-
-Open **⚙ Settings** and paste an Anthropic API key (stored only in this browser).
+read automatically.
 
 ## Deploy (GitHub Pages)
 

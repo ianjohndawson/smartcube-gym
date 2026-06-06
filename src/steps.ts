@@ -92,7 +92,7 @@ const STEP_EOCROSS: StepDef = {
 
 export const TRAINERS: TrainerDef[] = [
   { id: 'petrus', label: 'Petrus', category: 'Blocks', description: 'Build a 2×2×2 block, then expand it to a 2×2×3.', steps: [STEP_222, STEP_223] },
-  { id: 'apb', label: 'APB', category: 'Blocks', description: 'Advanced Petrus Blocks: 2×2×2, then a 2×2×3.', steps: [STEP_222, STEP_223] },
+  { id: 'apb', label: 'APB', category: 'Blocks', description: "Athefre's Pair and Block: 2×2×2, then a 2×2×3.", steps: [STEP_222, STEP_223] },
   { id: 'roux', label: 'Roux', category: 'Blocks', description: 'Build a 1×2×3 first block, then a second on the opposite side.', steps: [STEP_123_LEFT, STEP_123_RIGHT] },
   { id: 'leor', label: 'LEOR', category: 'Blocks', description: 'LEOR opening: a 1×2×3 first block, then the second-side block.', steps: [STEP_123_LEFT, STEP_123_RIGHT] },
   { id: 'eo', label: 'Full EO', category: 'EO', description: 'Orient all 12 edges (free — no block kept). The core EO skill.', steps: [STEP_EO] },

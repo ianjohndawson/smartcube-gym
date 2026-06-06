@@ -40,7 +40,6 @@ function badEdgeStickers(c: Cube3x3): number[] {
 }
 import { ORIENT_LABEL, rotateHighlight, rotatedFacelets, toDisplayMoves, toModelMoves } from './orient.ts';
 import { CubeManager, clearSavedMac, getSavedMac } from './bluetooth.ts';
-import { getApiKey, getCoaching, hasApiKey, setApiKey } from './coaching.ts';
 
 type Mode = 'scramble' | 'solve';
 
@@ -69,8 +68,6 @@ interface State {
   assist: { kind: 'nudge' | 'move' | 'ideal'; moves: Move3x3[]; focus: FocusPiece | null } | null;
   learn: { moves: Move3x3[]; baseLen: number } | null; // guided ideal replay
   lastResult: { step: string; used: number; optimal: number | null; yourMoves: Move3x3[]; idealMoves: Move3x3[] } | null;
-  coachText: string;
-  coachBusy: boolean;
   connected: boolean;
   battery: number | null;
   status: string;
@@ -149,8 +146,6 @@ function startScramble(base: Cube3x3, baseHistory: Move3x3[], explicit?: Move3x3
     assist: null,
     learn: null,
     lastResult: state?.lastResult ?? null,
-    coachText: '',
-    coachBusy: false,
     connected: state?.connected ?? false,
     battery: state?.battery ?? null,
     status: 'Apply the scramble to your cube. The cube view follows along.',
@@ -464,7 +459,7 @@ function assist(kind: 'nudge' | 'move' | 'ideal') {
     return;
   }
   const moves = continuation();
-  if (moves.length === 0) { state.assist = null; state.status = 'Nothing to suggest from here — try the AI coach.'; render(); return; }
+  if (moves.length === 0) { state.assist = null; state.status = 'Nothing to suggest from here.'; render(); return; }
   const focus = kind !== 'ideal' && s.kind === 'block' ? nextFocusPiece(state.cube, s.canonicalMask, moves) : null;
   const effective = kind === 'nudge' && !focus ? 'move' : kind;
   state.assist = { kind: effective, moves, focus };
@@ -475,36 +470,6 @@ function assist(kind: 'nudge' | 'move' | 'ideal') {
   render();
 }
 
-async function askCoach(question?: string) {
-  if (!hasApiKey()) { state.showSettings = true; render(); return; }
-  const s = currentStep();
-  if (!s) return;
-  state.coachBusy = true;
-  state.coachText = '';
-  render();
-  try {
-    const cont = continuation();
-    const focus = s.kind === 'block' ? nextFocusPiece(state.cube, s.canonicalMask, cont) : null;
-    const text = await getCoaching({
-      method: trainer().label,
-      methodDescription: trainer().description,
-      stepName: s.label,
-      stepBlurb: s.blurb,
-      scramble: state.scrambleMoves.join(' '),
-      movesDone: state.movesThisStep,
-      optimalContinuation: cont.join(' '),
-      nextPiece: focus?.description,
-      progress: s.kind === 'eo' ? maskProgressFromHistory(state.history, s.canonicalMask) : maskProgress(state.cube, s.canonicalMask),
-      question,
-    });
-    state.coachText = text || '(no response)';
-  } catch (e) {
-    state.coachText = `Error: ${String((e as Error)?.message ?? e)}`;
-  } finally {
-    state.coachBusy = false;
-    render();
-  }
-}
 
 // --- rendering ---
 
@@ -705,10 +670,9 @@ function render() {
     actions.appendChild(btn('Reveal move', () => assist('move')));
     actions.appendChild(btn('Show ideal', () => assist('ideal')));
     actions.appendChild(btn('Learn by example', enterLearn));
-    actions.appendChild(btn(state.coachBusy ? 'Thinking…' : 'AI tip', () => askCoach(), '', state.coachBusy));
     actions.appendChild(btn('Rewind', rewindStep, 'ghost'));
     cur.appendChild(actions);
-    cur.appendChild(el('div', 'hint', 'Nudge = point at the piece(s) · Reveal move = next turn · Show ideal = whole solution · Learn = walk it · AI tip = coaching.'));
+    cur.appendChild(el('div', 'hint', 'Nudge = point at the piece(s) · Reveal move = next turn · Show ideal = whole solution · Learn = walk it.'));
 
     if (state.assist) {
       const a = state.assist;
@@ -716,7 +680,6 @@ function render() {
       else if (a.kind === 'move') { const box = el('div', 'ideal mono'); box.innerHTML = `<span style="color:var(--accent-2)">next ▸ ${disp([a.moves[0]])[0]}</span>`; cur.appendChild(box); }
       else if (a.kind === 'ideal') { cur.appendChild(el('div', 'ideal mono', disp(a.moves).join(' '))); cur.appendChild(el('div', 'hint', 'Full solution from your current position.')); }
     }
-    if (state.coachText) cur.appendChild(el('div', 'coach', `> ${state.coachText}`));
     app.appendChild(cur);
   }
 
@@ -734,9 +697,6 @@ function render() {
     }
     app.appendChild(card);
   }
-
-  // AI coach card removed from the UI; coaching.ts + askCoach() are kept as hooks
-  // in case we re-enable it later.
 
   app.appendChild(el('div', 'hint', state.status));
 
@@ -796,17 +756,6 @@ function renderSettings() {
   const backdrop = el('div', 'modal-backdrop');
   const modal = el('div', 'modal');
   modal.appendChild(el('h2', '', 'Settings'));
-  modal.appendChild(el('div', 'hint', 'Anthropic API key for AI coaching. Stored only in this browser. Uses model claude-sonnet-4-20250514.'));
-  const input = document.createElement('input');
-  input.type = 'password';
-  input.placeholder = 'sk-ant-…';
-  input.value = getApiKey();
-  modal.appendChild(input);
-  const row = el('div', 'row');
-  row.style.justifyContent = 'flex-end';
-  row.appendChild(btn('Save', () => { setApiKey(input.value.trim()); state.showSettings = false; state.status = input.value.trim() ? 'API key saved.' : 'API key cleared.'; render(); }, 'primary'));
-  row.appendChild(btn('Close', () => { state.showSettings = false; render(); }, 'ghost'));
-  modal.appendChild(row);
   modal.appendChild(el('h2', '', 'Cube'));
   const savedMac = getSavedMac();
   modal.appendChild(el('div', 'hint', savedMac ? `Saved cube MAC: ${savedMac}` : 'No cube MAC saved. If auto-detection fails on connect, you will be asked for it once.'));
@@ -826,6 +775,11 @@ function renderSettings() {
   const themes: [string, string][] = [['dark', 'Dark'], ['borland', 'Borland']];
   for (const [id, label] of themes) themeRow.appendChild(btn(label, () => { setTheme(id); render(); }, getTheme() === id ? 'active' : ''));
   modal.appendChild(themeRow);
+
+  const closeRow = el('div', 'row');
+  closeRow.style.justifyContent = 'flex-end';
+  closeRow.appendChild(btn('Close', () => { state.showSettings = false; render(); }, 'primary'));
+  modal.appendChild(closeRow);
 
   backdrop.appendChild(modal);
   backdrop.addEventListener('click', (e) => { if (e.target === backdrop) { state.showSettings = false; render(); } });
