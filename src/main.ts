@@ -15,10 +15,9 @@ import {
 } from './engine-api.ts';
 import { kociembaToNet } from './resync.ts';
 import {
-  CATEGORIES,
+  TRAINERS,
   genScramble,
   trainerById,
-  trainersIn,
   type Category,
   type StepDef,
 } from './steps.ts';
@@ -74,6 +73,7 @@ interface State {
   battery: number | null;
   status: string;
   showSettings: boolean;
+  rightTab: 'coach' | 'stats';
   log: string[];
   lastError: string;
 }
@@ -153,6 +153,7 @@ function startScramble(base: Cube3x3, baseHistory: Move3x3[], explicit?: Move3x3
     battery: state?.battery ?? null,
     status: 'Apply the scramble to your cube. The cube view follows along.',
     showSettings: false,
+    rightTab: state?.rightTab ?? 'coach',
     log: state?.log ?? [],
     lastError: state?.lastError ?? '',
   };
@@ -234,15 +235,18 @@ function checkStepCompletion() {
     const optimal = state.historyValid
       ? optimalToMask(state.stepStartHistory, s.canonicalMask, s.solver) ?? []
       : [];
+    const used = htmCount(state.movesThisStep);
     state.lastResult = state.historyValid
       ? {
           step: s.label,
-          used: htmCount(state.movesThisStep),
+          used,
           optimal: optimal.length,
           yourMoves: [...state.movesThisStep],
           idealMoves: optimal,
         }
       : null;
+    // Log to the Stats history (only when we have a trustworthy ideal to compare to).
+    if (state.historyValid) recordSolve({ step: stepShort(s), used, optimal: optimal.length, ts: Date.now() });
     state.stepDone[state.stepIndex] = true;
     state.assist = null;
     state.status = `${s.label} done!`;
@@ -346,11 +350,8 @@ async function toggleConnect() {
   try { await cube.connect(); } catch (e) { state.status = `Connection failed: ${String((e as Error)?.message ?? e)}`; render(); }
 }
 
-function selectCategory(c: Category) {
-  state.category = c;
-  freshTrainerInPlace(trainersIn(c)[0].id);
-}
-function selectTrainer(id: string) {
+// Method picker is now a flat list of all trainers; selecting one resets the session.
+function selectTrainerFlat(id: string) {
   freshTrainerInPlace(id);
 }
 function freshTrainerInPlace(id: string) {
@@ -474,8 +475,8 @@ function setTheme(t: string) {
   applyTheme(t);
 }
 function applyTheme(t: string) {
-  // Apply to <html> so the whole page background (not just the app) gets themed.
-  document.documentElement.className = t === 'dark' ? '' : `theme-${t}`;
+  // data-theme on <html> drives the token blocks in style.css.
+  document.documentElement.dataset.theme = t === 'borland' ? 'borland' : 'dark';
 }
 
 // --- solving orientation (phase-flip; static x2 for now) ---
@@ -486,7 +487,6 @@ function setOrient(b: boolean) {
   localStorage.setItem(ORIENT_KEY, b ? '1' : '0');
   render();
 }
-let showPicker = false; // Trainer selector collapsed by default
 
 /** True when the solve-phase held frame is active (rotate view + translate notation). */
 function solveFrame(): boolean {
@@ -537,232 +537,402 @@ function assist(kind: 'nudge' | 'move' | 'ideal') {
 
 function render() {
   const s = currentStep();
-  const progress = s ? Math.round(maskProgressState(state.cube, s.canonicalMask) * 100) : 100;
+  const pct = s ? Math.round(maskProgressState(state.cube, s.canonicalMask) * 100) : 100;
   const allDone = state.stepDone.every(Boolean);
+  document.documentElement.dataset.theme = getTheme() === 'borland' ? 'borland' : 'dark';
 
-  // Build into a fragment and swap atomically (avoids the blank-then-repaint flash).
   const app = document.createDocumentFragment();
+  app.appendChild(buildTopBar());
+  app.appendChild(buildToolbar());
 
-  // Top bar
+  const main = el('div', 'main');
+  const left = el('div', 'col');
+  left.appendChild(buildScramblePanel());
+  left.appendChild(buildCubePanel(s));
+  if (steps().length > 1) left.appendChild(buildJourneyPanel());
+  main.appendChild(left);
+
+  const right = el('div', 'panel grow');
+  if (allDone) buildReviewPane(right);
+  else if (s && state.learn) buildLearnPane(right, s);
+  else buildSessionPane(right, s, pct);
+  main.appendChild(right);
+  app.appendChild(main);
+
+  app.appendChild(buildStatusBar());
+
+  appEl.replaceChildren(app);
+  if (state.showSettings) renderSettings();
+}
+
+// --- top bar + toolbar ---
+function segBtn(label: string, onClick: () => void, active: boolean): HTMLButtonElement {
+  return btn(label, onClick, `seg-btn${active ? ' active' : ''}`);
+}
+function tabBtn(label: string, active: boolean, onClick: () => void): HTMLButtonElement {
+  return btn(label, onClick, `tab${active ? ' active' : ''}`);
+}
+function iconBtn(label: string, onClick: () => void): HTMLButtonElement {
+  return btn(label, onClick, 'icon-btn');
+}
+
+function buildTopBar(): HTMLElement {
   const top = el('div', 'topbar');
-  top.appendChild(el('h1', '', 'SmartCube Gym'));
-  const battery = state.battery != null ? ` · ${state.battery}%` : '';
-  top.appendChild(el('span', `pill ${state.connected ? 'ok' : ''}`, state.connected ? `${cube.deviceName || 'Cube'}${battery}` : 'No cube'));
-  if (state.connected) top.appendChild(btn('Sync', () => { cube.requestFacelets(); state.status = 'Reading cube state…'; render(); }, 'ghost'));
-  top.appendChild(btn(state.connected ? 'Disconnect' : 'Connect cube', toggleConnect, state.connected ? 'ghost' : 'primary'));
-  top.appendChild(btn('⚙', () => { state.showSettings = true; render(); }, 'ghost'));
-  app.appendChild(top);
-
-  // Trainer selector (collapsed to a summary until you want to change it)
-  const pick = el('div', 'card');
-  const cat = state.category === 'Blocks' ? 'Block building' : state.category;
-  const head = el('div', 'row');
-  head.style.justifyContent = 'space-between';
-  head.style.alignItems = 'center';
-  head.appendChild(el('div', '', `${cat} · ${trainer().label} · ${state.trainMode === 'timed' ? 'Timed' : 'Efficiency'}`));
-  head.appendChild(btn(showPicker ? 'Done' : 'Change', () => { showPicker = !showPicker; render(); }, 'ghost'));
-  pick.appendChild(head);
-  if (showPicker) {
-    const cats = el('div', 'segmented');
-    cats.style.marginTop = '10px';
-    for (const c of CATEGORIES) cats.appendChild(btn(c === 'Blocks' ? 'Block building' : c, () => selectCategory(c), state.category === c ? 'active' : ''));
-    pick.appendChild(cats);
-    const trs = el('div', 'segmented');
-    trs.style.marginTop = '8px';
-    for (const t of trainersIn(state.category)) trs.appendChild(btn(t.label, () => selectTrainer(t.id), state.trainerId === t.id ? 'active' : ''));
-    pick.appendChild(trs);
-    pick.appendChild(el('p', 'blurb', trainer().description));
-    const modeRow = el('div', 'segmented');
-    modeRow.appendChild(btn('Efficiency', () => setMode('efficiency'), state.trainMode === 'efficiency' ? 'active' : ''));
-    modeRow.appendChild(btn('Timed', () => setMode('timed'), state.trainMode === 'timed' ? 'active' : ''));
-    pick.appendChild(modeRow);
+  // Borland DOS menu (shown only in the Borland theme via CSS)
+  const menu = el('div', 'menu');
+  menu.appendChild(el('span', 'mi', '≡'));
+  for (const label of ['File', 'Train', 'Cube', 'Window', 'Help']) {
+    const mi = el('span', 'mi');
+    mi.appendChild(el('span', 'hot', label[0]));
+    mi.appendChild(document.createTextNode(label.slice(1)));
+    menu.appendChild(mi);
   }
-  app.appendChild(pick);
+  top.appendChild(menu);
+  // Modern brand (shown only in Dark)
+  const brand = el('div', 'brand');
+  brand.appendChild(el('span', 'logo', '◧'));
+  brand.appendChild(document.createTextNode('SmartCube Gym'));
+  top.appendChild(brand);
 
-  // Scramble (with progress highlight)
-  const scrCard = el('div', 'card');
-  const scrHead = el('div', 'row');
-  scrHead.style.justifyContent = 'space-between';
-  scrHead.appendChild(el('h2', '', 'Scramble'));
-  scrHead.appendChild(btn('Next scramble', nextScramble, 'ghost'));
-  scrCard.appendChild(scrHead);
-  scrCard.appendChild(renderScramble());
-  const scrActions = el('div', 'row');
-  scrActions.style.marginTop = '12px';
+  top.appendChild(el('div', 'spacer'));
+  top.appendChild(el('span', 'top-meta', `${trainer().label} · ${state.trainMode === 'timed' ? 'Timed' : 'Efficiency'}`));
+
+  // Cube pill (click = connect/disconnect)
+  const battery = state.battery != null ? ` · ${state.battery}%` : '';
+  const pill = el('span', `cube-pill ${state.connected ? '' : 'off'}`);
+  pill.appendChild(el('span', 'dot'));
+  pill.appendChild(document.createTextNode(state.connected ? `${cube.deviceName || 'Cube'}${battery}` : 'No cube'));
+  pill.style.cursor = 'pointer';
+  pill.title = state.connected ? 'Disconnect' : 'Connect cube';
+  pill.addEventListener('click', toggleConnect);
+  top.appendChild(pill);
+
+  // Theme toggle
+  const themeSeg = el('div', 'seg');
+  for (const [id, label] of [['borland', 'Borland'], ['dark', 'Dark']] as [string, string][])
+    themeSeg.appendChild(segBtn(label, () => { setTheme(id); render(); }, getTheme() === id));
+  top.appendChild(themeSeg);
+
+  if (state.connected) top.appendChild(iconBtn('Sync', () => { cube.requestFacelets(); state.status = 'Reading cube state…'; render(); }));
+  top.appendChild(iconBtn('⚙', () => { state.showSettings = true; render(); }));
+  return top;
+}
+
+function buildToolbar(): HTMLElement {
+  const tb = el('div', 'toolbar');
+  tb.appendChild(el('span', 'lbl', 'Method'));
+  const ms = el('div', 'seg');
+  for (const t of TRAINERS) ms.appendChild(segBtn(t.label, () => selectTrainerFlat(t.id), state.trainerId === t.id));
+  tb.appendChild(ms);
+  tb.appendChild(el('span', 'div', '│'));
+  tb.appendChild(el('span', 'lbl', 'Mode'));
+  const mo = el('div', 'seg');
+  mo.appendChild(segBtn('Efficiency', () => setMode('efficiency'), state.trainMode === 'efficiency'));
+  mo.appendChild(segBtn('Timed', () => setMode('timed'), state.trainMode === 'timed'));
+  tb.appendChild(mo);
+  return tb;
+}
+
+function buildStatusBar(): HTMLElement {
+  const sb = el('div', 'statusbar');
+  const items: [string, string][] = [['F1', 'Help'], ['F2', 'Connect'], ['F3', 'Scramble'], ['F4', 'Nudge'], ['F9', 'Ideal'], ['Alt+X', 'Exit']];
+  items.forEach(([k, l], i) => {
+    if (i > 0) sb.appendChild(el('span', 'sep', '│'));
+    const item = el('span', 'sb');
+    item.appendChild(el('span', 'key', k));
+    item.appendChild(document.createTextNode(` ${l}`));
+    sb.appendChild(item);
+  });
+  return sb;
+}
+
+// --- left column panels ---
+function buildScramblePanel(): HTMLElement {
+  const p = el('div', 'panel');
+  p.appendChild(el('div', 'panel-hd', 'Scramble'));
+  p.appendChild(renderScramble());
+  const row = el('div', 'row');
+  row.style.marginTop = '10px';
   if (state.mode === 'scramble') {
     const rem = scrambleRemaining();
     if (rem.length) {
       const expected = state.scrambleMoves[scrambleDone()];
       const isFix = expected != null && rem[0][0] !== expected[0];
-      const line = el('div', 'hint');
-      line.innerHTML = `Next: <b style="color:var(--accent-2)">${rem[0]}</b>${isFix ? ' — corrects a wrong turn' : ''} · ${rem.length} to go`;
-      scrCard.appendChild(line);
+      const cap = el('div', 'meter-cap');
+      cap.innerHTML = `next <span class="accent-fg">${rem[0]}</span>${isFix ? ' · corrects a wrong turn' : ''} · ${rem.length} to go · solving auto-starts when matched`;
+      p.appendChild(cap);
     } else {
-      scrCard.appendChild(el('div', 'hint', 'Apply the scramble from your current cube. Solving begins automatically when it matches.'));
+      p.appendChild(el('div', 'meter-cap', 'Apply the scramble from your cube — solving auto-starts when matched.'));
     }
-    scrActions.appendChild(btn('Apply scramble for me', applyScrambleNow));
-    scrActions.appendChild(btn('Reset to solved', resetToSolved, 'ghost'));
+    row.appendChild(btn('Apply for me', applyScrambleNow, 'btn ghost'));
+    row.appendChild(btn('Reset', resetToSolved, 'btn ghost'));
   } else {
-    scrActions.appendChild(btn('Reset to solved', resetToSolved, 'ghost'));
+    p.appendChild(el('div', 'meter-cap', 'Scrambled · solving in progress.'));
+    row.appendChild(btn('Next scramble', nextScramble, 'btn ghost'));
+    row.appendChild(btn('Reset', resetToSolved, 'btn ghost'));
   }
-  scrCard.appendChild(scrActions);
-  app.appendChild(scrCard);
+  p.appendChild(row);
+  return p;
+}
 
-  // Cube view
-  const viewCard = el('div', 'card');
-  viewCard.appendChild(el('h2', '', 'Cube view'));
+function buildCubePanel(s: StepDef | null): HTMLElement {
+  const p = el('div', 'panel grow');
+  p.appendChild(el('div', 'panel-hd', 'Cube view'));
   const wrap = el('div', 'cube-wrap');
   let highlight: Set<number> | null = null;
-  let highlightNote = '';
+  let note = '';
   if (state.assist) {
-    if (state.assist.kind === 'ideal') { highlight = new Set(s!.canonicalMask.solvedFaceletIndices); highlightNote = 'Highlighted: the target facelets.'; }
-    else if (state.assist.kind === 'nudge' && s?.kind === 'eo') { highlight = new Set(badEdgeStickers(state.cube)); highlightNote = 'Highlighted: the misoriented edges.'; }
-    else if (state.assist.focus) { highlight = new Set(state.assist.focus.current); highlightNote = `Highlighted: the ${state.assist.focus.description} to place next.`; }
+    if (state.assist.kind === 'ideal') { highlight = new Set(s!.canonicalMask.solvedFaceletIndices); note = 'highlighted: the target facelets'; }
+    else if (state.assist.kind === 'nudge' && s?.kind === 'eo') { highlight = new Set(badEdgeStickers(state.cube)); note = 'highlighted: the misoriented edges'; }
+    else if (state.assist.focus) { highlight = new Set(state.assist.focus.current); note = `highlighted: the ${state.assist.focus.description}`; }
   }
   if (solveFrame() && highlight) highlight = rotateHighlight(highlight);
-  // EO is about edges only — blank the corners so they don't distract.
   const blank = s?.kind === 'eo' ? new Set(CORNER_FACELETS) : null;
   const facelets = solveFrame() ? rotatedFacelets(state.cube) : faceletString(state.cube);
   wrap.appendChild(renderCubeNet(facelets, highlight, blank));
-  viewCard.appendChild(wrap);
-  const holdNote = orientEnabled
-    ? (state.mode === 'solve' ? `Hold ${ORIENT_LABEL} (rotate x2 from the scramble).` : 'Hold white-top / green-front to scramble.')
-    : 'Hold your cube white-up, green-front so it matches.';
-  viewCard.appendChild(el('div', 'hint', highlightNote || `Reflects the model cube. ${holdNote}`));
-  app.appendChild(viewCard);
+  p.appendChild(wrap);
+  const holdNote = orientEnabled && state.mode === 'solve' ? `hold ${ORIENT_LABEL}` : 'hold white-up / green-front';
+  p.appendChild(el('div', 'meter-cap', note || `${holdNote}${s ? ` · ${s.label} target` : ''}`));
+  return p;
+}
 
-  // Journey chips (only show if multi-step)
-  if (steps().length > 1) {
-    const jc = el('div', 'card');
-    jc.appendChild(el('h2', '', 'Journey'));
-    const chips = el('div', 'phases');
-    const solving = state.mode === 'solve';
-    steps().forEach((p, i) => {
-      const isCurrent = solving && i === state.stepIndex;
-      const cls = state.stepDone[i] ? 'done' : isCurrent ? 'active' : '';
-      const chip = el('div', `phase-chip ${cls}`);
-      chip.appendChild(el('div', 'name', p.label));
-      chip.appendChild(el('div', 'state', state.stepDone[i] ? '✓ done' : isCurrent ? 'in progress' : 'upcoming'));
-      chips.appendChild(chip);
-    });
-    jc.appendChild(chips);
-    app.appendChild(jc);
+function buildJourneyPanel(): HTMLElement {
+  const p = el('div', 'panel');
+  p.appendChild(el('div', 'panel-hd', 'Journey'));
+  const chips = el('div', 'chips');
+  const solving = state.mode === 'solve';
+  steps().forEach((st, i) => {
+    const isCur = solving && i === state.stepIndex;
+    const cls = state.stepDone[i] ? 'done' : isCur ? 'active' : '';
+    const c = el('div', `chip ${cls}`);
+    c.appendChild(el('div', 'nm', `${i + 1}. ${st.label}`));
+    c.appendChild(el('div', 'st', state.stepDone[i] ? '✓ done' : isCur ? '» in progress' : '· upcoming'));
+    chips.appendChild(c);
+  });
+  p.appendChild(chips);
+  return p;
+}
+
+// --- right pane: session (tabs + body + dock) ---
+function buildSessionPane(right: HTMLElement, s: StepDef | null, pct: number) {
+  const ideal = idealFromStart();
+  const tabs = el('div', 'panel-tabs');
+  tabs.appendChild(tabBtn('Coach', state.rightTab === 'coach', () => { state.rightTab = 'coach'; render(); }));
+  tabs.appendChild(tabBtn('Stats', state.rightTab === 'stats', () => { state.rightTab = 'stats'; render(); }));
+  tabs.appendChild(el('div', 'spacer'));
+  if (ideal != null) tabs.appendChild(el('span', 'tag', `ideal ${ideal}`));
+  right.appendChild(tabs);
+
+  right.appendChild(state.rightTab === 'stats' ? buildStatsBody() : buildCoachBody(s, ideal));
+  right.appendChild(buildStepDock(s, pct, ideal));
+}
+
+function coachLine(parent: HTMLElement, tag: string, cls: string, msg: string) {
+  const l = el('div', 'cline');
+  l.appendChild(el('span', 'ctag', `[${tag}]`));
+  const m = el('span', `cmsg ${cls}`);
+  m.textContent = msg;
+  l.appendChild(m);
+  parent.appendChild(l);
+}
+
+function buildCoachBody(s: StepDef | null, ideal: number | null): HTMLElement {
+  const c = el('div', 'console');
+  if (!s) { coachLine(c, 'solver', 'c-solver', 'no active step.'); return c; }
+  if (state.mode === 'scramble') { coachLine(c, 'solver', 'c-solver', 'apply the scramble — solving auto-starts when matched.'); return c; }
+  if (!state.historyValid) { coachLine(c, 'hint', 'c-hint', 'move history lost on resync — press “Next scramble”.'); return c; }
+  const used = htmCount(state.movesThisStep);
+  const pct = Math.round(maskProgressState(state.cube, s.canonicalMask) * 100);
+  const cont = continuation();
+  coachLine(c, 'solver', 'c-solver', `${stepShort(s)} · optimal = ${ideal ?? '?'} HTM`);
+  coachLine(c, 'solver', 'c-solver', `progress ${pct}% · ${used} / ${ideal ?? '?'} moves`);
+  if (cont.length) coachLine(c, 'hint', 'c-hint', `next ▸ ${disp(cont).slice(0, 2).join(' then ')}`);
+  else coachLine(c, 'solver', 'c-good', `${s.label} solved ✓`);
+  coachLine(c, 'coach', 'c-coach', coachSentence(s, used, ideal, cont));
+  return c;
+}
+
+// Deterministic, rule-based coaching prose (no AI) from the solver's numbers.
+function coachSentence(s: StepDef, used: number, ideal: number | null, cont: Move3x3[]): string {
+  if (!cont.length) return `${s.label} is complete — clean work.`;
+  const next = disp([cont[0]])[0];
+  const over = ideal != null ? ` The optimal solution from the start is ${ideal} HTM.` : '';
+  return `Your ${s.label} is ${used} move${used === 1 ? '' : 's'} in, with ${cont.length} to go on the solver's line. Next turn: ${next}.${over}`;
+}
+
+function buildStepDock(s: StepDef | null, pct: number, ideal: number | null): HTMLElement {
+  const d = el('div', 'step-dock');
+  const used = htmCount(state.movesThisStep);
+  const hd = el('div', 'dock-hd');
+  hd.appendChild(el('span', '', s ? `Step · ${s.label}` : 'No step'));
+  if (state.trainMode === 'timed') {
+    const txt = state.solveStartMs == null ? '0:00.00' : fmtTime((state.finishedMs ?? Date.now()) - state.solveStartMs);
+    const t = el('span', 'pill', txt);
+    t.id = 'live-timer';
+    hd.appendChild(t);
+  } else {
+    hd.appendChild(el('span', '', `${used} / ${ideal ?? '?'}`));
+  }
+  d.appendChild(hd);
+  const meter = el('div', 'meter');
+  const fill = el('div', 'fill');
+  fill.style.width = `${pct}%`;
+  meter.appendChild(fill);
+  d.appendChild(meter);
+  d.appendChild(el('div', 'meter-cap', `${pct}% complete · your moves ${used}${ideal != null ? ` · ideal ${ideal}` : ''}`));
+
+  const solving = state.mode === 'solve' && !!s;
+  const actions = el('div', 'row');
+  actions.style.marginTop = '12px';
+  actions.appendChild(btn('Nudge', () => assist('nudge'), 'btn default', !solving));
+  actions.appendChild(btn('Reveal', () => assist('move'), 'btn', !solving));
+  actions.appendChild(btn('Ideal', () => assist('ideal'), 'btn', !solving));
+  actions.appendChild(btn('Learn', enterLearn, 'btn', !solving));
+  actions.appendChild(btn('Rewind', rewindStep, 'btn ghost', !solving));
+  d.appendChild(actions);
+
+  if (state.assist) {
+    const a = state.assist;
+    if (a.kind === 'nudge' && a.focus) d.appendChild(el('div', 'ideal', `Focus on the ${a.focus.description}, then pair and insert it.`));
+    else if (a.kind === 'move') { const box = el('div', 'ideal'); box.innerHTML = `<span class="accent2-fg">next ▸ ${disp([a.moves[0]])[0]}</span>`; d.appendChild(box); }
+    else if (a.kind === 'ideal') d.appendChild(el('div', 'ideal', disp(a.moves).join(' ')));
+  }
+  return d;
+}
+
+// --- right pane: all-done review ---
+function buildReviewPane(right: HTMLElement) {
+  right.appendChild(el('div', 'panel-hd', 'Solved'));
+  right.appendChild(el('div', 'solved-banner', '🎉 Solved! Here’s how you did.'));
+  const r = state.lastResult;
+  if (r) {
+    const yours = disp(simplifyMoves(r.yourMoves));
+    const extra = r.optimal != null ? r.used - r.optimal : 0;
+    const verdict = r.optimal == null ? '' : extra <= 0 ? '🏆 optimal!' : extra <= 2 ? '👍 very efficient' : extra <= 5 ? 'good — room to tighten' : 'lots of room to improve';
+    const cmp = el('div', 'coach');
+    cmp.textContent =
+      `your solution (${r.used}): ${yours.join(' ') || '—'}\n` +
+      `ideal (${r.optimal ?? '?'}):  ${disp(r.idealMoves).join(' ')}` +
+      (verdict ? `\n${verdict}` : '');
+    right.appendChild(cmp);
+  }
+  if (state.trainMode === 'timed' && state.solveStartMs != null && state.finishedMs != null) {
+    const ms = state.finishedMs - state.solveStartMs;
+    const moves = htmCount(state.history.slice(state.solveStartLen));
+    const tps = ms > 0 ? (moves / (ms / 1000)).toFixed(1) : '–';
+    right.appendChild(el('div', 'coach', `⏱ ${fmtTime(ms)} · ${moves} moves · ${tps} TPS`));
+  }
+  const row = el('div', 'row');
+  row.style.marginTop = '14px';
+  row.appendChild(btn('Learn the ideal', learnFromReview, 'btn default'));
+  row.appendChild(btn('Try again', tryAgain, 'btn'));
+  row.appendChild(btn('Next scramble', nextScramble, 'btn ghost'));
+  right.appendChild(row);
+}
+
+// --- right pane: learn-by-example walkthrough ---
+function buildLearnPane(right: HTMLElement, s: StepDef) {
+  right.appendChild(el('div', 'panel-hd', `Learn — ${s.label}`));
+  right.appendChild(el('div', 'blurb', 'Follow the ideal move by move. Each turn goes green; a wrong turn shows red.'));
+  const { done, errorIndex } = progressOver(state.learn!.moves, state.history.slice(state.learn!.baseLen));
+  const shown = disp(state.learn!.moves);
+  const box = el('div', 'movelist');
+  box.style.marginTop = '12px';
+  shown.forEach((mv, i) => {
+    const cls = i < done ? 'tok done' : i === errorIndex ? 'tok error' : i === done ? 'tok next' : 'tok';
+    const sp = el('span', cls);
+    sp.textContent = mv;
+    box.appendChild(sp);
+  });
+  right.appendChild(box);
+  if (done < shown.length) right.appendChild(el('div', 'meter-cap', `next move: ${shown[done]} (${done}/${shown.length})`));
+  const row = el('div', 'row');
+  row.style.marginTop = '14px';
+  row.appendChild(btn('Stop walkthrough', stopLearn, 'btn ghost'));
+  right.appendChild(row);
+}
+
+// --- right pane: stats ---
+function buildStatsBody(): HTMLElement {
+  const wrap = el('div', 'stats');
+  const st = computeStats();
+  const tiles = el('div', 'stat-tiles');
+  const t1 = el('div', 'tile');
+  t1.appendChild(el('div', 'big', st.solves ? (st.avgOverIdeal >= 0 ? `+${st.avgOverIdeal.toFixed(1)}` : st.avgOverIdeal.toFixed(1)) : '—'));
+  t1.appendChild(el('div', 'cap', 'avg over ideal'));
+  tiles.appendChild(t1);
+  const t2 = el('div', 'tile alt');
+  t2.appendChild(el('div', 'big', st.solves ? `${st.optimalPct}%` : '—'));
+  t2.appendChild(el('div', 'cap', 'optimal solves'));
+  tiles.appendChild(t2);
+  wrap.appendChild(tiles);
+
+  if (!st.solves) {
+    wrap.appendChild(el('div', 'blurb', 'No solves logged yet. Finish a step to start tracking efficiency.'));
+    return wrap;
   }
 
-  // Current step / banners
-  if (state.mode === 'scramble') {
-    // no banner needed — the Scramble card already guides the user
-  } else if (allDone) {
-    const done = el('div', 'card');
-    done.appendChild(el('div', 'solved-banner', '🎉 Solved! Here’s how you did.'));
-    const r = state.lastResult;
-    if (r) {
-      const yours = disp(simplifyMoves(r.yourMoves));
-      const extra = r.optimal != null ? r.used - r.optimal : 0;
-      const verdict = r.optimal == null ? '' : extra <= 0 ? '🏆 optimal!' : extra <= 2 ? '👍 very efficient' : extra <= 5 ? 'good — room to tighten' : 'lots of room to improve';
-      const cmp = el('div', 'coach mono');
-      cmp.innerHTML =
-        `your solution (${r.used}): ${yours.join(' ') || '—'}\n` +
-        `ideal (${r.optimal ?? '?'}):  ${disp(r.idealMoves).join(' ')}` +
-        (verdict ? `\n${verdict}` : '');
-      done.appendChild(cmp);
-    }
-    if (state.trainMode === 'timed' && state.solveStartMs != null && state.finishedMs != null) {
-      const ms = state.finishedMs - state.solveStartMs;
-      const moves = htmCount(state.history.slice(state.solveStartLen));
-      const tps = ms > 0 ? (moves / (ms / 1000)).toFixed(1) : '–';
-      done.appendChild(el('div', 'coach', `⏱ ${fmtTime(ms)} · ${moves} moves · ${tps} TPS`));
-    }
-    const row = el('div', 'row');
-    row.style.marginTop = '12px';
-    row.appendChild(btn('Learn the ideal', learnFromReview, 'primary'));
-    row.appendChild(btn('Try again', tryAgain));
-    row.appendChild(btn('Next scramble', nextScramble, 'ghost'));
-    done.appendChild(row);
-    app.appendChild(done);
-  } else if (s && state.learn) {
-    const lc = el('div', 'card');
-    lc.appendChild(el('h2', '', `Learn by example — ${s.label}`));
-    lc.appendChild(el('p', 'blurb', 'Follow the ideal solution move by move. Each move turns green; a wrong turn shows red. This is how the trick gets into your hands.'));
-    const { done, errorIndex } = progressOver(state.learn.moves, state.history.slice(state.learn.baseLen));
-    const shown = disp(state.learn.moves); // translate to the held frame for display
-    const box = el('div', 'scramble mono');
-    shown.forEach((mv, i) => {
-      const cls = i < done ? 'tok done' : i === errorIndex ? 'tok error' : i === done ? 'tok next' : 'tok';
-      const span = el('span', cls);
-      span.textContent = mv;
-      box.appendChild(span);
-      box.appendChild(document.createTextNode(' '));
-    });
-    lc.appendChild(box);
-    if (done < shown.length) lc.appendChild(el('div', 'hint', `Next move: ${shown[done]} (${done}/${shown.length} done)`));
-    const la = el('div', 'row');
-    la.style.marginTop = '12px';
-    la.appendChild(btn('Stop walkthrough', stopLearn, 'ghost'));
-    lc.appendChild(la);
-    app.appendChild(lc);
-  } else if (s) {
-    const cur = el('div', 'card');
-    const ideal = idealFromStart();
-    const head = el('div', 'row');
-    head.style.justifyContent = 'space-between';
-    head.appendChild(el('h2', '', `Current step — ${s.label}`));
-    const pills = el('div', 'row');
-    if (state.trainMode === 'timed') {
-      const txt = state.solveStartMs == null ? '0:00.00' : fmtTime((state.finishedMs ?? Date.now()) - state.solveStartMs);
-      const t = el('span', 'pill', txt);
-      t.id = 'live-timer';
-      pills.appendChild(t);
-    }
-    if (ideal != null) pills.appendChild(el('span', 'pill ok', `ideal ${ideal}`));
-    head.appendChild(pills);
-    cur.appendChild(head);
-    cur.appendChild(el('p', 'blurb', s.blurb));
-    const bar = el('div', 'progress');
-    const fill = el('div');
-    fill.style.width = `${progress}%`;
-    bar.appendChild(fill);
-    cur.appendChild(bar);
-    cur.appendChild(el('div', 'hint', `${progress}% complete · your moves: ${htmCount(state.movesThisStep)}${ideal != null ? ` · ideal: ${ideal}` : ''}`));
+  const sect1 = el('div', 'stat-sect');
+  sect1.appendChild(el('div', 'sh', 'extra moves · last 12 solves'));
+  const chart = el('div', 'barchart');
+  const maxExtra = Math.max(1, ...st.last12);
+  st.last12.forEach((v) => {
+    const b = el('div', `b ${v === 0 ? 'zero' : v >= 3 ? 'hi' : ''}`);
+    b.style.height = `${Math.max(6, (v / maxExtra) * 100)}%`;
+    chart.appendChild(b);
+  });
+  sect1.appendChild(chart);
+  wrap.appendChild(sect1);
 
-    const actions = el('div', 'row');
-    actions.style.marginTop = '12px';
-    actions.appendChild(btn('Nudge', () => assist('nudge'), 'primary'));
-    actions.appendChild(btn('Reveal move', () => assist('move')));
-    actions.appendChild(btn('Show ideal', () => assist('ideal')));
-    actions.appendChild(btn('Learn by example', enterLearn));
-    actions.appendChild(btn('Rewind', rewindStep, 'ghost'));
-    cur.appendChild(actions);
-    cur.appendChild(el('div', 'hint', 'Nudge = point at the piece(s) · Reveal move = next turn · Show ideal = whole solution · Learn = walk it.'));
+  const sect2 = el('div', 'stat-sect');
+  sect2.appendChild(el('div', 'sh', 'by step · avg over optimal'));
+  const maxAvg = Math.max(1, ...st.byStep.map((x) => x.avg));
+  st.byStep.forEach((x) => {
+    const r = el('div', 'steprow');
+    r.appendChild(el('div', 'nm', x.label));
+    const track = el('div', 'track');
+    const f = el('div', 'fill');
+    f.style.width = `${(x.avg / maxAvg) * 100}%`;
+    track.appendChild(f);
+    r.appendChild(track);
+    r.appendChild(el('div', 'val', `+${x.avg.toFixed(1)}`));
+    sect2.appendChild(r);
+  });
+  wrap.appendChild(sect2);
+  wrap.appendChild(el('div', 'stat-foot', `${st.solves} solves · best streak ${st.bestStreak} optimal`));
+  return wrap;
+}
 
-    if (state.assist) {
-      const a = state.assist;
-      if (a.kind === 'nudge' && a.focus) cur.appendChild(el('div', 'ideal', `Focus on the ${a.focus.description}. Find it (highlighted), then pair and insert it.`));
-      else if (a.kind === 'move') { const box = el('div', 'ideal mono'); box.innerHTML = `<span style="color:var(--accent-2)">next ▸ ${disp([a.moves[0]])[0]}</span>`; cur.appendChild(box); }
-      else if (a.kind === 'ideal') { cur.appendChild(el('div', 'ideal mono', disp(a.moves).join(' '))); cur.appendChild(el('div', 'hint', 'Full solution from your current position.')); }
-    }
-    app.appendChild(cur);
-  }
+// Short step label for the console / stats ('2×2×2', '2×2×3', '1×2×3', 'EO', …).
+function stepShort(s: StepDef): string {
+  if (s.family) return s.family === '222' ? '2×2×2' : s.family === '223' ? '2×2×3' : '1×2×3';
+  return s.label;
+}
 
-  // Last result — you vs ideal (mid-journey only; the all-done review covers it otherwise)
-  if (state.lastResult && !allDone) {
-    const r = state.lastResult;
-    const card = el('div', 'card');
-    card.appendChild(el('h2', '', 'Result'));
-    if (r.optimal != null) {
-      const extra = r.used - r.optimal;
-      const verdict = extra <= 0 ? '🏆 optimal!' : extra <= 2 ? '👍 very efficient' : extra <= 5 ? 'good — room to tighten' : 'lots of room to improve';
-      card.appendChild(el('div', 'coach', `${r.step}: you solved it in ${r.used} moves — the ideal is ${r.optimal} (${extra <= 0 ? 'matched' : `+${extra}`}). ${verdict}`));
-    } else {
-      card.appendChild(el('div', 'coach', `${r.step}: solved in ${r.used} moves.`));
-    }
-    app.appendChild(card);
-  }
-
-  app.appendChild(el('div', 'hint', state.status));
-
-  appEl.replaceChildren(app);
-  if (state.showSettings) renderSettings();
+// --- stats persistence ---
+const HISTORY_KEY = 'cube-trainer.history';
+interface HistRec { step: string; used: number; optimal: number; ts: number; }
+function loadHistory(): HistRec[] {
+  try { return JSON.parse(localStorage.getItem(HISTORY_KEY) || '[]') as HistRec[]; } catch { return []; }
+}
+function recordSolve(rec: HistRec) {
+  const h = loadHistory();
+  h.push(rec);
+  localStorage.setItem(HISTORY_KEY, JSON.stringify(h.slice(-500)));
+}
+function computeStats() {
+  const h = loadHistory();
+  const solves = h.length;
+  if (!solves) return { solves: 0, avgOverIdeal: 0, optimalPct: 0, bestStreak: 0, last12: [] as number[], byStep: [] as { label: string; avg: number }[] };
+  const extras = h.map((r) => r.used - r.optimal);
+  const avgOverIdeal = extras.reduce((a, b) => a + b, 0) / solves;
+  const optimalPct = Math.round((100 * h.filter((r) => r.used === r.optimal).length) / solves);
+  let best = 0, cur = 0;
+  for (const r of h) { if (r.used === r.optimal) { cur++; best = Math.max(best, cur); } else cur = 0; }
+  const byMap = new Map<string, { sum: number; n: number }>();
+  for (const r of h) { const m = byMap.get(r.step) ?? { sum: 0, n: 0 }; m.sum += r.used - r.optimal; m.n++; byMap.set(r.step, m); }
+  const byStep = [...byMap.entries()].map(([label, m]) => ({ label, avg: m.sum / m.n })).sort((a, b) => a.label.localeCompare(b.label));
+  return { solves, avgOverIdeal, optimalPct, bestStreak: best, last12: extras.slice(-12), byStep };
 }
 
 // Track progress through a token sequence at the face level: tokens completed in
@@ -814,36 +984,54 @@ function renderScramble(): HTMLElement {
 }
 
 function renderSettings() {
+  const close = () => { state.showSettings = false; render(); };
   const backdrop = el('div', 'modal-backdrop');
   const modal = el('div', 'modal');
-  modal.appendChild(el('h2', '', 'Settings'));
-  modal.appendChild(el('h2', '', 'Cube'));
+
+  const title = el('div', 'm-title');
+  title.appendChild(el('h3', '', 'Settings'));
+  title.appendChild(iconBtn('✕', close));
+  modal.appendChild(title);
+
+  // Theme
+  const themeGroup = el('div', 'group');
+  themeGroup.appendChild(el('div', 'glabel', 'Theme'));
+  const themeSeg = el('div', 'seg');
+  for (const [id, label] of [['borland', 'Borland Pascal'], ['dark', 'Modern Dark']] as [string, string][])
+    themeSeg.appendChild(segBtn(label, () => { setTheme(id); render(); }, getTheme() === id));
+  themeGroup.appendChild(themeSeg);
+  modal.appendChild(themeGroup);
+
+  modal.appendChild(el('hr'));
+
+  // Solve orientation
+  const orientGroup = el('div', 'group');
+  orientGroup.appendChild(el('div', 'glabel', 'Solve orientation'));
+  const orientSeg = el('div', 'seg');
+  orientSeg.appendChild(segBtn('White-top', () => setOrient(false), !orientEnabled));
+  orientSeg.appendChild(segBtn('Yellow-top (x2)', () => setOrient(true), orientEnabled));
+  orientGroup.appendChild(orientSeg);
+  orientGroup.appendChild(el('div', 'hint', 'Scramble white-top / green-front, then solve in the chosen hold.'));
+  modal.appendChild(orientGroup);
+
+  modal.appendChild(el('hr'));
+
+  // Cube
+  const cubeGroup = el('div', 'group');
+  cubeGroup.appendChild(el('div', 'glabel', 'Cube'));
   const savedMac = getSavedMac();
-  modal.appendChild(el('div', 'hint', savedMac ? `Saved cube MAC: ${savedMac}` : 'No cube MAC saved. If auto-detection fails on connect, you will be asked for it once.'));
+  cubeGroup.appendChild(el('div', 'hint', savedMac ? `Saved MAC: ${savedMac}` : 'No cube MAC saved. If auto-detection fails on connect, you’ll be asked for it once.'));
   const macRow = el('div', 'row');
-  macRow.appendChild(btn('Forget cube MAC', () => { clearSavedMac(); state.status = 'Saved cube MAC cleared.'; render(); }, 'ghost'));
-  modal.appendChild(macRow);
+  macRow.appendChild(btn('Forget cube MAC', () => { clearSavedMac(); state.status = 'Saved cube MAC cleared.'; render(); }, 'btn ghost'));
+  cubeGroup.appendChild(macRow);
+  modal.appendChild(cubeGroup);
 
-  modal.appendChild(el('h2', '', 'Solve orientation'));
-  modal.appendChild(el('div', 'hint', 'Scramble white-top / green-front, then solve in the chosen hold. (Static x2 for now.)'));
-  const orientRow = el('div', 'segmented');
-  orientRow.appendChild(btn('White-top', () => setOrient(false), !orientEnabled ? 'active' : ''));
-  orientRow.appendChild(btn('Yellow-top (x2)', () => setOrient(true), orientEnabled ? 'active' : ''));
-  modal.appendChild(orientRow);
-
-  modal.appendChild(el('h2', '', 'Theme'));
-  const themeRow = el('div', 'segmented');
-  const themes: [string, string][] = [['dark', 'Dark'], ['borland', 'Borland']];
-  for (const [id, label] of themes) themeRow.appendChild(btn(label, () => { setTheme(id); render(); }, getTheme() === id ? 'active' : ''));
-  modal.appendChild(themeRow);
-
-  const closeRow = el('div', 'row');
-  closeRow.style.justifyContent = 'flex-end';
-  closeRow.appendChild(btn('Close', () => { state.showSettings = false; render(); }, 'primary'));
-  modal.appendChild(closeRow);
+  const actions = el('div', 'm-actions');
+  actions.appendChild(btn('Done', close, 'btn default'));
+  modal.appendChild(actions);
 
   backdrop.appendChild(modal);
-  backdrop.addEventListener('click', (e) => { if (e.target === backdrop) { state.showSettings = false; render(); } });
+  backdrop.addEventListener('click', (e) => { if (e.target === backdrop) close(); });
   appEl.appendChild(backdrop);
 }
 

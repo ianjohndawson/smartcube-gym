@@ -16,15 +16,22 @@ calls** — the app is fully self-contained.
 
 ## How it works
 
+- **Two-pane dashboard** — a left column (scramble · live cube view · journey
+  chips) and a right pane that tabs between a deterministic **Coach** console and
+  a **Stats** panel, with a persistent step-action dock. Skins live between a
+  full **Borland Turbo-Vision** treatment and a **Modern Dark** one (toggle in
+  the top bar or Settings).
 - **Step registry** — every trainable skill is a `StepDef` (mask + solver
-  config) behind one shared engine and shell. Block steps today; EO / EOLine /
-  EOCross / Cross live in the engine and slot in next.
+  config) behind one shared engine and shell. Blocks + EO / EOLine / EOCross.
 - **Single-scramble journeys** — start solved, apply the scramble (the cube view
   follows), then solving begins automatically and steps are tracked in order.
-- **Help ladder** — Nudge (highlight the piece / bad edges) → Reveal move (next
-  optimal turn) → Show ideal (full optimal) → Learn by example (walk the ideal).
+- **Coach console / Help ladder** — `[solver]`/`[hint]`/`[coach]` lines (all
+  deterministic, no AI) plus the dock ladder: Nudge (highlight piece / bad edges)
+  → Reveal (next optimal turn) → Ideal (full optimal) → Learn (walk the ideal).
+- **Stats** — per-step solves are logged to `localStorage`; the Stats tab shows
+  avg-over-ideal, optimal %, an extra-moves bar chart, by-step bars, and streaks.
 - **Efficiency / Timed** — your move count vs the solver's optimal, or a timer + TPS.
-- **GAN BLE** via `gan-web-bluetooth` (v3); Borland/Modern-Dark themes; iPad/**Bluefy**.
+- **GAN BLE** via `gan-web-bluetooth` (v3) with live facelet resync; iPad/**Bluefy**.
 
 ## Tech & layout
 
