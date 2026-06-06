@@ -82,6 +82,10 @@ const MASK_223_EO: Cube3x3Mask = {
   solvedFaceletIndices: MASK_223_BOTTOM_LEFT.solvedFaceletIndices,
   eoFaceletIndices: EO_FACELETS,
 };
+const MASK_123_EO: Cube3x3Mask = {
+  solvedFaceletIndices: MASK_123_LEFT.solvedFaceletIndices,
+  eoFaceletIndices: EO_FACELETS,
+};
 
 const STEP_EO: StepDef = {
   id: 'eo', label: 'EO', kind: 'eo',
@@ -111,6 +115,21 @@ const STEP_PETRUS_EO: StepDef = {
   hold: 'Keep the 2×2×3 intact and orient edges on the F/B axis (Petrus holds the block at the back).',
   solver: { moveSet: BLOCK_MOVES, pruningDepth: 5, depthLimit: 14 },
 };
+// Standalone drills: the scramble pre-builds the block, leaving only EO to do.
+const STEP_EO_223: StepDef = {
+  id: 'eo223', label: 'EO · keep 2×2×3', kind: 'eo',
+  blurb: 'Starting from a finished 2×2×3, orient all 12 edges without breaking it (the Petrus EO skill, drilled on its own).',
+  candidateMasks: [MASK_223_EO], canonicalMask: MASK_223_EO,
+  hold: 'Keep the 2×2×3 intact; orient edges on the F/B axis (block held at the back).',
+  solver: { moveSet: BLOCK_MOVES, pruningDepth: 5, depthLimit: 14 },
+};
+const STEP_EO_123: StepDef = {
+  id: 'eo123', label: 'EO · keep 1×2×3', kind: 'eo',
+  blurb: 'Starting from a finished 1×2×3 first block, orient all 12 edges without breaking it (LEOR/Roux-style EO).',
+  candidateMasks: [MASK_123_EO], canonicalMask: MASK_123_EO,
+  hold: 'Keep the 1×2×3 intact; orient edges on the F/B axis.',
+  solver: { moveSet: BLOCK_MOVES, pruningDepth: 5, depthLimit: 14 },
+};
 
 export const TRAINERS: TrainerDef[] = [
   { id: 'petrus', label: 'Petrus', category: 'Blocks', description: 'Build a 2×2×2, expand to a 2×2×3, then orient all edges keeping the block.', steps: [STEP_222, STEP_223, STEP_PETRUS_EO] },
@@ -118,6 +137,8 @@ export const TRAINERS: TrainerDef[] = [
   { id: 'roux', label: 'Roux', category: 'Blocks', description: 'Build a 1×2×3 first block, then a second on the opposite side.', steps: [STEP_123_LEFT, STEP_123_RIGHT] },
   { id: 'leor', label: 'LEOR', category: 'Blocks', description: 'LEOR opening: a 1×2×3 first block, then the second-side block.', steps: [STEP_123_LEFT, STEP_123_RIGHT] },
   { id: 'eo', label: 'Full EO', category: 'EO', description: 'Orient all 12 edges (free — no block kept). The core EO skill.', steps: [STEP_EO] },
+  { id: 'eo223', label: 'EO · keep 2×2×3', category: 'EO', description: 'Orient all edges while preserving a finished 2×2×3 (Petrus EO, drilled alone).', steps: [STEP_EO_223] },
+  { id: 'eo123', label: 'EO · keep 1×2×3', category: 'EO', description: 'Orient all edges while preserving a finished 1×2×3 first block (LEOR/Roux).', steps: [STEP_EO_123] },
   { id: 'eoline', label: 'EOLine', category: 'EO', description: 'ZZ first step: orient all edges and place the bottom line.', steps: [STEP_EOLINE] },
   { id: 'eocross', label: 'EOCross', category: 'EO', description: 'Orient all edges and solve the bottom cross together.', steps: [STEP_EOCROSS] },
 ];

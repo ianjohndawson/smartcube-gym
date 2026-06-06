@@ -97,6 +97,22 @@ function makeScramble(base: Cube3x3, baseHistory: Move3x3[], stepsList: StepDef[
   // so it works applied from the current cube. From a solved cube, prepend an
   // EO-preserving permutation scramble so the first case still looks messed up.
   if (first.kind === 'eo') {
+    // Block-preserving EO drills (keep 2×2×3 / 1×2×3): the scramble must START
+    // with the block built and only the edges misoriented. Random-scramble, then
+    // solve to the block ONLY (no EO constraint) so EO is left scrambled. Reject
+    // cases where EO already happens to be solved (nothing to practise).
+    if (first.canonicalMask.solvedFaceletIndices.length > 6) {
+      const blockOnly = { solvedFaceletIndices: first.canonicalMask.solvedFaceletIndices };
+      for (let attempt = 0; attempt < 30; attempt++) {
+        const scr = genScramble(16);
+        const build = optimalToMask([...baseHistory, ...scr], blockOnly, first.solver) ?? [];
+        const full = [...scr, ...build];
+        const cube = applyMoves(base, full);
+        if (isMaskSolvedState(cube, blockOnly) && !isMaskSolvedState(cube, first.canonicalMask)) return full;
+      }
+      const scr = genScramble(16);
+      return [...scr, ...(optimalToMask([...baseHistory, ...scr], { solvedFaceletIndices: first.canonicalMask.solvedFaceletIndices }, first.solver) ?? [])];
+    }
     const eoSeq = sampleEoScramble();
     return base.encode() === SOLVED_ENCODE ? [...genEoSafeScramble(10), ...eoSeq] : eoSeq;
   }
