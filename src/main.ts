@@ -93,6 +93,25 @@ function currentStep(): StepDef | null {
 
 function makeScramble(base: Cube3x3, baseHistory: Move3x3[], stepsList: StepDef[]): Move3x3[] {
   const first = stepsList[0];
+  // Course: generate a scramble whose optimal solution to the block lands in the
+  // current level's difficulty band. Shorter random scrambles for easier bands.
+  const tr = trainerById(state?.trainerId ?? '');
+  if (tr.course) {
+    const band = tr.course[Math.min(courseCurrent(tr.id), tr.course.length - 1)];
+    const cfg = { ...first.solver, depthLimit: 16 };
+    const len = band.max >= 99 ? 16 : Math.min(16, band.max + 4);
+    let last = genScramble(len);
+    for (let attempt = 0; attempt < 25; attempt++) {
+      const scr = genScramble(len);
+      last = scr;
+      const cube = applyMoves(base, scr);
+      if (isMaskSolvedState(cube, first.canonicalMask)) continue; // pre-solved
+      const opt = (optimalToMask([...baseHistory, ...scr], first.canonicalMask, cfg) ?? []).length;
+      const eff = opt === 0 ? 99 : opt; // 0 = deeper than the measure limit
+      if (eff >= band.min && eff <= band.max) return scr;
+    }
+    return last;
+  }
   // EO: pick the bad-edge count from the binomial, then use the shortest sequence
   // that yields it (exact distribution, ~5-move scrambles). Permutation-independent,
   // so it works applied from the current cube. From a solved cube, prepend an
@@ -268,6 +287,12 @@ function checkStepCompletion() {
     state.stepDone[state.stepIndex] = true;
     state.assist = null;
     state.status = `${s.label} done!`;
+    // Course: log this solve toward the current level's average-efficiency target.
+    const tr = trainer();
+    if (state.historyValid && tr.course) {
+      const note = recordCourse(tr.id, tr.course.length, used - optimal.length);
+      if (note) state.status = note;
+    }
     if (state.stepIndex < steps().length - 1) {
       state.stepIndex += 1;
       state.stepStartHistory = [...state.history];
@@ -579,7 +604,8 @@ function render() {
   const left = el('div', 'col');
   left.appendChild(buildScramblePanel());
   left.appendChild(buildCubePanel(s));
-  if (steps().length > 1) left.appendChild(buildJourneyPanel());
+  if (trainer().course) left.appendChild(buildCoursePanel());
+  else if (steps().length > 1) left.appendChild(buildJourneyPanel());
   main.appendChild(left);
 
   const right = el('div', 'panel grow');
@@ -735,6 +761,39 @@ function buildCubePanel(s: StepDef | null): HTMLElement {
     ? s.hold
     : `${orientEnabled && state.mode === 'solve' ? `hold ${ORIENT_LABEL}` : 'hold white-up / green-front'}${s ? ` · ${s.label} target` : ''}`;
   p.appendChild(el('div', 'meter-cap', note || holdNote));
+  return p;
+}
+
+function setCourseLevel(id: string, level: number) {
+  setCourseCurrent(id, level);
+  state = freshTrainer(id); // fresh banded scramble at the new level (from solved)
+  render();
+}
+
+function buildCoursePanel(): HTMLElement {
+  const tr = trainer();
+  const bands = tr.course!;
+  const track = courseTrack(tr.id);
+  const cur = track.current;
+  const p = el('div', 'panel');
+  p.appendChild(el('div', 'panel-hd', 'Course'));
+  const chips = el('div', 'chips');
+  bands.forEach((b, i) => {
+    const locked = i > track.unlocked;
+    const stars = track.levels[i]?.stars ?? 0;
+    const c = el('div', `chip ${i === cur ? 'active' : stars > 0 ? 'done' : ''}`);
+    c.appendChild(el('div', 'nm', b.label));
+    c.appendChild(el('div', 'st', locked ? '🔒 locked' : `${'★'.repeat(stars)}${'☆'.repeat(3 - stars)}`));
+    if (!locked) { c.style.cursor = 'pointer'; c.addEventListener('click', () => setCourseLevel(tr.id, i)); }
+    chips.appendChild(c);
+  });
+  p.appendChild(chips);
+  const recent = track.levels[cur]?.recent ?? [];
+  const avg = recent.length ? recent.reduce((a, b) => a + b, 0) / recent.length : null;
+  p.appendChild(el('div', 'meter-cap',
+    recent.length
+      ? `avg +${avg!.toFixed(1)} over last ${recent.length}/${COURSE_WINDOW} · clear at ≤ +${COURSE_TARGETS[0]}`
+      : `solve ${COURSE_WINDOW} at this level to be graded · clear at ≤ +${COURSE_TARGETS[0]}`));
   return p;
 }
 
@@ -977,6 +1036,69 @@ function computeStats() {
   return { solves, avgOverIdeal, optimalPct, bestStreak: best, last12: extras.slice(-12), byStep };
 }
 
+// --- course progress ---
+// Levels are cleared by AVERAGE efficiency over the last COURSE_WINDOW solves:
+// avg(used − optimal) ≤ a target earns stars; ≤ the 1★ target clears + unlocks next.
+const COURSE_KEY = 'cube-trainer.course';
+const COURSE_WINDOW = 5;
+const COURSE_TARGETS = [1.5, 0.9, 0.4]; // 1★, 2★, 3★ thresholds (lower = better)
+interface CourseLevel { recent: number[]; stars: number; }
+interface CourseTrack { unlocked: number; current: number; levels: Record<number, CourseLevel>; }
+type CourseProg = Record<string, CourseTrack>;
+
+function loadCourse(): CourseProg {
+  try { return JSON.parse(localStorage.getItem(COURSE_KEY) || '{}') as CourseProg; } catch { return {}; }
+}
+function saveCourse(p: CourseProg) { localStorage.setItem(COURSE_KEY, JSON.stringify(p)); }
+function courseTrack(id: string): CourseTrack {
+  const p = loadCourse();
+  return p[id] ?? { unlocked: 0, current: 0, levels: {} };
+}
+function courseCurrent(id: string): number {
+  return courseTrack(id).current;
+}
+function setCourseCurrent(id: string, level: number) {
+  const p = loadCourse();
+  const t = p[id] ?? { unlocked: 0, current: 0, levels: {} };
+  t.current = level;
+  p[id] = t;
+  saveCourse(p);
+}
+function starsFor(avg: number): number {
+  if (avg <= COURSE_TARGETS[2]) return 3;
+  if (avg <= COURSE_TARGETS[1]) return 2;
+  if (avg <= COURSE_TARGETS[0]) return 1;
+  return 0;
+}
+// Record one solve at the current level; returns a short status note (cleared / progress).
+function recordCourse(trainerId: string, levelCount: number, extra: number): string {
+  const p = loadCourse();
+  const t = p[trainerId] ?? { unlocked: 0, current: 0, levels: {} };
+  const level = t.current;
+  const lv = t.levels[level] ?? { recent: [], stars: 0 };
+  lv.recent = [...lv.recent, extra].slice(-COURSE_WINDOW);
+  let note = '';
+  if (lv.recent.length >= COURSE_WINDOW) {
+    const avg = lv.recent.reduce((a, b) => a + b, 0) / lv.recent.length;
+    const stars = starsFor(avg);
+    const wasCleared = lv.stars >= 1;
+    lv.stars = Math.max(lv.stars, stars);
+    if (lv.stars >= 1) {
+      const newUnlocked = Math.min(levelCount - 1, level + 1);
+      if (t.unlocked < newUnlocked) t.unlocked = newUnlocked;
+      if (!wasCleared) {
+        note = `Level cleared ${'★'.repeat(lv.stars)}${'☆'.repeat(3 - lv.stars)}`;
+        if (level + 1 < levelCount) { t.current = level + 1; note += ` — Level ${level + 2} unlocked!`; }
+        else note += ' — track complete! 🏆';
+      }
+    }
+  }
+  t.levels[level] = lv;
+  p[trainerId] = t;
+  saveCourse(p);
+  return note;
+}
+
 // Track progress through a token sequence at the face level: tokens completed in
 // order, plus the index of a token being applied with the wrong face -> red.
 function progressOver(tokens: Move3x3[], moves: Move3x3[]): { done: number; errorIndex: number } {
@@ -1111,7 +1233,7 @@ function btn(label: string, onClick: () => void, className = '', disabled = fals
 
 // --- boot ---
 applyTheme(getTheme());
-state = freshTrainer('eo'); // default: Full EO, Efficiency
+state = freshTrainer('course222'); // default: the graded 2×2×2 course
 render();
 
 // Hidden test hook (Manual Moves panel was removed from the UI).

@@ -14,9 +14,16 @@ import {
 import { MOVESETS, type Cube3x3Mask, type Move3x3, type StepSolverConfig } from './engine-api.ts';
 import { MASKS } from './engine/puzzles/cube3x3/index.ts';
 
-export type Category = 'EO' | 'Blocks' | 'Journey';
+export type Category = 'Course' | 'EO' | 'Blocks' | 'Journey';
 export type BlockFamily = '222' | '223' | '123';
 export type StepKind = 'block' | 'eo';
+
+/** A graded course level: scrambles whose optimal solution to the block is in [min,max] HTM. */
+export interface CourseBand {
+  label: string;
+  min: number;
+  max: number;
+}
 
 export interface StepDef {
   id: string;
@@ -40,6 +47,8 @@ export interface TrainerDef {
   category: Category;
   description: string;
   steps: StepDef[];
+  /** For Course trainers: the difficulty ladder (levels graded by optimal HTM). */
+  course?: CourseBand[];
 }
 
 const BLOCK_MOVES = MOVESETS.RUFLDB;
@@ -165,7 +174,25 @@ const STEP_123_RIGHT_DRILL: StepDef = {
   solver: SOLVER['123'],
 };
 
+// --- course ladders (difficulty by optimal HTM to build the block) ---
+const COURSE_222: CourseBand[] = [
+  { label: 'L1 · easy', min: 1, max: 4 },
+  { label: 'L2', min: 5, max: 6 },
+  { label: 'L3', min: 7, max: 8 },
+  { label: 'L4 · full', min: 9, max: 99 },
+];
+const COURSE_223: CourseBand[] = [
+  { label: 'L1 · easy', min: 1, max: 7 },
+  { label: 'L2', min: 8, max: 9 },
+  { label: 'L3', min: 10, max: 11 },
+  { label: 'L4 · full', min: 12, max: 99 },
+];
+
 export const TRAINERS: TrainerDef[] = [
+  // Course — graded block-building ladders (the founding objective).
+  { id: 'course222', label: '2×2×2', category: 'Course', description: 'Graded 2×2×2 course — levels by optimal move count; clear by efficiency to unlock the next.', steps: [STEP_222], course: COURSE_222 },
+  { id: 'course223', label: '2×2×3', category: 'Course', description: 'Graded 2×2×3 course — levels by optimal move count; clear by efficiency to unlock the next.', steps: [STEP_223], course: COURSE_223 },
+
   // EO — orient edges, keeping progressively more built. (2×3×3 B is coming once
   // its scramble generator can pre-build two full layers cheaply.)
   { id: 'eo', label: 'Full', category: 'EO', description: 'Orient all 12 edges (free — no block kept). The core EO skill.', steps: [STEP_EO] },
@@ -184,7 +211,7 @@ export const TRAINERS: TrainerDef[] = [
   { id: 'petrus', label: 'Petrus', category: 'Journey', description: 'Build a 2×2×2, expand to a 2×2×3, then orient all edges keeping the block.', steps: [STEP_222, STEP_223, STEP_PETRUS_EO] },
 ];
 
-export const CATEGORIES: Category[] = ['EO', 'Blocks', 'Journey'];
+export const CATEGORIES: Category[] = ['Course', 'EO', 'Blocks', 'Journey'];
 
 export function trainersIn(category: Category): TrainerDef[] {
   return TRAINERS.filter((t) => t.category === category);
