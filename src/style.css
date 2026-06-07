@@ -181,6 +181,116 @@ html[data-theme='borland'] {
   --danger: #ff5555;
 }
 
+/* ─────────────────────────  MATRIX (green reactor)  ─────────────────────── */
+html[data-theme='matrix'] {
+  --stage-bg: #000600;
+  --bg: #020a04;
+  --panel: rgba(4,18,8,0.82);
+  --text: #c6ffd6;
+  --muted: #4f9a63;
+  --line: #0c4f24;
+  --accent: #00ff66;
+  --accent-2: #7dffb0;
+  --ok: #39ff8a;
+  --warn: #caff5a;
+  --hot: #ff5555;
+  --on-accent: #001a08;
+
+  --font: 'Share Tech Mono', ui-monospace, monospace;
+  --mono: 'Share Tech Mono', ui-monospace, monospace;
+  --fs: 17px;
+
+  --bar-h: 54px;
+  --bar-bg: rgba(0,8,2,0.9);
+  --bar-fg: var(--text);
+  --bar-border: 1px solid var(--line);
+
+  --pill-r: 999px;
+  --ctl-bg: rgba(0,255,90,0.05);
+  --ctl-border: 1px solid var(--line);
+  --ctl-r: 5px;
+
+  --seg-bg: rgba(0,255,90,0.04);
+  --seg-border: 1px solid var(--line);
+  --seg-fg: var(--muted);
+
+  --frame-border: 1px solid #0e5e2c;
+  --radius: 7px;
+  --frame-shadow: 0 0 0 1px rgba(0,255,90,0.08), 0 0 26px rgba(0,255,90,0.12);
+  --panel-pad: 16px;
+  --panel-gap: 16px;
+
+  --hd-fs: 12px;
+  --hd-tt: uppercase;
+  --hd-ls: 0.14em;
+  --hd-fg: var(--muted);
+
+  --tabs-border: 1px solid var(--line);
+  --tabs-pad: 8px;
+  --tab-active-fg: var(--text);
+  --tab-active-bg: transparent;
+
+  --scr-fs: 25px;
+  --scr-ls: 0.5px;
+
+  --s: 40px;
+  --sticker-r: 3px;
+
+  --chip-border: 1px solid var(--line);
+  --chip-bg: rgba(0,255,90,0.04);
+
+  --ctag-w: 88px;
+
+  --bar-r: 6px;
+  --track-bg: #06200f;
+  --meter-fill: linear-gradient(90deg, #00e676, #00ff66, #9dffc4);
+
+  --dock-border: 1px solid var(--line);
+
+  --btn-fg: var(--text);
+  --btn-bg: rgba(0,255,90,0.05);
+  --btn-border: 1px solid #0e5e2c;
+  --btn-shadow: none;
+  --btn-hot: inherit;
+  --btn-default-hot: var(--on-accent);
+  --btn-press: translateY(1px);
+
+  --scrim: rgba(0,6,0,0.65);
+  --modal-bg: #04120a;
+  --modal-border: 1px solid #0e5e2c;
+  --modal-shadow: 0 0 44px rgba(0,255,90,0.15);
+  --input-bg: rgba(0,255,90,0.05);
+
+  --console-bg: #000600;
+  --console-fg: #46ff8c;
+
+  --danger: #ff5555;
+}
+
+/* Matrix flourishes: pulsing green reactor core, glows, Orbitron brand */
+@keyframes core-pulse { 0%,100% { opacity: 0.5; } 50% { opacity: 1; } }
+@keyframes meter-flow { 0% { background-position: 0% 50%; } 100% { background-position: 200% 50%; } }
+html[data-theme='matrix'] #app { background: var(--bg); }
+html[data-theme='matrix'] #app::before {
+  content: ''; position: fixed; inset: 0; z-index: 0; pointer-events: none;
+  background: radial-gradient(circle at 50% 76%, rgba(0,255,90,0.16), transparent 55%);
+  animation: core-pulse 3.4s ease-in-out infinite;
+}
+html[data-theme='matrix'] .topbar,
+html[data-theme='matrix'] .toolbar,
+html[data-theme='matrix'] .main { position: relative; z-index: 1; }
+html[data-theme='matrix'] .tab.active { box-shadow: inset 0 -2px 0 var(--accent); }
+html[data-theme='matrix'] .brand { font-family: 'Orbitron', sans-serif; letter-spacing: 2px; text-transform: uppercase; }
+html[data-theme='matrix'] .brand .logo { text-shadow: 0 0 12px var(--accent); }
+html[data-theme='matrix'] .panel-hd { font-family: 'Orbitron', sans-serif; }
+html[data-theme='matrix'] .btn.default,
+html[data-theme='matrix'] .seg-btn.active { box-shadow: 0 0 14px rgba(0,255,90,0.4); }
+html[data-theme='matrix'] .scramble .tok.next { text-shadow: 0 0 8px var(--accent); }
+html[data-theme='matrix'] .scramble .tok.done { text-shadow: 0 0 8px var(--ok); }
+html[data-theme='matrix'] .cube-net { filter: drop-shadow(0 0 10px rgba(0,255,90,0.35)); }
+html[data-theme='matrix'] .meter .fill { background-size: 200% 100%; animation: meter-flow 2.4s linear infinite; }
+html[data-theme='matrix'] .pill .dot { box-shadow: 0 0 10px var(--ok); }
+
 /* ── Screen (the #app root) ──────────────────────────────────────────────── */
 #app {
   background: var(--bg);

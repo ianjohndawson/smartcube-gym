@@ -565,9 +565,13 @@ function setTheme(t: string) {
   localStorage.setItem(THEME_KEY, t);
   applyTheme(t);
 }
+const THEMES = ['dark', 'borland', 'matrix'];
+function resolveTheme(t: string): string {
+  return THEMES.includes(t) ? t : 'dark';
+}
 function applyTheme(t: string) {
   // data-theme on <html> drives the token blocks in style.css.
-  document.documentElement.dataset.theme = t === 'borland' ? 'borland' : 'dark';
+  document.documentElement.dataset.theme = resolveTheme(t);
 }
 
 // --- solving orientation (phase-flip; static x2 for now) ---
@@ -630,7 +634,7 @@ function render() {
   const s = currentStep();
   const info = s ? progressInfo(state.cube, s) : { frac: 1, pct: 100, caption: '' };
   const allDone = state.stepDone.every(Boolean);
-  document.documentElement.dataset.theme = getTheme() === 'borland' ? 'borland' : 'dark';
+  document.documentElement.dataset.theme = resolveTheme(getTheme());
 
   const app = document.createDocumentFragment();
   app.appendChild(buildTopBar());
@@ -688,7 +692,7 @@ function buildTopBar(): HTMLElement {
 
   // Theme toggle
   const themeSeg = el('div', 'seg');
-  for (const [id, label] of [['borland', 'Borland'], ['dark', 'Dark']] as [string, string][])
+  for (const [id, label] of [['borland', 'Borland'], ['dark', 'Dark'], ['matrix', 'Matrix']] as [string, string][])
     themeSeg.appendChild(segBtn(label, () => { setTheme(id); render(); }, getTheme() === id));
   top.appendChild(themeSeg);
 
@@ -1196,7 +1200,7 @@ function renderSettings() {
   const themeGroup = el('div', 'group');
   themeGroup.appendChild(el('div', 'glabel', 'Theme'));
   const themeSeg = el('div', 'seg');
-  for (const [id, label] of [['borland', 'Borland Pascal'], ['dark', 'Modern Dark']] as [string, string][])
+  for (const [id, label] of [['borland', 'Borland Pascal'], ['dark', 'Modern Dark'], ['matrix', 'Matrix']] as [string, string][])
     themeSeg.appendChild(segBtn(label, () => { setTheme(id); render(); }, getTheme() === id));
   themeGroup.appendChild(themeSeg);
   modal.appendChild(themeGroup);
