@@ -25,9 +25,45 @@ import {
 import { nextFocusPiece, type FocusPiece } from './pieces.ts';
 import { sampleEoScramble } from './eo-scramble.ts';
 import { genEoSafeScramble } from './steps.ts';
-import { CORNER_FACELETS } from './blocks.ts';
+import { CORNER_FACELETS, NET_COORDS } from './blocks.ts';
 
 const SOLVED_ENCODE = newSolved().encode();
+const SOLVED_STR = faceletString(newSolved());
+
+// Facelets grouped into cubies (pieces) by shared coordinate — for piece-based progress.
+const CUBIES: number[][] = (() => {
+  const byCoord = new Map<string, number[]>();
+  NET_COORDS.forEach((c, i) => {
+    const k = c.join(',');
+    (byCoord.get(k) ?? byCoord.set(k, []).get(k)!).push(i);
+  });
+  return [...byCoord.values()];
+})();
+
+// The (non-centre) pieces a mask's block covers.
+function blockPiecesFor(mask: StepDef['canonicalMask']): number[][] {
+  const set = new Set(mask.solvedFaceletIndices);
+  return CUBIES.filter((g) => g.length > 1 && g.some((i) => set.has(i)));
+}
+
+// Step progress as WHOLE pieces placed (+ edges oriented for EO) — meaningful,
+// unlike a raw facelet-colour match. Returns fraction, percent, and a caption.
+function progressInfo(cube: Cube3x3, s: StepDef): { frac: number; pct: number; caption: string } {
+  const f = faceletString(cube);
+  const pieces = blockPiecesFor(s.canonicalMask);
+  const placed = pieces.filter((g) => g.every((i) => f[i] === SOLVED_STR[i])).length;
+  if (s.canonicalMask.eoFaceletIndices) {
+    const oriented = cube.EO.filter(Boolean).length;
+    if (pieces.length) {
+      const frac = (placed + oriented) / (pieces.length + 12);
+      return { frac, pct: Math.round(frac * 100), caption: `${placed}/${pieces.length} pieces · ${oriented}/12 edges` };
+    }
+    const frac = oriented / 12;
+    return { frac, pct: Math.round(frac * 100), caption: `${oriented}/12 edges oriented` };
+  }
+  const frac = pieces.length ? placed / pieces.length : 1;
+  return { frac, pct: Math.round(frac * 100), caption: `${placed}/${pieces.length} pieces placed` };
+}
 
 // EO orbit facelets (mirror the engine's getEO) so we can highlight bad edges.
 const EO_PRIMARY = [1, 3, 5, 7, 32, 24, 26, 30, 46, 48, 50, 52];
@@ -592,7 +628,7 @@ function assist(kind: 'nudge' | 'move' | 'ideal') {
 
 function render() {
   const s = currentStep();
-  const pct = s ? Math.round(maskProgressState(state.cube, s.canonicalMask) * 100) : 100;
+  const info = s ? progressInfo(state.cube, s) : { frac: 1, pct: 100, caption: '' };
   const allDone = state.stepDone.every(Boolean);
   document.documentElement.dataset.theme = getTheme() === 'borland' ? 'borland' : 'dark';
 
@@ -611,11 +647,9 @@ function render() {
   const right = el('div', 'panel grow');
   if (allDone) buildReviewPane(right);
   else if (s && state.learn) buildLearnPane(right, s);
-  else buildSessionPane(right, s, pct);
+  else buildSessionPane(right, s, info);
   main.appendChild(right);
   app.appendChild(main);
-
-  app.appendChild(buildStatusBar());
 
   appEl.replaceChildren(app);
   if (state.showSettings) renderSettings();
@@ -634,17 +668,6 @@ function iconBtn(label: string, onClick: () => void): HTMLButtonElement {
 
 function buildTopBar(): HTMLElement {
   const top = el('div', 'topbar');
-  // Borland DOS menu (shown only in the Borland theme via CSS)
-  const menu = el('div', 'menu');
-  menu.appendChild(el('span', 'mi', '≡'));
-  for (const label of ['File', 'Train', 'Cube', 'Window', 'Help']) {
-    const mi = el('span', 'mi');
-    mi.appendChild(el('span', 'hot', label[0]));
-    mi.appendChild(document.createTextNode(label.slice(1)));
-    menu.appendChild(mi);
-  }
-  top.appendChild(menu);
-  // Modern brand (shown only in Dark)
   const brand = el('div', 'brand');
   brand.appendChild(el('span', 'logo', '◧'));
   brand.appendChild(document.createTextNode('SmartCube Gym'));
@@ -696,19 +719,6 @@ function buildToolbar(): HTMLElement {
   return tb;
 }
 
-function buildStatusBar(): HTMLElement {
-  const sb = el('div', 'statusbar');
-  const items: [string, string][] = [['F1', 'Help'], ['F2', 'Connect'], ['F3', 'Scramble'], ['F4', 'Nudge'], ['F9', 'Ideal'], ['Alt+X', 'Exit']];
-  items.forEach(([k, l], i) => {
-    if (i > 0) sb.appendChild(el('span', 'sep', '│'));
-    const item = el('span', 'sb');
-    item.appendChild(el('span', 'key', k));
-    item.appendChild(document.createTextNode(` ${l}`));
-    sb.appendChild(item);
-  });
-  return sb;
-}
-
 // --- left column panels ---
 function buildScramblePanel(): HTMLElement {
   const p = el('div', 'panel');
@@ -727,12 +737,12 @@ function buildScramblePanel(): HTMLElement {
     } else {
       p.appendChild(el('div', 'meter-cap', 'Apply the scramble from your cube — solving auto-starts when matched.'));
     }
-    row.appendChild(btn('Apply for me', applyScrambleNow, 'btn ghost'));
-    row.appendChild(btn('Reset', resetToSolved, 'btn ghost'));
+    row.appendChild(btn('Apply for me', applyScrambleNow, 'btn'));
+    row.appendChild(btn('Reset', resetToSolved, 'btn'));
   } else {
     p.appendChild(el('div', 'meter-cap', 'Scrambled · solving in progress.'));
-    row.appendChild(btn('Next scramble', nextScramble, 'btn ghost'));
-    row.appendChild(btn('Reset', resetToSolved, 'btn ghost'));
+    row.appendChild(btn('Next scramble', nextScramble, 'btn'));
+    row.appendChild(btn('Reset', resetToSolved, 'btn'));
   }
   p.appendChild(row);
   return p;
@@ -814,8 +824,8 @@ function buildJourneyPanel(): HTMLElement {
   return p;
 }
 
-// --- right pane: session (tabs + body + dock) ---
-function buildSessionPane(right: HTMLElement, s: StepDef | null, pct: number) {
+// --- right pane: session (tabs + actions on top + meter + output console) ---
+function buildSessionPane(right: HTMLElement, s: StepDef | null, info: { frac: number; caption: string }) {
   const ideal = idealFromStart();
   const tabs = el('div', 'panel-tabs');
   tabs.appendChild(tabBtn('Coach', state.rightTab === 'coach', () => { state.rightTab = 'coach'; render(); }));
@@ -824,45 +834,27 @@ function buildSessionPane(right: HTMLElement, s: StepDef | null, pct: number) {
   if (ideal != null) tabs.appendChild(el('span', 'tag', `ideal ${ideal}`));
   right.appendChild(tabs);
 
-  right.appendChild(state.rightTab === 'stats' ? buildStatsBody() : buildCoachBody(s, ideal));
-  right.appendChild(buildStepDock(s, pct, ideal));
+  if (state.rightTab === 'stats') { right.appendChild(buildStatsBody()); return; }
+
+  right.appendChild(buildActions(s));
+  right.appendChild(buildStepMeter(s, info, ideal));
+  right.appendChild(buildCoachBody(s));
 }
 
-function coachLine(parent: HTMLElement, tag: string, cls: string, msg: string) {
-  const l = el('div', 'cline');
-  l.appendChild(el('span', 'ctag', `[${tag}]`));
-  const m = el('span', `cmsg ${cls}`);
-  m.textContent = msg;
-  l.appendChild(m);
-  parent.appendChild(l);
+function buildActions(s: StepDef | null): HTMLElement {
+  const solving = state.mode === 'solve' && !!s;
+  const actions = el('div', 'row');
+  actions.style.marginBottom = '14px';
+  actions.appendChild(btn('Nudge', () => assist('nudge'), 'btn default', !solving));
+  actions.appendChild(btn('Reveal', () => assist('move'), 'btn', !solving));
+  actions.appendChild(btn('Ideal', () => assist('ideal'), 'btn', !solving));
+  actions.appendChild(btn('Learn', enterLearn, 'btn', !solving));
+  actions.appendChild(btn('Rewind', rewindStep, 'btn ghost', !solving));
+  return actions;
 }
 
-function buildCoachBody(s: StepDef | null, ideal: number | null): HTMLElement {
-  const c = el('div', 'console');
-  if (!s) { coachLine(c, 'solver', 'c-solver', 'no active step.'); return c; }
-  if (state.mode === 'scramble') { coachLine(c, 'solver', 'c-solver', 'apply the scramble — solving auto-starts when matched.'); return c; }
-  if (!state.historyValid) { coachLine(c, 'hint', 'c-hint', 'move history lost on resync — press “Next scramble”.'); return c; }
-  const used = htmCount(state.movesThisStep);
-  const pct = Math.round(maskProgressState(state.cube, s.canonicalMask) * 100);
-  const cont = continuation();
-  coachLine(c, 'solver', 'c-solver', `${stepShort(s)} · optimal = ${ideal ?? '?'} HTM`);
-  coachLine(c, 'solver', 'c-solver', `progress ${pct}% · ${used} / ${ideal ?? '?'} moves`);
-  if (cont.length) coachLine(c, 'hint', 'c-hint', `next ▸ ${disp(cont).slice(0, 2).join(' then ')}`);
-  else coachLine(c, 'solver', 'c-good', `${s.label} solved ✓`);
-  coachLine(c, 'coach', 'c-coach', coachSentence(s, used, ideal, cont));
-  return c;
-}
-
-// Deterministic, rule-based coaching prose (no AI) from the solver's numbers.
-function coachSentence(s: StepDef, used: number, ideal: number | null, cont: Move3x3[]): string {
-  if (!cont.length) return `${s.label} is complete — clean work.`;
-  const next = disp([cont[0]])[0];
-  const over = ideal != null ? ` The optimal solution from the start is ${ideal} HTM.` : '';
-  return `Your ${s.label} is ${used} move${used === 1 ? '' : 's'} in, with ${cont.length} to go on the solver's line. Next turn: ${next}.${over}`;
-}
-
-function buildStepDock(s: StepDef | null, pct: number, ideal: number | null): HTMLElement {
-  const d = el('div', 'step-dock');
+function buildStepMeter(s: StepDef | null, info: { frac: number; caption: string }, ideal: number | null): HTMLElement {
+  const wrap = el('div', 'step-meter');
   const used = htmCount(state.movesThisStep);
   const hd = el('div', 'dock-hd');
   hd.appendChild(el('span', '', s ? `Step · ${s.label}` : 'No step'));
@@ -874,31 +866,42 @@ function buildStepDock(s: StepDef | null, pct: number, ideal: number | null): HT
   } else {
     hd.appendChild(el('span', '', `${used} / ${ideal ?? '?'}`));
   }
-  d.appendChild(hd);
+  wrap.appendChild(hd);
   const meter = el('div', 'meter');
   const fill = el('div', 'fill');
-  fill.style.width = `${pct}%`;
+  fill.style.width = `${Math.round(info.frac * 100)}%`;
   meter.appendChild(fill);
-  d.appendChild(meter);
-  d.appendChild(el('div', 'meter-cap', `${pct}% complete · your moves ${used}${ideal != null ? ` · ideal ${ideal}` : ''}`));
+  wrap.appendChild(meter);
+  wrap.appendChild(el('div', 'meter-cap', s ? `${info.caption}${ideal != null ? ` · ideal ${ideal}` : ''}` : ''));
+  return wrap;
+}
 
-  const solving = state.mode === 'solve' && !!s;
-  const actions = el('div', 'row');
-  actions.style.marginTop = '12px';
-  actions.appendChild(btn('Nudge', () => assist('nudge'), 'btn default', !solving));
-  actions.appendChild(btn('Reveal', () => assist('move'), 'btn', !solving));
-  actions.appendChild(btn('Ideal', () => assist('ideal'), 'btn', !solving));
-  actions.appendChild(btn('Learn', enterLearn, 'btn', !solving));
-  actions.appendChild(btn('Rewind', rewindStep, 'btn ghost', !solving));
-  d.appendChild(actions);
+function coachLine(parent: HTMLElement, tag: string, cls: string, msg: string) {
+  const l = el('div', 'cline');
+  if (tag) l.appendChild(el('span', 'ctag', `[${tag}]`));
+  const m = el('span', `cmsg ${cls}`);
+  m.textContent = msg;
+  l.appendChild(m);
+  parent.appendChild(l);
+}
 
-  if (state.assist) {
-    const a = state.assist;
-    if (a.kind === 'nudge' && a.focus) d.appendChild(el('div', 'ideal', `Focus on the ${a.focus.description}, then pair and insert it.`));
-    else if (a.kind === 'move') { const box = el('div', 'ideal'); box.innerHTML = `<span class="accent2-fg">next ▸ ${disp([a.moves[0]])[0]}</span>`; d.appendChild(box); }
-    else if (a.kind === 'ideal') d.appendChild(el('div', 'ideal', disp(a.moves).join(' ')));
+// Output console: shows requested hints only (Nudge/Reveal/Ideal), not auto-answers.
+function buildCoachBody(s: StepDef | null): HTMLElement {
+  const c = el('div', 'console');
+  if (!s) { coachLine(c, '', 'c-muted', 'No active step.'); return c; }
+  if (state.mode === 'scramble') { coachLine(c, '', 'c-muted', 'Apply the scramble — solving auto-starts when matched.'); return c; }
+  if (!state.historyValid) { coachLine(c, 'hint', 'c-hint', 'Move history lost on resync — press “Next scramble”.'); return c; }
+  const a = state.assist;
+  if (!a) { coachLine(c, '', 'c-muted', 'Press Nudge, Reveal or Ideal when you want help.'); return c; }
+  if (a.kind === 'nudge') {
+    if (a.focus) coachLine(c, 'hint', 'c-hint', `focus on the ${a.focus.description} — pair and insert it`);
+    else coachLine(c, 'hint', 'c-hint', state.status);
+  } else if (a.kind === 'move') {
+    coachLine(c, 'hint', 'c-hint', `next ▸ ${disp([a.moves[0]])[0]}`);
+  } else if (a.kind === 'ideal') {
+    coachLine(c, 'solver', 'c-good', `solution ▸ ${disp(a.moves).join(' ')}`);
   }
-  return d;
+  return c;
 }
 
 // --- right pane: all-done review ---

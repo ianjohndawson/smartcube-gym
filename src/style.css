@@ -89,6 +89,9 @@ html[data-theme='dark'] {
   --modal-shadow: 0 30px 70px rgba(0,0,0,0.55);
   --input-bg: #1f2630;
 
+  --console-bg: #05070a;
+  --console-fg: #c8d2de;
+
   --danger: var(--hot);
 }
 
@@ -172,6 +175,9 @@ html[data-theme='borland'] {
   --modal-shadow: 9px 8px 0 rgba(0,0,30,0.55);
   --input-bg: #000078;
 
+  --console-bg: #000000;
+  --console-fg: #d6d6d6;
+
   --danger: #ff5555;
 }
 
@@ -227,8 +233,6 @@ html[data-theme='borland'] #app {
 }
 .icon-btn:hover { border-color: var(--accent); }
 
-html[data-theme='borland'] .menu { display: flex; }
-html[data-theme='borland'] .brand { display: none; }
 html[data-theme='borland'] .top-meta { display: none; }
 
 /* ── Segmented control (method / mode / theme / tabs) ────────────────────── */
@@ -333,15 +337,21 @@ html[data-theme='dark'] .tab.active { box-shadow: inset 0 -2px 0 var(--accent); 
 .chip.active .st { color: var(--accent); }
 .chip.done .st { color: var(--ok); }
 
-/* ── Console (coach) ─────────────────────────────────────────────────────── */
-.console { flex: 1 1 auto; min-height: 0; overflow: auto; padding-right: 4px; font-family: var(--mono); }
+/* ── Console (output panel) ──────────────────────────────────────────────── */
+.console {
+  flex: 1 1 auto; min-height: 120px; overflow: auto;
+  background: var(--console-bg); color: var(--console-fg);
+  border: var(--frame-border); border-radius: var(--ctl-r);
+  padding: 12px 14px; font-family: var(--mono);
+}
 .cline { display: flex; gap: 10px; margin-bottom: 8px; align-items: flex-start; line-height: 1.4; }
-.cline .ctag { flex: 0 0 var(--ctag-w); white-space: pre; color: var(--muted); }
+.cline .ctag { flex: 0 0 auto; white-space: pre; color: var(--muted); }
 .cline .cmsg { flex: 1 1 auto; min-width: 0; }
 .c-solver { color: var(--accent-2); }
 .c-hint { color: var(--warn); }
 .c-good { color: var(--ok); }
-.c-coach { color: var(--text); }
+.c-coach { color: var(--console-fg); }
+.c-muted { color: var(--muted); }
 
 /* ── Stats ───────────────────────────────────────────────────────────────── */
 .stats { flex: 1 1 auto; min-height: 0; overflow: auto; display: flex; flex-direction: column; gap: 16px; }
@@ -363,7 +373,7 @@ html[data-theme='dark'] .tab.active { box-shadow: inset 0 -2px 0 var(--accent); 
 .stat-foot { color: var(--muted); font-size: 0.9em; margin-top: auto; }
 
 /* ── Step dock ───────────────────────────────────────────────────────────── */
-.step-dock { flex: 0 0 auto; border-top: var(--dock-border); margin-top: 12px; padding-top: 14px; }
+.step-meter { flex: 0 0 auto; margin-bottom: 14px; }
 .dock-hd { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; white-space: nowrap; }
 .meter { height: 12px; border-radius: var(--bar-r); background: var(--track-bg); overflow: hidden; }
 .meter .fill { height: 100%; background: var(--meter-fill); border-radius: var(--bar-r); width: 0; transition: width 0.25s; }
