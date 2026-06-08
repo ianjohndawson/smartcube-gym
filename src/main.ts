@@ -1253,9 +1253,22 @@ function progressOver(tokens: Move3x3[], moves: Move3x3[]): { done: number; erro
 // Scramble progress: how many leading tokens are done, and whether the cube is
 // currently OFF the scramble path (a wrong turn) — so the next token can go red.
 // Recovery-friendly: undoing the wrong move puts you back on the path.
+// Mid double-turn (one quarter of the expected X2 done) is NOT an error yet —
+// you're allowed to finish the second quarter before it goes green.
 function scrambleStatus(): { done: number; offTrack: boolean } {
-  const onTrack = state.prefixEncodes[state.scrambleReached] === state.cube.encode();
-  return { done: state.scrambleReached, offTrack: !onTrack };
+  const reached = state.scrambleReached;
+  const cur = state.cube.encode();
+  if (state.prefixEncodes[reached] === cur) return { done: reached, offTrack: false };
+  const next = state.scrambleMoves[reached];
+  if (next && next.includes('2')) {
+    const target = state.prefixEncodes[reached + 1];
+    const face = next[0];
+    // One more quarter (either direction) of the expected face completes the double.
+    if (applyMove(state.cube, face as Move3x3).encode() === target || applyMove(state.cube, `${face}'` as Move3x3).encode() === target) {
+      return { done: reached, offTrack: false };
+    }
+  }
+  return { done: reached, offTrack: true };
 }
 
 // Self-healing remaining moves to reach the scrambled target from wherever the
@@ -1270,7 +1283,8 @@ function renderScramble(): HTMLElement {
   const box = el('div', 'scramble mono');
   const { done, offTrack } = scrambleStatus();
   state.scrambleMoves.forEach((mv, i) => {
-    const cls = i < done ? 'tok done' : i === done && offTrack ? 'tok error' : 'tok';
+    // done = green, the current token = next (highlighted) or red if off-track, rest plain.
+    const cls = i < done ? 'tok done' : i === done ? (offTrack ? 'tok error' : 'tok next') : 'tok';
     const span = el('span', cls);
     span.textContent = mv;
     box.appendChild(span);
