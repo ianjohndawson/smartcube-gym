@@ -1385,6 +1385,10 @@ function stickerEl(f: string, i: number, highlight: Set<number> | null, blank: S
   const dim = !isBlank && highlight && !highlight.has(i) ? ' dim' : '';
   return el('div', isBlank ? 'sticker blank' : `sticker ${f[i]}${dim}`);
 }
+// Flip a face's 3×3 cells left↔right (reverse each row) — for mirror reflections.
+function mirrorCols(cells: number[]): number[] {
+  return [cells[2], cells[1], cells[0], cells[5], cells[4], cells[3], cells[8], cells[7], cells[6]];
+}
 function faceGrid(cls: string, cells: number[], f: string, highlight: Set<number> | null, blank: Set<number> | null): HTMLElement {
   const g = el('div', cls);
   for (const i of cells) g.appendChild(stickerEl(f, i, highlight, blank));
@@ -1400,9 +1404,11 @@ function renderCube3D(f: string, highlight: Set<number> | null = null, blank: Se
   cube.appendChild(faceGrid('face3d face-F', FACE_CELLS.F, f, highlight, blank));
   cube.appendChild(faceGrid('face3d face-R', FACE_CELLS.R, f, highlight, blank));
   scene.appendChild(cube);
+  // Satellites are mirror REFLECTIONS of the hidden faces (as if seen through the
+  // cube), so their columns are flipped left↔right.
   for (const [face, pos] of [['L', 'sat-L'], ['B', 'sat-B'], ['D', 'sat-D']] as [string, string][]) {
     const holder = el('div', `sat3d ${pos}`);
-    holder.appendChild(faceGrid('satgrid', FACE_CELLS[face], f, highlight, blank));
+    holder.appendChild(faceGrid('satgrid', mirrorCols(FACE_CELLS[face]), f, highlight, blank));
     scene.appendChild(holder);
   }
   wrap.appendChild(scene);
