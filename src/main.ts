@@ -218,7 +218,9 @@ function startScramble(base: Cube3x3, baseHistory: Move3x3[], explicit?: Move3x3
     prefixEncodes: computePrefixEncodes(base, moves),
     pendingLearn: false,
     history: [...baseHistory],
-    historyValid: true,
+    // History is trustworthy only if it actually reproduces the base from solved
+    // (false after a resync that restarts from the cube's true state).
+    historyValid: applyMoves(newSolved(), baseHistory).encode() === base.encode(),
     stepStartHistory: [...baseHistory],
     movesThisStep: [],
     stepDone: t.steps.map(() => false),
@@ -375,8 +377,9 @@ function handleFacelets(kociemba: string) {
   }
   if (trueCube.encode() === state.cube.encode()) { state.status = 'Already in sync with your cube.'; render(); return; }
 
-  // Small drift (a missed move or two): find the bridging moves so history stays valid.
-  const bridge = findBridge(state.cube, trueCube, 4);
+  // Small drift (a few missed moves): bridge them so the move history stays valid
+  // and you keep your place in the current scramble/solve.
+  const bridge = findBridge(state.cube, trueCube, 6);
   if (bridge) {
     state.cube = trueCube;
     state.history.push(...bridge);
@@ -385,14 +388,12 @@ function handleFacelets(kociemba: string) {
     render();
     return;
   }
-  // Large drift: hard resync — fixes the view + (state-based) detection; the move
-  // history can't be reconstructed, so hints pause until the next scramble.
-  state.cube = trueCube;
-  state.historyValid = false;
-  state.assist = null;
-  if (state.mode === 'scramble' && state.cube.encode() === state.target.encode()) afterChange();
-  else if (state.mode === 'solve') checkStepCompletion();
-  state.status = 'Resynced from cube — press “Next scramble” for fresh hints.';
+  // Large divergence: restart cleanly with the cube's TRUE state as the base — a
+  // fresh scramble applied from where the cube actually is. This keeps the picture
+  // and the scramble/progress consistent (hints stay gated since we can't rebuild
+  // the from-solved history).
+  state = startScramble(trueCube, []);
+  state.status = 'Synced to your cube — fresh scramble from its current state.';
   render();
 }
 function handleManualMoves(text: string) {
@@ -408,7 +409,7 @@ const cube = new CubeManager({
   onMove: (m) => handleMove(m),
   onFacelets: (f) => handleFacelets(f),
   onBattery: (b) => { state.battery = b; render(); },
-  onConnect: (name) => { state.connected = true; state.lastError = ''; state.status = `Connected to ${name}.`; render(); },
+  onConnect: (name) => { state.connected = true; state.lastError = ''; state.status = `Connected to ${name} — reading cube state…`; awaitingSync = true; cube.requestFacelets(); render(); },
   onDisconnect: () => { state.connected = false; state.status = 'Cube disconnected.'; render(); },
   onError: (e) => { state.lastError = String((e as Error)?.message ?? e); state.status = `Bluetooth error: ${state.lastError}`; render(); },
 });
@@ -476,17 +477,11 @@ function requireHistory(): boolean {
 }
 
 function nextScramble() {
-  // After an unbridgeable hard resync the move history is unknown, so we can't
-  // chain a new scramble onto it (the "history = moves from solved" invariant
-  // would break). Reset to a solved model and ask the user to solve their cube.
-  if (!state.historyValid) {
-    state = freshTrainer(state.trainerId);
-    state.status = 'Reset after resync — solve your cube, then apply the scramble.';
-    render();
-    return;
-  }
-  // continuous: new scramble applied from the current cube state
-  state = startScramble(state.cube, state.history);
+  // Continuous: new scramble from the current cube. If history is untrustworthy
+  // (post resync), start fresh from the current cube as the base (history = [])
+  // so the scramble + picture stay consistent — startScramble recomputes
+  // historyValid (hints stay gated until a clean from-solved run).
+  state = startScramble(state.cube, state.historyValid ? state.history : []);
   render();
 }
 function resetToSolved() {
@@ -1408,7 +1403,6 @@ function renderCube3D(f: string, highlight: Set<number> | null = null, blank: Se
   for (const [face, pos] of [['L', 'sat-L'], ['B', 'sat-B'], ['D', 'sat-D']] as [string, string][]) {
     const holder = el('div', `sat3d ${pos}`);
     holder.appendChild(faceGrid('satgrid', FACE_CELLS[face], f, highlight, blank));
-    holder.appendChild(el('div', 'sat-label', face));
     scene.appendChild(holder);
   }
   wrap.appendChild(scene);
