@@ -295,6 +295,15 @@ function afterChange() {
       state.status = `Scrambled! ${currentStep()?.label ?? ''} — find your solution.`;
     }
   } else {
+    // Flash when a piece is placed / edge oriented (within the same step).
+    const s = currentStep();
+    if (s) {
+      const key = `${state.trainerId}:${state.stepIndex}:${state.scrambleBaseLen}`;
+      const u = placedUnits(state.cube, s);
+      if (key === lastFlashKey && u > lastUnits) flashPieces();
+      lastFlashKey = key;
+      lastUnits = u;
+    }
     checkStepCompletion();
     if (state.stepDone.every(Boolean) && state.finishedMs == null && state.solveStartMs != null) {
       state.finishedMs = Date.now();
@@ -578,7 +587,78 @@ function resolveTheme(t: string): string {
 function applyTheme(t: string) {
   // data-theme on <html> drives the token blocks in style.css.
   document.documentElement.dataset.theme = resolveTheme(t);
+  ensureMatrixRain();
 }
+
+// --- Matrix theme: falling digital rain (lifecycle-managed canvas) ---
+let rainRAF = 0;
+let rainResize: (() => void) | null = null;
+function ensureMatrixRain() {
+  const on = resolveTheme(getTheme()) === 'matrix';
+  const exists = !!document.getElementById('matrix-rain');
+  if (on && !exists) startRain();
+  else if (!on && exists) stopRain();
+}
+function startRain() {
+  const canvas = document.createElement('canvas');
+  canvas.id = 'matrix-rain';
+  document.body.appendChild(canvas);
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return;
+  const glyphs = 'ｱｲｳｴｵｶｷｸｹｺｻｼｽｾｿ0123456789ABCDEF<>*+=:.';
+  const fs = 16;
+  let cols = 0;
+  let drops: number[] = [];
+  const resize = () => {
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
+    cols = Math.ceil(canvas.width / fs);
+    drops = Array.from({ length: cols }, () => Math.random() * -50);
+  };
+  resize();
+  rainResize = resize;
+  window.addEventListener('resize', resize);
+  let last = 0;
+  const frame = (t: number) => {
+    rainRAF = requestAnimationFrame(frame);
+    if (t - last < 55) return; // ~18fps, gentle on the CPU
+    last = t;
+    ctx.fillStyle = 'rgba(0,6,0,0.10)';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.font = `${fs}px 'Share Tech Mono', monospace`;
+    for (let i = 0; i < cols; i++) {
+      const y = drops[i] * fs;
+      ctx.fillStyle = Math.random() < 0.03 ? '#c6ffd6' : '#00ff66';
+      ctx.fillText(glyphs[Math.floor(Math.random() * glyphs.length)], i * fs, y);
+      if (y > canvas.height && Math.random() > 0.975) drops[i] = 0;
+      drops[i]++;
+    }
+  };
+  rainRAF = requestAnimationFrame(frame);
+}
+function stopRain() {
+  if (rainRAF) cancelAnimationFrame(rainRAF);
+  rainRAF = 0;
+  if (rainResize) { window.removeEventListener('resize', rainResize); rainResize = null; }
+  document.getElementById('matrix-rain')?.remove();
+}
+
+// Brief green edge-flash when a block piece is placed / an edge is oriented.
+function flashPieces() {
+  const f = document.createElement('div');
+  f.className = 'piece-flash';
+  document.body.appendChild(f);
+  setTimeout(() => f.remove(), 600);
+}
+// Count of placed block pieces (+ oriented edges for EO) — drives the flash.
+function placedUnits(cube: Cube3x3, s: StepDef): number {
+  const f = faceletString(cube);
+  const placed = blockPiecesFor(s.canonicalMask).filter((g) => g.every((i) => f[i] === SOLVED_STR[i])).length;
+  const oriented = s.canonicalMask.eoFaceletIndices ? cube.EO.filter(Boolean).length : 0;
+  return placed + oriented;
+}
+let lastUnits = 0;
+let lastFlashKey = '';
 
 // --- solving orientation (phase-flip; static x2 for now) ---
 const ORIENT_KEY = 'cube-trainer.orient';
@@ -911,6 +991,12 @@ function buildCoachBody(s: StepDef | null): HTMLElement {
     coachLine(c, 'hint', 'c-hint', `next ▸ ${disp([a.moves[0]])[0]}`);
   } else if (a.kind === 'ideal') {
     coachLine(c, 'solver', 'c-good', `solution ▸ ${disp(a.moves).join(' ')}`);
+  }
+  if (resolveTheme(getTheme()) === 'matrix') {
+    const l = el('div', 'cline');
+    l.appendChild(el('span', 'ctag', '>'));
+    l.appendChild(el('span', 'cursor'));
+    c.appendChild(l);
   }
   return c;
 }

@@ -270,7 +270,8 @@ html[data-theme='matrix'] {
 /* Matrix flourishes: pulsing green reactor core, glows, Orbitron brand */
 @keyframes core-pulse { 0%,100% { opacity: 0.5; } 50% { opacity: 1; } }
 @keyframes meter-flow { 0% { background-position: 0% 50%; } 100% { background-position: 200% 50%; } }
-html[data-theme='matrix'] #app { background: var(--bg); }
+/* Transparent #app so the falling-glyph canvas (z-index:-1) shows through. */
+html[data-theme='matrix'] #app { background: transparent; }
 html[data-theme='matrix'] #app::before {
   content: ''; position: fixed; inset: 0; z-index: 0; pointer-events: none;
   background: radial-gradient(circle at 50% 76%, rgba(0,255,90,0.16), transparent 55%);
@@ -290,6 +291,33 @@ html[data-theme='matrix'] .scramble .tok.done { text-shadow: 0 0 8px var(--ok); 
 html[data-theme='matrix'] .cube-net { filter: drop-shadow(0 0 10px rgba(0,255,90,0.35)); }
 html[data-theme='matrix'] .meter .fill { background-size: 200% 100%; animation: meter-flow 2.4s linear infinite; }
 html[data-theme='matrix'] .pill .dot { box-shadow: 0 0 10px var(--ok); }
+
+/* Falling digital rain (canvas injected by main.ts when the theme is Matrix). */
+#matrix-rain { position: fixed; inset: 0; width: 100%; height: 100%; z-index: -1; pointer-events: none; opacity: 0.22; }
+
+/* Animated HUD corner brackets on every panel. */
+@keyframes bracket-pulse { 0%,100% { opacity: 0.25; } 50% { opacity: 0.7; } }
+html[data-theme='matrix'] .panel::after {
+  content: ''; position: absolute; inset: 6px; pointer-events: none; --c: var(--accent); --l: 14px; --t: 2px;
+  background:
+    linear-gradient(var(--c),var(--c)) 0 0 / var(--l) var(--t) no-repeat,
+    linear-gradient(var(--c),var(--c)) 0 0 / var(--t) var(--l) no-repeat,
+    linear-gradient(var(--c),var(--c)) 100% 0 / var(--l) var(--t) no-repeat,
+    linear-gradient(var(--c),var(--c)) 100% 0 / var(--t) var(--l) no-repeat,
+    linear-gradient(var(--c),var(--c)) 0 100% / var(--l) var(--t) no-repeat,
+    linear-gradient(var(--c),var(--c)) 0 100% / var(--t) var(--l) no-repeat,
+    linear-gradient(var(--c),var(--c)) 100% 100% / var(--l) var(--t) no-repeat,
+    linear-gradient(var(--c),var(--c)) 100% 100% / var(--t) var(--l) no-repeat;
+  animation: bracket-pulse 2.6s ease-in-out infinite;
+}
+
+/* Blinking terminal cursor (added to the console on the Matrix theme). */
+@keyframes blink { 50% { opacity: 0; } }
+.cursor { display: inline-block; width: 9px; height: 1.05em; background: var(--accent); vertical-align: -2px; animation: blink 1s steps(1) infinite; }
+
+/* Green flash when a piece is placed (any theme; uses the theme's "ok" colour). */
+@keyframes piece-flash { 0% { opacity: 0; } 18% { opacity: 0.55; } 100% { opacity: 0; } }
+.piece-flash { position: fixed; inset: 0; pointer-events: none; z-index: 40; box-shadow: inset 0 0 90px 12px var(--ok); opacity: 0; animation: piece-flash 0.6s ease-out forwards; }
 
 /* ── Screen (the #app root) ──────────────────────────────────────────────── */
 #app {
