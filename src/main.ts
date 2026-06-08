@@ -23,6 +23,7 @@ import {
   type StepDef,
 } from './steps.ts';
 import { nextFocusPiece, type FocusPiece } from './pieces.ts';
+import { eoHint, blockHint } from './hints.ts';
 import { sampleEoScramble } from './eo-scramble.ts';
 import { genEoSafeScramble } from './steps.ts';
 import { CORNER_FACELETS, NET_COORDS } from './blocks.ts';
@@ -985,8 +986,10 @@ function buildCoachBody(s: StepDef | null): HTMLElement {
   const a = state.assist;
   if (!a) { coachLine(c, '', 'c-muted', 'Press Nudge, Reveal or Ideal when you want help.'); return c; }
   if (a.kind === 'nudge') {
-    if (a.focus) coachLine(c, 'hint', 'c-hint', `focus on the ${a.focus.description} — pair and insert it`);
-    else coachLine(c, 'hint', 'c-hint', state.status);
+    // Rule-based recognition + technique (no exact moves — that's Reveal/Ideal).
+    const h = s.kind === 'eo' ? eoHint(state.cube) : blockHint(a.focus, true);
+    if (h.name) coachLine(c, 'pattern', 'c-good', h.name);
+    for (const ln of h.lines) coachLine(c, '', 'c-coach', ln);
   } else if (a.kind === 'move') {
     coachLine(c, 'hint', 'c-hint', `next ▸ ${disp([a.moves[0]])[0]}`);
   } else if (a.kind === 'ideal') {

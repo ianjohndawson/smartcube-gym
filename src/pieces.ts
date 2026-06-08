@@ -35,6 +35,8 @@ export interface FocusPiece {
   home: number[];
   /** Human description, e.g. "white-green-red corner". */
   description: string;
+  /** Optimal moves until this piece is placed (drives technique naming). */
+  movesToPlace: number;
 }
 
 interface TargetPiece {
@@ -90,17 +92,17 @@ export function nextFocusPiece(state: Cube3x3, mask: Cube3x3Mask, optimalMoves: 
   if (unsolved.length === 0) return null;
 
   let cur = state;
-  for (const m of optimalMoves) {
-    cur = applyMove(cur, m);
+  for (let k = 0; k < optimalMoves.length; k++) {
+    cur = applyMove(cur, optimalMoves[k]);
     const arr = cur.stateData;
     for (const p of unsolved) {
       if (pieceSolved(arr, p.home)) {
         const current = locate(startArr, p.colors) ?? p.home;
-        return { current, home: p.home, description: describe(p.colors) };
+        return { current, home: p.home, description: describe(p.colors), movesToPlace: k + 1 };
       }
     }
   }
   // fallback: first unsolved piece, located in the starting state
   const p = unsolved[0];
-  return { current: locate(startArr, p.colors) ?? p.home, home: p.home, description: describe(p.colors) };
+  return { current: locate(startArr, p.colors) ?? p.home, home: p.home, description: describe(p.colors), movesToPlace: optimalMoves.length };
 }
