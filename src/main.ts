@@ -670,6 +670,15 @@ function setOrient(b: boolean) {
   render();
 }
 
+// --- cube view mode (flat net vs exploded 3D) ---
+const VIEW3D_KEY = 'cube-trainer.view3d';
+let view3d = localStorage.getItem(VIEW3D_KEY) === '1';
+function setView3d(b: boolean) {
+  view3d = b;
+  localStorage.setItem(VIEW3D_KEY, b ? '1' : '0');
+  render();
+}
+
 /** True when the solve-phase held frame is active (rotate view + translate notation). */
 function solveFrame(): boolean {
   return orientEnabled && state.mode === 'solve';
@@ -851,13 +860,16 @@ function buildCubePanel(s: StepDef | null): HTMLElement {
     else if (state.assist.kind === 'nudge' && s?.kind === 'eo') { highlight = new Set(badEdgeStickers(state.cube)); note = 'highlighted: the misoriented edges'; }
     else if (state.assist.focus) { highlight = new Set(state.assist.focus.current); note = `highlighted: the ${state.assist.focus.description}`; }
   }
-  if (solveFrame() && highlight) highlight = rotateHighlight(highlight);
   // Blank the corners only for *pure* EO (no block kept). A block-preserving EO
   // step (e.g. Petrus) needs its corners visible.
   const pureEo = s?.kind === 'eo' && s.canonicalMask.solvedFaceletIndices.length <= 6;
   const blank = pureEo ? new Set(CORNER_FACELETS) : null;
-  const facelets = solveFrame() ? rotatedFacelets(state.cube) : faceletString(state.cube);
-  wrap.appendChild(renderCubeNet(facelets, highlight, blank));
+  // The 3D view always renders the model (white-up) frame; the solve-frame x2
+  // rotation only applies to the flat net.
+  const rotate = solveFrame() && !view3d;
+  if (rotate && highlight) highlight = rotateHighlight(highlight);
+  const facelets = rotate ? rotatedFacelets(state.cube) : faceletString(state.cube);
+  wrap.appendChild(view3d ? renderCube3D(facelets, highlight, blank) : renderCubeNet(facelets, highlight, blank));
   p.appendChild(wrap);
   const holdNote = s?.hold
     ? s.hold
@@ -1316,6 +1328,18 @@ function renderSettings() {
 
   modal.appendChild(el('hr'));
 
+  // Cube view
+  const viewGroup = el('div', 'group');
+  viewGroup.appendChild(el('div', 'glabel', 'Cube view'));
+  const viewSeg = el('div', 'seg');
+  viewSeg.appendChild(segBtn('Flat net', () => setView3d(false), !view3d));
+  viewSeg.appendChild(segBtn('3D', () => setView3d(true), view3d));
+  viewGroup.appendChild(viewSeg);
+  viewGroup.appendChild(el('div', 'hint', '3D shows the cube isometrically with the hidden back faces floated out around it.'));
+  modal.appendChild(viewGroup);
+
+  modal.appendChild(el('hr'));
+
   // Cube
   const cubeGroup = el('div', 'group');
   cubeGroup.appendChild(el('div', 'glabel', 'Cube'));
@@ -1350,6 +1374,45 @@ function renderCubeNet(f: string, highlight: Set<number> | null = null, blank: S
     net.appendChild(sticker);
   }
   return net;
+}
+
+// Net facelet indices for each face, in head-on reading order (top-left → bottom-right).
+const FACE_CELLS: Record<string, number[]> = {
+  U: [0, 1, 2, 3, 4, 5, 6, 7, 8],
+  L: [9, 10, 11, 21, 22, 23, 33, 34, 35],
+  F: [12, 13, 14, 24, 25, 26, 36, 37, 38],
+  R: [15, 16, 17, 27, 28, 29, 39, 40, 41],
+  B: [18, 19, 20, 30, 31, 32, 42, 43, 44],
+  D: [45, 46, 47, 48, 49, 50, 51, 52, 53],
+};
+function stickerEl(f: string, i: number, highlight: Set<number> | null, blank: Set<number> | null): HTMLElement {
+  const isBlank = blank?.has(i);
+  const dim = !isBlank && highlight && !highlight.has(i) ? ' dim' : '';
+  return el('div', isBlank ? 'sticker blank' : `sticker ${f[i]}${dim}`);
+}
+function faceGrid(cls: string, cells: number[], f: string, highlight: Set<number> | null, blank: Set<number> | null): HTMLElement {
+  const g = el('div', cls);
+  for (const i of cells) g.appendChild(stickerEl(f, i, highlight, blank));
+  return g;
+}
+// Exploded 3D cube: U/F/R shown as a real CSS-3D cube; the hidden D/L/B faces
+// floated out around it (CrystalCube style) so the whole state is visible.
+function renderCube3D(f: string, highlight: Set<number> | null = null, blank: Set<number> | null = null): HTMLElement {
+  const wrap = el('div', 'cube3d');
+  const scene = el('div', 'scene3d');
+  const cube = el('div', 'cube3d-inner');
+  cube.appendChild(faceGrid('face3d face-U', FACE_CELLS.U, f, highlight, blank));
+  cube.appendChild(faceGrid('face3d face-F', FACE_CELLS.F, f, highlight, blank));
+  cube.appendChild(faceGrid('face3d face-R', FACE_CELLS.R, f, highlight, blank));
+  scene.appendChild(cube);
+  for (const [face, pos] of [['L', 'sat-L'], ['B', 'sat-B'], ['D', 'sat-D']] as [string, string][]) {
+    const holder = el('div', `sat3d ${pos}`);
+    holder.appendChild(faceGrid('satgrid', FACE_CELLS[face], f, highlight, blank));
+    holder.appendChild(el('div', 'sat-label', face));
+    scene.appendChild(holder);
+  }
+  wrap.appendChild(scene);
+  return wrap;
 }
 
 function el(tag: string, className = '', text = ''): HTMLElement {
