@@ -96,6 +96,7 @@ interface State {
   target: Cube3x3; // base + scramble
   scrambleMoves: Move3x3[];
   scrambleBaseLen: number; // history length when this scramble was issued
+  scrambleReached: number; // furthest on-track scramble index reached (for progress + off-track red)
   prefixEncodes: string[]; // encoded states base..target (for green progress)
   pendingLearn: boolean; // after this setup completes, start the ideal walkthrough
   history: Move3x3[]; // all moves from solved
@@ -212,6 +213,7 @@ function startScramble(base: Cube3x3, baseHistory: Move3x3[], explicit?: Move3x3
     target: applyMoves(base, moves),
     scrambleMoves: moves,
     scrambleBaseLen: baseHistory.length,
+    scrambleReached: 0,
     prefixEncodes: computePrefixEncodes(base, moves),
     pendingLearn: false,
     history: [...baseHistory],
@@ -273,6 +275,10 @@ function afterLearnMove() {
 
 function afterChange() {
   if (state.mode === 'scramble') {
+    // Track the furthest on-track scramble position (monotonic across off-track
+    // excursions): used for green progress and off-track red, recovery-friendly.
+    const cur = state.cube.encode();
+    for (let k = 0; k < state.prefixEncodes.length; k++) if (state.prefixEncodes[k] === cur) state.scrambleReached = k;
     if (state.cube.encode() === state.target.encode()) {
       state.mode = 'solve';
       state.stepStartHistory = [...state.history];
@@ -727,16 +733,17 @@ function buildToolbar(): HTMLElement {
 function buildScramblePanel(): HTMLElement {
   const p = el('div', 'panel');
   p.appendChild(el('div', 'panel-hd', 'Scramble'));
-  p.appendChild(renderScramble());
   const row = el('div', 'row');
   row.style.marginTop = '10px';
   if (state.mode === 'scramble') {
+    // Only show the scramble while applying it — once solving starts it's hidden
+    // (otherwise it's the optimal solution reversed; e.g. EO scramble = inverse).
+    p.appendChild(renderScramble());
+    const { offTrack } = scrambleStatus();
     const rem = scrambleRemaining();
     if (rem.length) {
-      const expected = state.scrambleMoves[scrambleDone()];
-      const isFix = expected != null && rem[0][0] !== expected[0];
       const cap = el('div', 'meter-cap');
-      cap.innerHTML = `next <span class="accent-fg">${rem[0]}</span>${isFix ? ' · corrects a wrong turn' : ''} · ${rem.length} to go · solving auto-starts when matched`;
+      cap.innerHTML = `next <span class="accent-fg">${rem[0]}</span>${offTrack ? ' · corrects a wrong turn' : ''} · ${rem.length} to go · solving auto-starts when matched`;
       p.appendChild(cap);
     } else {
       p.appendChild(el('div', 'meter-cap', 'Apply the scramble from your cube — solving auto-starts when matched.'));
@@ -744,7 +751,7 @@ function buildScramblePanel(): HTMLElement {
     row.appendChild(btn('Apply for me', applyScrambleNow, 'btn'));
     row.appendChild(btn('Reset', resetToSolved, 'btn'));
   } else {
-    p.appendChild(el('div', 'meter-cap', 'Scrambled · solving in progress.'));
+    p.appendChild(el('div', 'meter-cap', 'Scramble hidden while you solve — press “Next scramble” for a fresh one.'));
     row.appendChild(btn('Next scramble', nextScramble, 'btn'));
     row.appendChild(btn('Reset', resetToSolved, 'btn'));
   }
@@ -1158,12 +1165,12 @@ function progressOver(tokens: Move3x3[], moves: Move3x3[]): { done: number; erro
   return { done: ti, errorIndex: -1 };
 }
 
-// Leading scramble tokens whose resulting state has actually been reached.
-function scrambleDone(): number {
-  const cur = state.cube.encode();
-  let done = 0;
-  for (let k = 0; k < state.prefixEncodes.length; k++) if (state.prefixEncodes[k] === cur) done = k;
-  return done;
+// Scramble progress: how many leading tokens are done, and whether the cube is
+// currently OFF the scramble path (a wrong turn) — so the next token can go red.
+// Recovery-friendly: undoing the wrong move puts you back on the path.
+function scrambleStatus(): { done: number; offTrack: boolean } {
+  const onTrack = state.prefixEncodes[state.scrambleReached] === state.cube.encode();
+  return { done: state.scrambleReached, offTrack: !onTrack };
 }
 
 // Self-healing remaining moves to reach the scrambled target from wherever the
@@ -1176,9 +1183,10 @@ function scrambleRemaining(): Move3x3[] {
 
 function renderScramble(): HTMLElement {
   const box = el('div', 'scramble mono');
-  const done = scrambleDone();
+  const { done, offTrack } = scrambleStatus();
   state.scrambleMoves.forEach((mv, i) => {
-    const span = el('span', i < done ? 'tok done' : 'tok');
+    const cls = i < done ? 'tok done' : i === done && offTrack ? 'tok error' : 'tok';
+    const span = el('span', cls);
     span.textContent = mv;
     box.appendChild(span);
     box.appendChild(document.createTextNode(' '));
