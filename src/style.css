@@ -61,7 +61,7 @@ html[data-theme='dark'] {
   --scr-fs: 25px;
   --scr-ls: 0.5px;
 
-  --s: 40px;
+  --s: 34px;
   --sticker-r: 6px;
 
   --chip-border: 1px solid var(--line);
@@ -147,7 +147,7 @@ html[data-theme='borland'] {
   --scr-fs: 28px;
   --scr-ls: 2px;
 
-  --s: 40px;
+  --s: 34px;
   --sticker-r: 0;
 
   --chip-border: 2px solid #1f8f8f;
@@ -233,7 +233,7 @@ html[data-theme='matrix'] {
   --scr-fs: 25px;
   --scr-ls: 0.5px;
 
-  --s: 40px;
+  --s: 34px;
   --sticker-r: 3px;
 
   --chip-border: 1px solid var(--line);
@@ -591,4 +591,14 @@ html[data-theme='borland'] .modal .glabel { color: #303030; }
 @media (max-width: 420px) {
   :root, html[data-theme='dark'] { --s: 22px; }
   html[data-theme='borland'] { --s: 22px; }
+}
+/* Short viewports (e.g. iPad landscape): shrink the cube so the whole session
+   fits the height without scrolling. */
+@media (max-height: 860px) {
+  :root, html[data-theme='dark'], html[data-theme='borland'], html[data-theme='matrix'] { --s: 24px; --panel-gap: 12px; }
+  .main { padding: 12px; }
+  /* Borland's big DOS font is the height hog — shrink it so the session fits too. */
+  html[data-theme='borland'] { --fs: 17px; --scr-fs: 21px; --hd-fs: 17px; --panel-pad: 12px; }
+  /* Matrix's mono body font wraps wider/taller — trim it a touch as well. */
+  html[data-theme='matrix'] { --fs: 15px; --scr-fs: 21px; }
 }
