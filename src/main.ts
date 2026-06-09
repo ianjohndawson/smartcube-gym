@@ -200,8 +200,13 @@ function makeScramble(base: Cube3x3, baseHistory: Move3x3[], stepsList: StepDef[
     return [...scr, ...(optimalToMask([...baseHistory, ...scr], prereq, buildCfg) ?? [])];
   }
   if (first.kind === 'eo') {
+    // Pad every EO scramble up to a uniform ~10 moves with EO-PRESERVING moves
+    // (they don't change the bad-edge pattern). This obfuscates: a short scramble
+    // is just the optimal solution reversed, and a uniform length hides the
+    // difficulty. The targeted bad-edge case (and so the optimal) is unchanged.
     const eoSeq = sampleEoScramble();
-    return base.encode() === SOLVED_ENCODE ? [...genEoSafeScramble(10), ...eoSeq] : eoSeq;
+    const pad = Math.max(0, 10 - eoSeq.length);
+    return [...genEoSafeScramble(pad), ...eoSeq];
   }
   // Blocks: a normal-length random scramble, rejecting any that pre-solve the step.
   for (let attempt = 0; attempt < 25; attempt++) {
@@ -367,13 +372,23 @@ function checkStepCompletion() {
         }
       : null;
     // Log to the Stats history (only when we have a trustworthy ideal to compare to).
-    if (state.historyValid) recordSolve({ step: stepShort(s), used, optimal: optimal.length, ts: Date.now() });
+    // Record solve time only for single-step trainers (EO / course / drills) — the
+    // journey timer isn't meaningful per-step on multi-step methods.
+    lastRecord = { history: false };
+    if (state.historyValid) {
+      const single = steps().length === 1;
+      const ms = single && state.solveStartMs != null ? Date.now() - state.solveStartMs : undefined;
+      recordSolve({ step: stepShort(s), used, optimal: optimal.length, ts: Date.now(), ms });
+      lastRecord.history = true;
+    }
     state.stepDone[state.stepIndex] = true;
     state.assist = null;
     state.status = `${s.label} done!`;
-    // Course: log this solve toward the current level's average-efficiency target.
+    // Course: log this solve toward the current level's consistency target.
     const tr = trainer();
     if (state.historyValid && tr.course) {
+      lastRecord.trainerId = tr.id;
+      lastRecord.level = courseCurrent(tr.id);
       const note = recordCourse(tr.id, tr.course.length, used - optimal.length);
       if (note) state.status = note;
     }
@@ -978,7 +993,7 @@ function buildStepMeter(s: StepDef | null, info: { frac: number; caption: string
   hd.appendChild(el('span', '', s ? `Step · ${s.label}` : 'No step'));
   if (state.trainMode === 'timed') {
     const txt = state.solveStartMs == null ? '0:00.00' : fmtTime((state.finishedMs ?? Date.now()) - state.solveStartMs);
-    const t = el('span', 'pill', txt);
+    const t = el('span', 'timer', txt);
     t.id = 'live-timer';
     hd.appendChild(t);
   } else {
@@ -1051,13 +1066,17 @@ function buildReviewPane(right: HTMLElement) {
     const ms = state.finishedMs - state.solveStartMs;
     const moves = htmCount(state.history.slice(state.solveStartLen));
     const tps = ms > 0 ? (moves / (ms / 1000)).toFixed(1) : '–';
-    right.appendChild(el('div', 'coach', `⏱ ${fmtTime(ms)} · ${moves} moves · ${tps} TPS`));
+    const t = el('div', 'timer');
+    t.textContent = `⏱ ${fmtTime(ms)}`;
+    right.appendChild(t);
+    right.appendChild(el('div', 'meter-cap', `${moves} moves · ${tps} TPS`));
   }
   const row = el('div', 'row');
   row.style.marginTop = '14px';
   row.appendChild(btn('Learn the ideal', learnFromReview, 'btn default'));
   row.appendChild(btn('Try again', tryAgain, 'btn'));
-  row.appendChild(btn('Next scramble', nextScramble, 'btn ghost'));
+  row.appendChild(btn('Next scramble', nextScramble, 'btn'));
+  row.appendChild(btn('Discard', discardLastSolve, 'btn ghost'));
   right.appendChild(row);
 }
 
@@ -1113,6 +1132,32 @@ function buildCourseStats(): HTMLElement {
   return sect;
 }
 
+// Simple SVG line chart (lower = better, e.g. solve times trending down).
+function buildLineChart(values: number[]): HTMLElement {
+  const wrap = el('div', 'linechart');
+  const W = 320, H = 80, pad = 6;
+  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
+  svg.setAttribute('preserveAspectRatio', 'none');
+  if (values.length >= 2) {
+    const max = Math.max(...values), min = Math.min(...values), range = (max - min) || 1;
+    const pts = values.map((v, i) => {
+      const x = (i / (values.length - 1)) * (W - pad * 2) + pad;
+      const y = H - pad - ((v - min) / range) * (H - pad * 2);
+      return `${x.toFixed(1)},${y.toFixed(1)}`;
+    }).join(' ');
+    const poly = document.createElementNS('http://www.w3.org/2000/svg', 'polyline');
+    poly.setAttribute('points', pts);
+    poly.setAttribute('fill', 'none');
+    poly.setAttribute('stroke', 'var(--accent)');
+    poly.setAttribute('stroke-width', '2');
+    poly.setAttribute('stroke-linejoin', 'round');
+    svg.appendChild(poly);
+  }
+  wrap.appendChild(svg);
+  return wrap;
+}
+
 function buildStatsBody(): HTMLElement {
   const wrap = el('div', 'stats');
   const st = computeStats();
@@ -1133,6 +1178,14 @@ function buildStatsBody(): HTMLElement {
   if (!st.solves) {
     wrap.appendChild(el('div', 'blurb', 'No solves logged yet. Finish a step to start tracking efficiency.'));
     return wrap;
+  }
+
+  // Solve-time trend (only single-step solves carry a time).
+  if (st.lastTimes.length) {
+    const tsec = el('div', 'stat-sect');
+    tsec.appendChild(el('div', 'sh', `solve time · last ${st.lastTimes.length} (best ${fmtTime(st.bestMs!)} · avg ${fmtTime(st.avgMs!)})`));
+    tsec.appendChild(buildLineChart(st.lastTimes));
+    wrap.appendChild(tsec);
   }
 
   const sect1 = el('div', 'stat-sect');
@@ -1174,7 +1227,9 @@ function stepShort(s: StepDef): string {
 
 // --- stats persistence ---
 const HISTORY_KEY = 'cube-trainer.history';
-interface HistRec { step: string; used: number; optimal: number; ts: number; }
+interface HistRec { step: string; used: number; optimal: number; ts: number; ms?: number; }
+// What the last completed solve recorded — so it can be discarded ("didn't count").
+let lastRecord: { history: boolean; trainerId?: string; level?: number } = { history: false };
 function loadHistory(): HistRec[] {
   try { return JSON.parse(localStorage.getItem(HISTORY_KEY) || '[]') as HistRec[]; } catch { return []; }
 }
@@ -1183,10 +1238,30 @@ function recordSolve(rec: HistRec) {
   h.push(rec);
   localStorage.setItem(HISTORY_KEY, JSON.stringify(h.slice(-500)));
 }
+// Remove the last recorded solve from Stats + the course window (a botched solve).
+function discardLastSolve() {
+  if (lastRecord.history) {
+    const h = loadHistory();
+    h.pop();
+    localStorage.setItem(HISTORY_KEY, JSON.stringify(h));
+  }
+  if (lastRecord.trainerId != null && lastRecord.level != null) {
+    const p = loadCourse();
+    const lv = p[lastRecord.trainerId]?.levels?.[lastRecord.level];
+    if (lv?.recent.length) { lv.recent.pop(); saveCourse(p); }
+  }
+  lastRecord = { history: false };
+  state.status = 'Solve discarded — not counted.';
+  nextScramble();
+}
 function computeStats() {
   const h = loadHistory();
   const solves = h.length;
-  if (!solves) return { solves: 0, avgOverIdeal: 0, optimalPct: 0, bestStreak: 0, last12: [] as number[], byStep: [] as { label: string; avg: number }[] };
+  const times = h.filter((r) => r.ms != null).map((r) => r.ms as number);
+  const bestMs = times.length ? Math.min(...times) : null;
+  const avgMs = times.length ? times.reduce((a, b) => a + b, 0) / times.length : null;
+  const lastTimes = times.slice(-20);
+  if (!solves) return { solves: 0, avgOverIdeal: 0, optimalPct: 0, bestStreak: 0, last12: [] as number[], byStep: [] as { label: string; avg: number }[], bestMs, avgMs, lastTimes };
   const extras = h.map((r) => r.used - r.optimal);
   const avgOverIdeal = extras.reduce((a, b) => a + b, 0) / solves;
   const optimalPct = Math.round((100 * h.filter((r) => r.used === r.optimal).length) / solves);
@@ -1195,7 +1270,7 @@ function computeStats() {
   const byMap = new Map<string, { sum: number; n: number }>();
   for (const r of h) { const m = byMap.get(r.step) ?? { sum: 0, n: 0 }; m.sum += r.used - r.optimal; m.n++; byMap.set(r.step, m); }
   const byStep = [...byMap.entries()].map(([label, m]) => ({ label, avg: m.sum / m.n })).sort((a, b) => a.label.localeCompare(b.label));
-  return { solves, avgOverIdeal, optimalPct, bestStreak: best, last12: extras.slice(-12), byStep };
+  return { solves, avgOverIdeal, optimalPct, bestStreak: best, last12: extras.slice(-12), byStep, bestMs, avgMs, lastTimes };
 }
 
 // --- course progress ---
