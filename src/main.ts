@@ -22,7 +22,7 @@ import {
   type Category,
   type StepDef,
 } from './steps.ts';
-import { nextFocusPiece, type FocusPiece } from './pieces.ts';
+import { nextFocusPiece, targetPieceStates, type FocusPiece } from './pieces.ts';
 import { eoHint, blockHint } from './hints.ts';
 import { sampleEoScramble } from './eo-scramble.ts';
 import { genEoSafeScramble } from './steps.ts';
@@ -66,6 +66,34 @@ function progressInfo(cube: Cube3x3, s: StepDef): { frac: number; pct: number; c
   return { frac, pct: Math.round(frac * 100), caption: `${placed}/${pieces.length} pieces placed` };
 }
 
+// First-pass "case" label for a step's START state (v2 course, DISPLAY-ONLY for
+// now while we verify the labels). Blocks: interference (a built piece gets
+// disturbed) → buried (a needed piece sits in the D layer) → pieces apart →
+// nearly there. EO: by bad-edge count.
+function classifyCase(start: Cube3x3, s: StepDef, optimal: Move3x3[]): string {
+  if (s.kind === 'eo') {
+    const bad = start.EO.filter((g) => !g).length;
+    return bad === 0 ? 'already oriented' : `${bad} bad edges`;
+  }
+  const homes = blockPiecesFor(s.canonicalMask);
+  if (!homes.length) return '';
+  const f0 = faceletString(start);
+  const wasSolved = homes.map((g) => g.every((i) => f0[i] === SOLVED_STR[i]));
+  let cur = start;
+  let interference = false;
+  for (const m of optimal) {
+    cur = applyMove(cur, m);
+    const f = faceletString(cur);
+    homes.forEach((g, i) => { if (wasSolved[i] && !g.every((j) => f[j] === SOLVED_STR[j])) interference = true; });
+  }
+  if (interference) return 'keep the block';
+  const unsolved = targetPieceStates(start, s.canonicalMask).filter((p) => !p.solved);
+  if (!unsolved.length) return 'already built';
+  if (unsolved.some((p) => p.coord[1] === 0)) return 'buried piece';
+  if (unsolved.length >= 2) return 'pieces apart';
+  return 'nearly there';
+}
+
 // EO orbit facelets (mirror the engine's getEO) so we can highlight bad edges.
 const EO_PRIMARY = [1, 3, 5, 7, 32, 24, 26, 30, 46, 48, 50, 52];
 const EO_SECONDARY = [19, 10, 16, 13, 21, 23, 27, 29, 37, 34, 40, 43];
@@ -107,7 +135,7 @@ interface State {
   stepDone: boolean[];
   assist: { kind: 'nudge' | 'move' | 'ideal'; moves: Move3x3[]; focus: FocusPiece | null } | null;
   learn: { moves: Move3x3[]; baseLen: number } | null; // guided ideal replay
-  lastResult: { step: string; used: number; optimal: number | null; yourMoves: Move3x3[]; idealMoves: Move3x3[] } | null;
+  lastResult: { step: string; used: number; optimal: number | null; yourMoves: Move3x3[]; idealMoves: Move3x3[]; case?: string } | null;
   connected: boolean;
   battery: number | null;
   status: string;
@@ -327,6 +355,7 @@ function checkStepCompletion() {
       ? optimalToMask(state.stepStartHistory, s.canonicalMask, s.solver) ?? []
       : [];
     const used = htmCount(state.movesThisStep);
+    const caseLabel = state.historyValid ? classifyCase(applyMoves(newSolved(), state.stepStartHistory), s, optimal) : '';
     state.lastResult = state.historyValid
       ? {
           step: s.label,
@@ -334,6 +363,7 @@ function checkStepCompletion() {
           optimal: optimal.length,
           yourMoves: [...state.movesThisStep],
           idealMoves: optimal,
+          case: caseLabel,
         }
       : null;
     // Log to the Stats history (only when we have a trustworthy ideal to compare to).
@@ -887,11 +917,11 @@ function buildCoursePanel(): HTMLElement {
   });
   p.appendChild(chips);
   const recent = track.levels[cur]?.recent ?? [];
-  const avg = recent.length ? recent.reduce((a, b) => a + b, 0) / recent.length : null;
+  const clean = recent.filter((w) => w <= COURSE_TOLERANCE).length;
   p.appendChild(el('div', 'meter-cap',
     recent.length
-      ? `avg +${avg!.toFixed(1)} over last ${recent.length}/${COURSE_WINDOW} · clear at ≤ +${COURSE_TARGETS[0]}`
-      : `solve ${COURSE_WINDOW} at this level to be graded · clear at ≤ +${COURSE_TARGETS[0]}`));
+      ? `${clean}/${recent.length} clean (≤ +${COURSE_TOLERANCE}) · clear at ${Math.round(COURSE_STAR_RATES[0] * 100)}% over ${COURSE_WINDOW}`
+      : `solve ${COURSE_WINDOW} here to be graded · "clean" = within +${COURSE_TOLERANCE} of optimal`));
   return p;
 }
 
@@ -1009,6 +1039,7 @@ function buildReviewPane(right: HTMLElement) {
     const yours = disp(simplifyMoves(r.yourMoves));
     const extra = r.optimal != null ? r.used - r.optimal : 0;
     const verdict = r.optimal == null ? '' : extra <= 0 ? '🏆 optimal!' : extra <= 2 ? '👍 very efficient' : extra <= 5 ? 'good — room to tighten' : 'lots of room to improve';
+    if (r.case) right.appendChild(el('div', 'meter-cap', `case: ${r.case}`));
     const cmp = el('div', 'coach');
     cmp.textContent =
       `your solution (${r.used}): ${yours.join(' ') || '—'}\n` +
@@ -1168,11 +1199,15 @@ function computeStats() {
 }
 
 // --- course progress ---
-// Levels are cleared by AVERAGE efficiency over the last COURSE_WINDOW solves:
-// avg(used − optimal) ≤ a target earns stars; ≤ the 1★ target clears + unlocks next.
+// Levels are cleared by CONSISTENCY, not a single average: over the last
+// COURSE_WINDOW solves, what fraction were "clean" (move-waste = used − optimal
+// ≤ COURSE_TOLERANCE)? A tolerance is used because the solver's optimal can be
+// an awkward, non-ergonomic line, so we reward solid human solving, not exact
+// optimality. Pass-rate → stars; ≥ the 1★ rate clears + unlocks the next level.
 const COURSE_KEY = 'cube-trainer.course';
-const COURSE_WINDOW = 5;
-const COURSE_TARGETS = [1.5, 0.9, 0.4]; // 1★, 2★, 3★ thresholds (lower = better)
+const COURSE_WINDOW = 12;
+const COURSE_TOLERANCE = 2; // a solve is "clean" if it's within +2 of optimal
+const COURSE_STAR_RATES = [0.70, 0.85, 1.0]; // clean-rate for 1★ / 2★ / 3★
 interface CourseLevel { recent: number[]; stars: number; }
 interface CourseTrack { unlocked: number; current: number; levels: Record<number, CourseLevel>; }
 type CourseProg = Record<string, CourseTrack>;
@@ -1195,23 +1230,27 @@ function setCourseCurrent(id: string, level: number) {
   p[id] = t;
   saveCourse(p);
 }
-function starsFor(avg: number): number {
-  if (avg <= COURSE_TARGETS[2]) return 3;
-  if (avg <= COURSE_TARGETS[1]) return 2;
-  if (avg <= COURSE_TARGETS[0]) return 1;
+// Fraction of recent solves that were clean (waste ≤ tolerance).
+function cleanRate(recent: number[]): number {
+  if (!recent.length) return 0;
+  return recent.filter((w) => w <= COURSE_TOLERANCE).length / recent.length;
+}
+function starsForRate(rate: number): number {
+  if (rate >= COURSE_STAR_RATES[2]) return 3;
+  if (rate >= COURSE_STAR_RATES[1]) return 2;
+  if (rate >= COURSE_STAR_RATES[0]) return 1;
   return 0;
 }
 // Record one solve at the current level; returns a short status note (cleared / progress).
-function recordCourse(trainerId: string, levelCount: number, extra: number): string {
+function recordCourse(trainerId: string, levelCount: number, waste: number): string {
   const p = loadCourse();
   const t = p[trainerId] ?? { unlocked: 0, current: 0, levels: {} };
   const level = t.current;
   const lv = t.levels[level] ?? { recent: [], stars: 0 };
-  lv.recent = [...lv.recent, extra].slice(-COURSE_WINDOW);
+  lv.recent = [...lv.recent, waste].slice(-COURSE_WINDOW);
   let note = '';
   if (lv.recent.length >= COURSE_WINDOW) {
-    const avg = lv.recent.reduce((a, b) => a + b, 0) / lv.recent.length;
-    const stars = starsFor(avg);
+    const stars = starsForRate(cleanRate(lv.recent));
     const wasCleared = lv.stars >= 1;
     lv.stars = Math.max(lv.stars, stars);
     if (lv.stars >= 1) {

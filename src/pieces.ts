@@ -106,3 +106,12 @@ export function nextFocusPiece(state: Cube3x3, mask: Cube3x3Mask, optimalMoves: 
   const p = unsolved[0];
   return { current: locate(startArr, p.colors) ?? p.home, home: p.home, description: describe(p.colors), movesToPlace: optimalMoves.length };
 }
+
+/** Each target piece's current cubie coordinate (x,y,z; y: 0=D,1=mid,2=U) + whether solved. */
+export function targetPieceStates(state: Cube3x3, mask: Cube3x3Mask): { coord: readonly [number, number, number]; solved: boolean }[] {
+  const arr = state.stateData;
+  return targetPieces(mask).map((p) => {
+    const cur = locate(arr, p.colors) ?? p.home;
+    return { coord: NET_COORDS[cur[0]], solved: pieceSolved(arr, p.home) };
+  });
+}
