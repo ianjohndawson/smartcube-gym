@@ -400,38 +400,28 @@ function checkStepCompletion() {
   }
 }
 
-let lastMoveAt = 0;
 function handleMove(move: string) {
-  lastMoveAt = Date.now();
   step(move as Move3x3);
   render();
 }
 
-// Resync the model to the cube's true state.
-//   • Explicit Sync (the button) → full reconcile, incl. a clean restart on big drift.
-//   • Automatic (gan-web-bluetooth's periodic facelet snapshots) → only when the cube
-//     has been AT REST ~0.7s, so the snapshot can't race the live move stream (mid-turn
-//     snapshots lag a fraction behind and would "correct" backwards — the old
-//     oscillation). At rest the snapshot is current, so small drift self-heals; the
-//     disruptive big-drift reset is reserved for the explicit button.
+// Resync the model to the cube's true state — ONLY on an explicit Sync press.
+// (gan-web-bluetooth emits periodic facelet snapshots, but acting on those
+// automatically fights the live move stream — it corrupted move tracking while
+// applying a scramble — so it's strictly manual.)
 let awaitingSync = false;
-const REST_MS = 700;
 function handleFacelets(kociemba: string) {
-  const explicit = awaitingSync;
+  if (!awaitingSync) return;
   awaitingSync = false;
-  if (!explicit && Date.now() - lastMoveAt < REST_MS) return; // mid-turn — ignore
   let trueCube: Cube3x3;
   try {
     trueCube = cubeFromFacelets(kociembaToNet(kociemba));
   } catch {
     return;
   }
-  if (trueCube.encode() === state.cube.encode()) {
-    if (explicit) { state.status = 'Already in sync with your cube.'; render(); }
-    return;
-  }
+  if (trueCube.encode() === state.cube.encode()) { state.status = 'Already in sync with your cube.'; render(); return; }
   // Small drift (a few missed moves): bridge them so the move history stays valid
-  // and you keep your place in the current scramble/solve. (Self-heals at rest.)
+  // and you keep your place in the current scramble/solve.
   const bridge = findBridge(state.cube, trueCube, 6);
   if (bridge) {
     state.cube = trueCube;
@@ -441,13 +431,10 @@ function handleFacelets(kociemba: string) {
     render();
     return;
   }
-  // Large divergence: ONLY the explicit Sync button does the disruptive clean restart
-  // (fresh scramble from the cube's true state). Automatic snapshots leave it alone.
-  if (explicit) {
-    state = startScramble(trueCube, []);
-    state.status = 'Synced to your cube — fresh scramble from its current state.';
-    render();
-  }
+  // Large divergence: clean restart with the cube's TRUE state as the base.
+  state = startScramble(trueCube, []);
+  state.status = 'Synced to your cube — fresh scramble from its current state.';
+  render();
 }
 function handleManualMoves(text: string) {
   // In the solve frame the user types what they see (held frame); translate to model.
