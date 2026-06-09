@@ -460,6 +460,8 @@ const cube = new CubeManager({
   onConnect: (name) => { state.connected = true; state.lastError = ''; state.status = `Connected to ${name} — reading cube state…`; awaitingSync = true; cube.requestFacelets(); render(); },
   onDisconnect: () => { state.connected = false; state.status = 'Cube disconnected.'; render(); },
   onError: (e) => { state.lastError = String((e as Error)?.message ?? e); state.status = `Bluetooth error: ${state.lastError}`; render(); },
+  // Trace of raw cube events (for diagnosing BLE quirks; shown in Settings).
+  onLog: (line) => { const t = new Date().toLocaleTimeString(); state.log = [...(state.log ?? []), `${t}  ${line}`].slice(-60); },
 });
 
 // Count moves in HTM (half-turn metric): merge consecutive same-face turns, so a
@@ -1454,6 +1456,22 @@ function renderSettings() {
   macRow.appendChild(btn('Forget cube MAC', () => { clearSavedMac(); state.status = 'Saved cube MAC cleared.'; render(); }, 'btn ghost'));
   cubeGroup.appendChild(macRow);
   modal.appendChild(cubeGroup);
+
+  modal.appendChild(el('hr'));
+
+  // Cube event log (diagnostics) — raw MOVE/FACELETS/etc. from the cube.
+  const logGroup = el('div', 'group');
+  logGroup.appendChild(el('div', 'glabel', 'Cube event log'));
+  const log = el('div', 'console');
+  log.style.maxHeight = '160px';
+  const lines = state.log ?? [];
+  if (lines.length) for (const ln of lines.slice(-40)) { const l = el('div', 'cline'); l.appendChild(el('span', 'cmsg c-muted', ln)); log.appendChild(l); }
+  else log.appendChild(el('div', 'cline', 'No cube events yet.'));
+  logGroup.appendChild(log);
+  const logRow = el('div', 'row');
+  logRow.appendChild(btn('Clear log', () => { state.log = []; render(); }, 'btn ghost'));
+  logGroup.appendChild(logRow);
+  modal.appendChild(logGroup);
 
   const actions = el('div', 'm-actions');
   actions.appendChild(btn('Done', close, 'btn default'));
