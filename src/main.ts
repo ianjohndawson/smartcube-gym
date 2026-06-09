@@ -405,6 +405,14 @@ function handleMove(move: string) {
   render();
 }
 
+// Read the cube's true state and reconcile the model to it (manual Sync).
+function syncCube() {
+  awaitingSync = true;
+  cube.requestFacelets();
+  state.status = 'Reading cube state…';
+  render();
+}
+
 // Resync the model to the cube's true state — ONLY on an explicit Sync press.
 // (gan-web-bluetooth emits periodic facelet snapshots, but acting on those
 // automatically fights the live move stream — it corrupted move tracking while
@@ -819,7 +827,7 @@ function buildTopBar(): HTMLElement {
     themeSeg.appendChild(segBtn(label, () => { setTheme(id); render(); }, getTheme() === id));
   top.appendChild(themeSeg);
 
-  if (state.connected) top.appendChild(iconBtn('Sync', () => { awaitingSync = true; cube.requestFacelets(); state.status = 'Reading cube state…'; render(); }));
+  if (state.connected) top.appendChild(iconBtn('Sync', syncCube));
   top.appendChild(iconBtn('⚙', () => { state.showSettings = true; render(); }));
   return top;
 }
@@ -872,6 +880,8 @@ function buildScramblePanel(): HTMLElement {
     row.appendChild(btn('Next scramble', nextScramble, 'btn'));
     row.appendChild(btn('Reset', resetToSolved, 'btn'));
   }
+  // Sync = read the cube's real state and correct the model (for BLE drift).
+  if (state.connected) row.appendChild(btn('Sync', syncCube, 'btn'));
   p.appendChild(row);
   return p;
 }
@@ -977,7 +987,7 @@ function buildActions(s: StepDef | null): HTMLElement {
   actions.appendChild(btn('Reveal', () => assist('move'), 'btn', !solving));
   actions.appendChild(btn('Ideal', () => assist('ideal'), 'btn', !solving));
   actions.appendChild(btn('Learn', enterLearn, 'btn', !solving));
-  actions.appendChild(btn('Rewind', rewindStep, 'btn ghost', !solving));
+  actions.appendChild(btn('Rewind', rewindStep, 'btn', !solving));
   return actions;
 }
 
