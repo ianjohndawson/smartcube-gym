@@ -626,7 +626,7 @@ function setTheme(t: string) {
   localStorage.setItem(THEME_KEY, t);
   applyTheme(t);
 }
-const THEMES = ['dark', 'borland', 'matrix'];
+const THEMES = ['dark', 'borland', 'matrix', 'future'];
 function resolveTheme(t: string): string {
   return THEMES.includes(t) ? t : 'dark';
 }
@@ -825,7 +825,7 @@ function buildTopBar(): HTMLElement {
 
   // Theme toggle
   const themeSeg = el('div', 'seg');
-  for (const [id, label] of [['borland', 'Borland'], ['dark', 'Dark'], ['matrix', 'Matrix']] as [string, string][])
+  for (const [id, label] of [['borland', 'Borland'], ['dark', 'Dark'], ['matrix', 'Matrix'], ['future', 'Future']] as [string, string][])
     themeSeg.appendChild(segBtn(label, () => { setTheme(id); render(); }, getTheme() === id));
   top.appendChild(themeSeg);
 
