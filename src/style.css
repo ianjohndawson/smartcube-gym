@@ -319,53 +319,54 @@ html[data-theme='matrix'] .panel::after {
 @keyframes piece-flash { 0% { opacity: 0; } 18% { opacity: 0.55; } 100% { opacity: 0; } }
 .piece-flash { position: fixed; inset: 0; pointer-events: none; z-index: 40; box-shadow: inset 0 0 90px 12px var(--ok); opacity: 0; animation: piece-flash 0.6s ease-out forwards; }
 
-/* ─────────────────────────  FUTURE (holographic HUD)  ──────────────────────
-   Frosted-glass panels over a deep-indigo aurora + faint floor grid, a slow
-   light-sweep, iridescent cyan→violet accents. Additive; reuses the token
-   system and Matrix's @keyframes meter-flow. (Authored to the INTEGRATION.md
-   spec — the design's own future-theme.css was missing from the package.) */
+/* ════════════════════════════════════════════════════════════════════════
+   FUTURE · holographic spatial HUD  (Claude Design's future-theme.css)
+   Token block on html[data-theme='future']; ambient flourishes target #app;
+   fonts via --font/--mono; console via --console-bg/--console-fg. Reuses the
+   Matrix theme's @keyframes meter-flow.
+   ════════════════════════════════════════════════════════════════════════ */
 html[data-theme='future'] {
-  --stage-bg: #05060f;
-  --bg: #080b22;
-  --panel: rgba(20, 26, 60, 0.55);
-  --text: #eaf1ff;
-  --muted: #9fb0d6;
-  --line: rgba(150, 180, 255, 0.18);
-  --accent: #46d6ff;
-  --accent-2: #b98bff;
-  --ok: #4ef0c0;
-  --warn: #ffce6a;
+  --stage-bg: #04050d;
+  --bg: #070a16;
+  --panel: rgba(22, 32, 64, 0.46);
+  --text: #e3ecff;
+  --muted: #8b9cc9;
+  --line: rgba(140, 180, 255, 0.22);
+  --accent: #5cf0ff;
+  --accent-2: #b88cff;
+  --ok: #5cffd0;
+  --warn: #ffcb6b;
   --hot: #ff6b9d;
-  --on-accent: #06122a;
+  --on-accent: #04121a;
 
-  --font: 'Rajdhani', system-ui, sans-serif;
-  --mono: 'JetBrains Mono', ui-monospace, monospace;
+  --font: 'Rajdhani', 'Segoe UI', system-ui, sans-serif;
+  --mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
   --fs: 18px;
 
-  --bar-h: 54px;
-  --bar-bg: rgba(8, 11, 34, 0.6);
+  --bar-h: 56px;
+  --bar-bg: rgba(9, 14, 32, 0.55);
   --bar-fg: var(--text);
   --bar-border: 1px solid var(--line);
 
   --pill-r: 999px;
-  --ctl-bg: rgba(150, 180, 255, 0.08);
+  --ctl-bg: rgba(140, 180, 255, 0.07);
   --ctl-border: 1px solid var(--line);
-  --ctl-r: 11px;
+  --ctl-r: 12px;
 
-  --seg-bg: rgba(150, 180, 255, 0.06);
+  --seg-bg: rgba(140, 180, 255, 0.05);
   --seg-border: 1px solid var(--line);
   --seg-fg: var(--muted);
 
   --frame-border: 1px solid var(--line);
-  --radius: 16px;
-  --frame-shadow: 0 10px 40px rgba(0, 0, 0, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.12);
-  --panel-pad: 16px;
+  --radius: 18px;
+  --frame-shadow: 0 12px 44px rgba(2, 8, 30, 0.55), inset 0 1px 0 rgba(190, 215, 255, 0.22), 0 0 0 1px rgba(120, 200, 255, 0.10), 0 0 30px rgba(70, 150, 255, 0.10);
+  --panel-pad: 18px;
   --panel-gap: 16px;
 
   --hd-fs: 12px;
   --hd-tt: uppercase;
-  --hd-ls: 0.16em;
-  --hd-fg: var(--muted);
+  --hd-ls: 0.18em;
+  --hd-fg: #8fd6ee;
 
   --tabs-border: 1px solid var(--line);
   --tabs-pad: 8px;
@@ -373,24 +374,24 @@ html[data-theme='future'] {
   --tab-active-bg: transparent;
 
   --scr-fs: 25px;
-  --scr-ls: 0.5px;
+  --scr-ls: 1px;
 
   --s: 34px;
-  --sticker-r: 7px;
+  --sticker-r: 9px;
 
   --chip-border: 1px solid var(--line);
-  --chip-bg: rgba(150, 180, 255, 0.06);
+  --chip-bg: rgba(140, 180, 255, 0.05);
 
   --ctag-w: 88px;
 
-  --bar-r: 7px;
-  --track-bg: rgba(8, 11, 34, 0.7);
-  --meter-fill: linear-gradient(90deg, #46d6ff, #b98bff, #4ef0c0);
+  --bar-r: 999px;
+  --track-bg: rgba(140, 180, 255, 0.12);
+  --meter-fill: linear-gradient(90deg, #5cf0ff, #9b8cff, #ff8ce0, #5cf0ff);
 
   --dock-border: 1px solid var(--line);
 
   --btn-fg: var(--text);
-  --btn-bg: rgba(150, 180, 255, 0.10);
+  --btn-bg: rgba(140, 180, 255, 0.08);
   --btn-border: 1px solid var(--line);
   --btn-shadow: none;
   --btn-hot: inherit;
@@ -398,66 +399,101 @@ html[data-theme='future'] {
   --btn-press: translateY(1px);
 
   --scrim: rgba(4, 6, 18, 0.6);
-  --modal-bg: rgba(16, 20, 48, 0.92);
+  --modal-bg: rgba(18, 26, 52, 0.78);
   --modal-border: 1px solid var(--line);
-  --modal-shadow: 0 30px 80px rgba(0, 0, 0, 0.6);
-  --input-bg: rgba(150, 180, 255, 0.08);
+  --modal-shadow: 0 30px 90px rgba(0, 6, 30, 0.6), 0 0 60px rgba(92, 200, 255, 0.12);
+  --input-bg: rgba(140, 180, 255, 0.07);
 
-  --console-bg: rgba(4, 7, 22, 0.6);
-  --console-fg: #bcd2ff;
+  --console-bg: rgba(8, 12, 28, 0.55);
+  --console-fg: #bfe6ff;
 
-  --danger: #ff6b9d;
+  --danger: var(--hot);
 }
 
-@keyframes aurora-shift { 0%,100% { background-position: 0% 50%; } 50% { background-position: 100% 50%; } }
-@keyframes light-sweep { 0% { transform: translateX(-70%) skewX(-18deg); } 100% { transform: translateX(180%) skewX(-18deg); } }
+/* Deep-space desktop: layered auroras + perspective floor grid + light sweep.
+   (Mirrors how the Matrix theme decorates #app.) */
+@keyframes holo-sweep { 0% { transform: translateX(-40%) skewX(-18deg); } 100% { transform: translateX(220%) skewX(-18deg); } }
+
 html[data-theme='future'] #app {
   background:
-    radial-gradient(1200px 700px at 80% -10%, rgba(70, 214, 255, 0.16), transparent 60%),
-    radial-gradient(1000px 700px at 0% 110%, rgba(185, 139, 255, 0.18), transparent 60%),
-    linear-gradient(125deg, #070a1e, #0c1233 45%, #0a0f2a 70%, #0b1030);
-  background-size: 220% 220%, 220% 220%, 100% 100%;
-  animation: aurora-shift 22s ease-in-out infinite;
+    radial-gradient(125% 85% at 14% -12%, rgba(92, 240, 255, 0.18), transparent 52%),
+    radial-gradient(125% 100% at 104% 6%, rgba(184, 140, 255, 0.22), transparent 56%),
+    radial-gradient(115% 85% at 50% 120%, rgba(255, 140, 224, 0.14), transparent 60%),
+    linear-gradient(180deg, #090d20 0%, #05060f 100%);
+  -webkit-font-smoothing: antialiased;
 }
-/* Faint perspective-ish floor grid, fading in toward the bottom. */
 html[data-theme='future'] #app::before {
   content: ''; position: fixed; inset: 0; z-index: 0; pointer-events: none;
-  background:
-    repeating-linear-gradient(90deg, rgba(150,180,255,0.06) 0 1px, transparent 1px 60px),
-    repeating-linear-gradient(0deg, rgba(150,180,255,0.06) 0 1px, transparent 1px 60px);
-  -webkit-mask-image: linear-gradient(transparent 55%, #000 105%);
-  mask-image: linear-gradient(transparent 55%, #000 105%);
+  background-image:
+    linear-gradient(rgba(140, 180, 255, 0.10) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(140, 180, 255, 0.10) 1px, transparent 1px);
+  background-size: 46px 46px;
+  -webkit-mask-image: linear-gradient(180deg, transparent 56%, #000 100%);
+  mask-image: linear-gradient(180deg, transparent 56%, #000 100%);
+  opacity: 0.5;
 }
-/* Slow diagonal light sweep across the screen. */
 html[data-theme='future'] #app::after {
-  content: ''; position: fixed; top: 0; bottom: 0; left: 0; width: 38%; z-index: 0; pointer-events: none;
-  background: linear-gradient(100deg, transparent, rgba(150, 200, 255, 0.07), transparent);
-  animation: light-sweep 9s ease-in-out infinite;
+  content: ''; position: fixed; top: 0; bottom: 0; width: 38%; z-index: 0; pointer-events: none;
+  background: linear-gradient(90deg, transparent, rgba(150, 210, 255, 0.06), transparent);
+  animation: holo-sweep 11s ease-in-out infinite;
 }
 html[data-theme='future'] .topbar,
 html[data-theme='future'] .toolbar,
 html[data-theme='future'] .main { position: relative; z-index: 1; }
-html[data-theme='future'] .panel { backdrop-filter: blur(14px) saturate(1.25); -webkit-backdrop-filter: blur(14px) saturate(1.25); }
-html[data-theme='future'] .console { backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); }
-html[data-theme='future'] .brand { font-family: 'Orbitron', sans-serif; letter-spacing: 2px; }
-html[data-theme='future'] .brand .logo { text-shadow: 0 0 12px var(--accent); }
+
+/* Frosted-glass panels + modal */
+html[data-theme='future'] .panel,
+html[data-theme='future'] .modal {
+  backdrop-filter: blur(22px) saturate(1.5);
+  -webkit-backdrop-filter: blur(22px) saturate(1.5);
+  background-image: linear-gradient(180deg, rgba(40, 54, 100, 0.30), rgba(12, 18, 40, 0.20));
+}
+html[data-theme='future'] .panel { overflow: hidden; }
+html[data-theme='future'] .panel::before {
+  content: ''; position: absolute; top: 0; left: 14%; right: 14%; height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(150, 220, 255, 0.7), transparent);
+}
+
+/* Geometric type (Orbitron headings, Rajdhani UI, JetBrains Mono via --mono) */
+html[data-theme='future'] .brand { font-family: 'Orbitron', sans-serif; letter-spacing: 2.5px; text-transform: uppercase; font-weight: 700; font-size: 0.92em; }
+html[data-theme='future'] .brand .logo { text-shadow: 0 0 16px rgba(92, 240, 255, 0.8); }
 html[data-theme='future'] .panel-hd { font-family: 'Orbitron', sans-serif; }
-html[data-theme='future'] .seg-btn.active,
-html[data-theme='future'] .btn.default { box-shadow: 0 0 16px rgba(70, 214, 255, 0.45); }
-html[data-theme='future'] .tab.active { box-shadow: inset 0 -2px 0 var(--accent); }
-html[data-theme='future'] .scramble .tok.next { text-shadow: 0 0 8px var(--accent); }
-html[data-theme='future'] .scramble .tok.done { text-shadow: 0 0 8px var(--ok); }
-html[data-theme='future'] .sticker { box-shadow: inset -2px -3px 5px rgba(0,0,0,0.28), inset 2px 2px 4px rgba(255,255,255,0.4); }
+
+/* Luminous controls */
+html[data-theme='future'] .seg-btn.active { background: linear-gradient(120deg, #5cf0ff, #b88cff); box-shadow: 0 0 16px rgba(124, 190, 255, 0.5); }
+html[data-theme='future'] .tab.active { box-shadow: inset 0 -2px 0 var(--accent); text-shadow: 0 0 10px rgba(92, 240, 255, 0.6); }
+html[data-theme='future'] .btn.default,
+html[data-theme='future'] .btn.primary { background: linear-gradient(120deg, #5cf0ff, #9b8cff); border-color: transparent; box-shadow: 0 0 18px rgba(108, 200, 255, 0.45); }
+html[data-theme='future'] .btn.go { background: linear-gradient(120deg, #5cffd0, #5cf0ff); border-color: transparent; box-shadow: 0 0 18px rgba(92, 255, 208, 0.4); }
+html[data-theme='future'] .btn:hover,
+html[data-theme='future'] .icon-btn:hover { border-color: var(--accent); box-shadow: 0 0 14px rgba(124, 190, 255, 0.4); }
+
+/* Cube + accent glows */
+html[data-theme='future'] .cube-net { filter: drop-shadow(0 8px 26px rgba(92, 200, 255, 0.32)); }
+html[data-theme='future'] .sticker { border: 1px solid rgba(255, 255, 255, 0.18); box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.45), inset 0 -3px 7px rgba(0, 0, 0, 0.28); }
+html[data-theme='future'] .sticker.hl { outline: 2px solid var(--accent); box-shadow: 0 0 14px rgba(92, 240, 255, 0.85), inset 0 1px 0 rgba(255, 255, 255, 0.45); }
+html[data-theme='future'] .tok.next { text-shadow: 0 0 10px rgba(92, 240, 255, 0.75); }
+html[data-theme='future'] .tok.done { text-shadow: 0 0 8px rgba(92, 255, 208, 0.5); }
+html[data-theme='future'] .cube-pill { background: rgba(92, 255, 208, 0.07); }
+html[data-theme='future'] .cube-pill .dot { box-shadow: 0 0 9px var(--ok); }
+html[data-theme='future'] .tag { box-shadow: 0 0 12px rgba(92, 255, 208, 0.18); }
+
+/* Animated holographic meter (reuses the Matrix theme's meter-flow keyframes),
+   glassy console + frosted modal scrim */
 html[data-theme='future'] .meter .fill { background-size: 200% 100%; animation: meter-flow 3s linear infinite; }
-html[data-theme='future'] .pill .dot { box-shadow: 0 0 10px var(--ok); }
+html[data-theme='future'] .console { backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); }
+html[data-theme='future'] .modal-backdrop { backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); }
+
 @media (prefers-reduced-motion: reduce) {
-  html[data-theme='future'] #app { animation: none; }
-  html[data-theme='future'] #app::after { display: none; }
+  html[data-theme='future'] #app::after,
   html[data-theme='future'] .meter .fill { animation: none; }
 }
-@media (max-height: 860px) {
-  html[data-theme='future'] { --fs: 16px; --scr-fs: 21px; }
-}
+
+/* Fit overrides (so the cube shrinks on small / short viewports, matching the
+   other themes' media rules — these are additive, no need to edit existing ones) */
+@media (max-width: 900px) { html[data-theme='future'] { --s: 30px; } }
+@media (max-width: 420px) { html[data-theme='future'] { --s: 22px; } }
+@media (max-height: 860px) { html[data-theme='future'] { --s: 24px; --panel-gap: 12px; --fs: 16px; --scr-fs: 21px; } }
 
 /* ── Screen (the #app root) ──────────────────────────────────────────────── */
 #app {
@@ -535,6 +571,22 @@ html[data-theme='borland'] .top-meta { display: none; }
 }
 .toolbar .lbl { color: var(--muted); margin-right: 2px; }
 .toolbar .div { color: var(--line); margin: 0 6px; }
+
+/* ── Step bar (current selection + Change) ──────────────────────────────────
+   The big "Category · Trainer · Mode" sentence under the top bar, with a
+   Change button that toggles the picker. */
+.stepbar {
+  flex: 0 0 auto;
+  display: flex; align-items: center; gap: 14px;
+  padding: 12px 16px 0;
+}
+.crumb {
+  display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap;
+  font-size: 1.5em; line-height: 1.1; letter-spacing: 0.4px;
+}
+.crumb-part { color: var(--text); font-weight: 600; }
+.crumb-sep { color: var(--muted); opacity: 0.6; }
+.crumb:hover .crumb-part { color: var(--accent); }
 
 /* ── Main grid ───────────────────────────────────────────────────────────── */
 .main {

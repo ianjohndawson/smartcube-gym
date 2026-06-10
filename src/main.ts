@@ -780,6 +780,7 @@ function render() {
 
   const app = document.createDocumentFragment();
   app.appendChild(buildTopBar());
+  app.appendChild(buildStepBar());
   if (state.showPicker) app.appendChild(buildToolbar());
 
   const main = el('div', 'main');
@@ -819,15 +820,6 @@ function buildTopBar(): HTMLElement {
   brand.appendChild(document.createTextNode('SmartCube Gym'));
   top.appendChild(brand);
 
-  // Breadcrumb of the current selection + a Change button that reveals the
-  // full picker (rather than showing every option on screen at once).
-  const crumb = el('span', 'top-meta', `${catLabel(state.category)} · ${trainer().label} · ${state.trainMode === 'timed' ? 'Timed' : 'Efficiency'}`);
-  crumb.style.cursor = 'pointer';
-  crumb.title = 'Change what you are training';
-  crumb.addEventListener('click', togglePicker);
-  top.appendChild(crumb);
-  top.appendChild(btn(state.showPicker ? 'Close' : 'Change', togglePicker, 'seg-btn'));
-
   top.appendChild(el('div', 'spacer'));
 
   // Cube pill (click = connect/disconnect)
@@ -847,6 +839,23 @@ function buildTopBar(): HTMLElement {
 
 function catLabel(c: Category): string {
   return c === 'Blocks' ? 'Block building' : c;
+}
+// The current selection as one big sentence (Category · Trainer · Mode) with a
+// Change button that reveals the full picker — sits just below the top bar.
+function buildStepBar(): HTMLElement {
+  const bar = el('div', 'stepbar');
+  const crumb = el('span', 'crumb');
+  crumb.appendChild(el('span', 'crumb-part', catLabel(state.category)));
+  crumb.appendChild(el('span', 'crumb-sep', '·'));
+  crumb.appendChild(el('span', 'crumb-part', trainer().label));
+  crumb.appendChild(el('span', 'crumb-sep', '·'));
+  crumb.appendChild(el('span', 'crumb-part', state.trainMode === 'timed' ? 'Timed' : 'Efficiency'));
+  crumb.style.cursor = 'pointer';
+  crumb.title = 'Change what you are training';
+  crumb.addEventListener('click', togglePicker);
+  bar.appendChild(crumb);
+  bar.appendChild(btn(state.showPicker ? 'Close' : 'Change', togglePicker, 'btn'));
+  return bar;
 }
 function buildToolbar(): HTMLElement {
   const tb = el('div', 'toolbar');
