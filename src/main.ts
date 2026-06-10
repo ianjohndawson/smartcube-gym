@@ -140,6 +140,7 @@ interface State {
   battery: number | null;
   status: string;
   showSettings: boolean;
+  showPicker: boolean;
   rightTab: 'coach' | 'stats';
   log: string[];
   lastError: string;
@@ -264,6 +265,7 @@ function startScramble(base: Cube3x3, baseHistory: Move3x3[], explicit?: Move3x3
     battery: state?.battery ?? null,
     status: 'Apply the scramble to your cube. The cube view follows along.',
     showSettings: false,
+    showPicker: state?.showPicker ?? false,
     rightTab: state?.rightTab ?? 'coach',
     log: state?.log ?? [],
     lastError: state?.lastError ?? '',
@@ -504,10 +506,17 @@ async function toggleConnect() {
 }
 
 // Selecting a trainer resets the session to its first scramble.
-function selectTrainerFlat(id: string) {
-  freshTrainerInPlace(id);
+function togglePicker() {
+  state.showPicker = !state.showPicker;
+  render();
 }
-// Switching category jumps to the first trainer in that category.
+function selectTrainerFlat(id: string) {
+  state = freshTrainer(id);
+  state.showPicker = false; // a specific trainer is the terminal choice — collapse
+  render();
+}
+// Switching category jumps to the first trainer in that category (picker stays
+// open so you can then drill into the specific trainer).
 function selectCategory(c: Category) {
   const first = trainersIn(c)[0];
   if (first) freshTrainerInPlace(first.id);
@@ -771,7 +780,7 @@ function render() {
 
   const app = document.createDocumentFragment();
   app.appendChild(buildTopBar());
-  app.appendChild(buildToolbar());
+  if (state.showPicker) app.appendChild(buildToolbar());
 
   const main = el('div', 'main');
   const left = el('div', 'col');
@@ -810,8 +819,16 @@ function buildTopBar(): HTMLElement {
   brand.appendChild(document.createTextNode('SmartCube Gym'));
   top.appendChild(brand);
 
+  // Breadcrumb of the current selection + a Change button that reveals the
+  // full picker (rather than showing every option on screen at once).
+  const crumb = el('span', 'top-meta', `${catLabel(state.category)} · ${trainer().label} · ${state.trainMode === 'timed' ? 'Timed' : 'Efficiency'}`);
+  crumb.style.cursor = 'pointer';
+  crumb.title = 'Change what you are training';
+  crumb.addEventListener('click', togglePicker);
+  top.appendChild(crumb);
+  top.appendChild(btn(state.showPicker ? 'Close' : 'Change', togglePicker, 'seg-btn'));
+
   top.appendChild(el('div', 'spacer'));
-  top.appendChild(el('span', 'top-meta', `${trainer().label} · ${state.trainMode === 'timed' ? 'Timed' : 'Efficiency'}`));
 
   // Cube pill (click = connect/disconnect)
   const battery = state.battery != null ? ` · ${state.battery}%` : '';
@@ -822,12 +839,6 @@ function buildTopBar(): HTMLElement {
   pill.title = state.connected ? 'Disconnect' : 'Connect cube';
   pill.addEventListener('click', toggleConnect);
   top.appendChild(pill);
-
-  // Theme toggle
-  const themeSeg = el('div', 'seg');
-  for (const [id, label] of [['borland', 'Borland'], ['dark', 'Dark'], ['matrix', 'Matrix'], ['future', 'Future']] as [string, string][])
-    themeSeg.appendChild(segBtn(label, () => { setTheme(id); render(); }, getTheme() === id));
-  top.appendChild(themeSeg);
 
   if (state.connected) top.appendChild(iconBtn('Sync', syncCube));
   top.appendChild(iconBtn('⚙', () => { state.showSettings = true; render(); }));
@@ -1428,7 +1439,7 @@ function renderSettings() {
   const themeGroup = el('div', 'group');
   themeGroup.appendChild(el('div', 'glabel', 'Theme'));
   const themeSeg = el('div', 'seg');
-  for (const [id, label] of [['borland', 'Borland Pascal'], ['dark', 'Modern Dark'], ['matrix', 'Matrix']] as [string, string][])
+  for (const [id, label] of [['borland', 'Borland Pascal'], ['dark', 'Modern Dark'], ['matrix', 'Matrix'], ['future', 'Future']] as [string, string][])
     themeSeg.appendChild(segBtn(label, () => { setTheme(id); render(); }, getTheme() === id));
   themeGroup.appendChild(themeSeg);
   modal.appendChild(themeGroup);
