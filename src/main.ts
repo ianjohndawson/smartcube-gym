@@ -546,6 +546,7 @@ function nextScramble() {
 }
 function resetToSolved() {
   state = freshTrainer(state.trainerId);
+  state.status = 'Cube reset to solved — apply the scramble to begin.';
   render();
 }
 function rewindStep() {
@@ -767,11 +768,26 @@ function assist(kind: 'nudge' | 'move' | 'ideal') {
 
 // --- rendering ---
 
+const STATUS_FLASH_MS = 3500;
+let shownStatus = '';
+let statusShownAt = 0;
+let statusTimer: number | undefined;
+
 function render() {
   const s = currentStep();
   const info = s ? progressInfo(state.cube, s) : { frac: 1, pct: 100, caption: '' };
   const allDone = state.stepDone.every(Boolean);
   document.documentElement.dataset.theme = resolveTheme(getTheme());
+
+  // Flash the status message over the cube view when it changes (it's where the
+  // eye is and where the visible change happens). statusShownAt drives a CSS
+  // fade in buildCubePanel; the timer drops the toast if nothing else re-renders.
+  if (state.status !== shownStatus) {
+    shownStatus = state.status;
+    statusShownAt = Date.now();
+    clearTimeout(statusTimer);
+    statusTimer = window.setTimeout(render, STATUS_FLASH_MS + 100);
+  }
 
   const app = document.createDocumentFragment();
   app.appendChild(buildTopBar());
@@ -919,6 +935,10 @@ function buildCubePanel(s: StepDef | null): HTMLElement {
   const blank = pureEo ? new Set(CORNER_FACELETS) : null;
   const facelets = solveFrame() ? rotatedFacelets(state.cube) : faceletString(state.cube);
   wrap.appendChild(renderCubeNet(facelets, highlight, blank));
+  // Transient status toast over the cube (fades via CSS; see STATUS_FLASH_MS).
+  if (state.status && Date.now() - statusShownAt < STATUS_FLASH_MS) {
+    wrap.appendChild(el('div', 'cube-toast', state.status));
+  }
   p.appendChild(wrap);
   const holdNote = s?.hold
     ? s.hold
