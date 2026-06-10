@@ -409,6 +409,7 @@ function handleMove(move: string) {
 
 // Read the cube's true state and reconcile the model to it (manual Sync).
 function syncCube() {
+  if (!state.connected) { state.status = 'Connect a cube first, then Sync to read its real state.'; render(); return; }
   awaitingSync = true;
   cube.requestFacelets();
   state.status = 'Reading cube state…';
@@ -545,12 +546,6 @@ function nextScramble() {
 }
 function resetToSolved() {
   state = freshTrainer(state.trainerId);
-  render();
-}
-function applyScrambleNow() {
-  state.cube = state.target.clone();
-  state.history = [...state.history.slice(0, state.scrambleBaseLen), ...state.scrambleMoves];
-  afterChange();
   render();
 }
 function rewindStep() {
@@ -763,7 +758,7 @@ function assist(kind: 'nudge' | 'move' | 'ideal') {
   const effective = kind === 'nudge' && !focus ? 'move' : kind;
   state.assist = { kind: effective, moves, focus };
   state.status =
-    effective === 'nudge' ? `Nudge: focus on the ${focus?.description ?? 'highlighted piece'} — pair and insert it.`
+    effective === 'nudge' ? `Hint: focus on the ${focus?.description ?? 'highlighted piece'} — pair and insert it.`
     : effective === 'move' ? `Next move: ${moves[0]}`
     : 'Showing the full solution for this step.';
   render();
@@ -832,7 +827,6 @@ function buildTopBar(): HTMLElement {
   pill.addEventListener('click', toggleConnect);
   top.appendChild(pill);
 
-  if (state.connected) top.appendChild(iconBtn('Sync', syncCube));
   top.appendChild(iconBtn('⚙', () => { state.showSettings = true; render(); }));
   return top;
 }
@@ -895,15 +889,14 @@ function buildScramblePanel(): HTMLElement {
     } else {
       p.appendChild(el('div', 'meter-cap', 'Apply the scramble from your cube — solving auto-starts when matched.'));
     }
-    row.appendChild(btn('Apply for me', applyScrambleNow, 'btn'));
-    row.appendChild(btn('Reset', resetToSolved, 'btn'));
+    row.appendChild(btn('Reset Cube', resetToSolved, 'btn'));
   } else {
     p.appendChild(el('div', 'meter-cap', 'Scramble hidden while you solve — press “Next scramble” for a fresh one.'));
     row.appendChild(btn('Next scramble', nextScramble, 'btn'));
-    row.appendChild(btn('Reset', resetToSolved, 'btn'));
+    row.appendChild(btn('Reset Cube', resetToSolved, 'btn'));
   }
   // Sync = read the cube's real state and correct the model (for BLE drift).
-  if (state.connected) row.appendChild(btn('Sync', syncCube, 'btn'));
+  row.appendChild(btn('Sync to Cube state', syncCube, 'btn'));
   p.appendChild(row);
   return p;
 }
@@ -1005,9 +998,9 @@ function buildActions(s: StepDef | null): HTMLElement {
   const solving = state.mode === 'solve' && !!s;
   const actions = el('div', 'row');
   actions.style.marginBottom = '14px';
-  actions.appendChild(btn('Nudge', () => assist('nudge'), 'btn default', !solving));
-  actions.appendChild(btn('Reveal', () => assist('move'), 'btn', !solving));
-  actions.appendChild(btn('Ideal', () => assist('ideal'), 'btn', !solving));
+  actions.appendChild(btn('Hint', () => assist('nudge'), 'btn default', !solving));
+  actions.appendChild(btn('Next move', () => assist('move'), 'btn', !solving));
+  actions.appendChild(btn('Full solution', () => assist('ideal'), 'btn', !solving));
   actions.appendChild(btn('Learn', enterLearn, 'btn', !solving));
   actions.appendChild(btn('Rewind', rewindStep, 'btn', !solving));
   return actions;
@@ -1045,16 +1038,16 @@ function coachLine(parent: HTMLElement, tag: string, cls: string, msg: string) {
   parent.appendChild(l);
 }
 
-// Output console: shows requested hints only (Nudge/Reveal/Ideal), not auto-answers.
+// Output console: shows requested help only (Hint/Next move/Full solution), not auto-answers.
 function buildCoachBody(s: StepDef | null): HTMLElement {
   const c = el('div', 'console');
   if (!s) { coachLine(c, '', 'c-muted', 'No active step.'); return c; }
   if (state.mode === 'scramble') { coachLine(c, '', 'c-muted', 'Apply the scramble — solving auto-starts when matched.'); return c; }
   if (!state.historyValid) { coachLine(c, 'hint', 'c-hint', 'Move history lost on resync — press “Next scramble”.'); return c; }
   const a = state.assist;
-  if (!a) { coachLine(c, '', 'c-muted', 'Press Nudge, Reveal or Ideal when you want help.'); return c; }
+  if (!a) { coachLine(c, '', 'c-muted', 'Press Hint, Next move or Full solution when you want help.'); return c; }
   if (a.kind === 'nudge') {
-    // Rule-based recognition + technique (no exact moves — that's Reveal/Ideal).
+    // Rule-based recognition + technique (no exact moves — that's Next move / Full solution).
     const h = s.kind === 'eo' ? eoHint(state.cube) : blockHint(a.focus, true);
     if (h.name) coachLine(c, 'pattern', 'c-good', h.name);
     for (const ln of h.lines) coachLine(c, '', 'c-coach', ln);
