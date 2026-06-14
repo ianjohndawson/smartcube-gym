@@ -6,8 +6,8 @@ import {
   faceletString,
   newSolved,
   optimalToMask,
+  solveFromState,
   parseMoves,
-  maskProgressState,
   isMaskSolvedState,
   cubeFromFacelets,
   findBridge,
@@ -28,7 +28,6 @@ import { sampleEoScramble } from './eo-scramble.ts';
 import { genEoSafeScramble } from './steps.ts';
 import { CORNER_FACELETS, NET_COORDS } from './blocks.ts';
 
-const SOLVED_ENCODE = newSolved().encode();
 const SOLVED_STR = faceletString(newSolved());
 
 // Facelets grouped into cubies (pieces) by shared coordinate — for piece-based progress.
@@ -131,6 +130,7 @@ interface State {
   history: Move3x3[]; // all moves from solved
   historyValid: boolean; // false after a hard resync (history unknown) — hints need it
   stepStartHistory: Move3x3[];
+  stepStartCube: Cube3x3; // live cube state at the start of the current step (for state-based ideal/scoring)
   movesThisStep: Move3x3[];
   stepDone: boolean[];
   assist: { kind: 'nudge' | 'move' | 'ideal'; moves: Move3x3[]; focus: FocusPiece | null } | null;
@@ -256,6 +256,7 @@ function startScramble(base: Cube3x3, baseHistory: Move3x3[], explicit?: Move3x3
     // (false after a resync that restarts from the cube's true state).
     historyValid: applyMoves(newSolved(), baseHistory).encode() === base.encode(),
     stepStartHistory: [...baseHistory],
+    stepStartCube: base,
     movesThisStep: [],
     stepDone: t.steps.map(() => false),
     assist: null,
@@ -272,7 +273,10 @@ function startScramble(base: Cube3x3, baseHistory: Move3x3[], explicit?: Move3x3
   };
 }
 
+const LAST_TRAINER_KEY = 'cube-trainer.last-trainer';
+
 function freshTrainer(trainerId: string): State {
+  localStorage.setItem(LAST_TRAINER_KEY, trainerId);
   if (state) state.trainerId = trainerId;
   else state = { trainerId } as State;
   return startScramble(newSolved(), []);
@@ -306,6 +310,7 @@ function afterLearnMove() {
     if (state.stepIndex < steps().length - 1) {
       state.stepIndex += 1;
       state.stepStartHistory = [...state.history];
+      state.stepStartCube = state.cube;
       state.movesThisStep = [];
     }
   }
@@ -320,6 +325,7 @@ function afterChange() {
     if (state.cube.encode() === state.target.encode()) {
       state.mode = 'solve';
       state.stepStartHistory = [...state.history];
+      state.stepStartCube = state.cube;
       state.movesThisStep = [];
       state.assist = null;
       state.solveStartMs = null; // timer starts on the first solve move
@@ -357,38 +363,32 @@ function checkStepCompletion() {
   const s = currentStep();
   if (!s || state.stepDone[state.stepIndex]) return;
   if (stepSolved(s)) {
-    // Without a trustworthy history (post hard-resync) we can't score this step.
-    const optimal = state.historyValid
-      ? optimalToMask(state.stepStartHistory, s.canonicalMask, s.solver) ?? []
-      : [];
+    // Score from the cube state captured at the step's start — no move history
+    // needed, so this stays correct even after a BLE resync.
+    const optimal = solveFromState(state.stepStartCube, s.canonicalMask, s.solver) ?? [];
     const used = htmCount(state.movesThisStep);
-    const caseLabel = state.historyValid ? classifyCase(applyMoves(newSolved(), state.stepStartHistory), s, optimal) : '';
-    state.lastResult = state.historyValid
-      ? {
-          step: s.label,
-          used,
-          optimal: optimal.length,
-          yourMoves: [...state.movesThisStep],
-          idealMoves: optimal,
-          case: caseLabel,
-        }
-      : null;
-    // Log to the Stats history (only when we have a trustworthy ideal to compare to).
-    // Record solve time only for single-step trainers (EO / course / drills) — the
-    // journey timer isn't meaningful per-step on multi-step methods.
+    const caseLabel = classifyCase(state.stepStartCube, s, optimal);
+    state.lastResult = {
+      step: s.label,
+      used,
+      optimal: optimal.length,
+      yourMoves: [...state.movesThisStep],
+      idealMoves: optimal,
+      case: caseLabel,
+    };
+    // Log to the Stats history. Record solve time only for single-step trainers
+    // (EO / course / drills) — the journey timer isn't per-step meaningful.
     lastRecord = { history: false };
-    if (state.historyValid) {
-      const single = steps().length === 1;
-      const ms = single && state.solveStartMs != null ? Date.now() - state.solveStartMs : undefined;
-      recordSolve({ step: stepShort(s), used, optimal: optimal.length, ts: Date.now(), ms });
-      lastRecord.history = true;
-    }
+    const single = steps().length === 1;
+    const ms = single && state.solveStartMs != null ? Date.now() - state.solveStartMs : undefined;
+    recordSolve({ step: stepShort(s), used, optimal: optimal.length, ts: Date.now(), ms });
+    lastRecord.history = true;
     state.stepDone[state.stepIndex] = true;
     state.assist = null;
     state.status = `${s.label} done!`;
     // Course: log this solve toward the current level's consistency target.
     const tr = trainer();
-    if (state.historyValid && tr.course) {
+    if (tr.course) {
       lastRecord.trainerId = tr.id;
       lastRecord.level = courseCurrent(tr.id);
       const note = recordCourse(tr.id, tr.course.length, used - optimal.length);
@@ -397,6 +397,7 @@ function checkStepCompletion() {
     if (state.stepIndex < steps().length - 1) {
       state.stepIndex += 1;
       state.stepStartHistory = [...state.history];
+      state.stepStartCube = state.cube;
       state.movesThisStep = [];
     }
   }
@@ -527,13 +528,10 @@ function freshTrainerInPlace(id: string) {
   render();
 }
 // Hints/rewind/efficiency all need a trustworthy move history (moves from solved).
-// After a hard resync that can't be bridged, history is unknown — block those
-// actions and point the user at a fresh scramble (which rebuilds valid history).
+// Coaching, scoring, Learn and Rewind all work from the live cube state now, so
+// a lost-history resync no longer blocks them. Kept as a stable hook.
 function requireHistory(): boolean {
-  if (state.historyValid) return true;
-  state.status = 'Move history was lost on resync — press “Next scramble” for fresh hints.';
-  render();
-  return false;
+  return true;
 }
 
 function nextScramble() {
@@ -551,7 +549,7 @@ function resetToSolved() {
 }
 function rewindStep() {
   if (!requireHistory()) return;
-  state.cube = applyMoves(newSolved(), state.stepStartHistory);
+  state.cube = state.stepStartCube.clone();
   state.history = [...state.stepStartHistory];
   state.movesThisStep = [];
   state.stepDone[state.stepIndex] = false;
@@ -565,10 +563,10 @@ function enterLearn() {
   if (!requireHistory()) return;
   const s = currentStep();
   if (!s) return;
-  const ideal = optimalToMask(state.stepStartHistory, s.canonicalMask, s.solver) ?? [];
+  const ideal = solveFromState(state.stepStartCube, s.canonicalMask, s.solver) ?? [];
   if (ideal.length === 0) { state.status = 'Nothing to learn from here.'; render(); return; }
   // rewind to the start of this case, then guide through the ideal
-  state.cube = applyMoves(newSolved(), state.stepStartHistory);
+  state.cube = state.stepStartCube.clone();
   state.history = [...state.stepStartHistory];
   state.movesThisStep = [];
   state.stepDone[state.stepIndex] = false;
@@ -731,18 +729,17 @@ function disp(moves: Move3x3[]): Move3x3[] {
 
 function continuation(): Move3x3[] {
   const s = currentStep();
-  if (!s || !state.historyValid) return [];
-  return optimalToMask(state.history, s.canonicalMask, s.solver) ?? [];
+  if (!s) return [];
+  return solveFromState(state.cube, s.canonicalMask, s.solver) ?? [];
 }
 function idealFromStart(): number | null {
   const s = currentStep();
-  if (!s || !state.historyValid) return null;
-  const m = optimalToMask(state.stepStartHistory, s.canonicalMask, s.solver);
+  if (!s) return null;
+  const m = solveFromState(state.stepStartCube, s.canonicalMask, s.solver);
   return m ? m.length : null;
 }
 
 function assist(kind: 'nudge' | 'move' | 'ideal') {
-  if (!requireHistory()) return;
   const s = currentStep();
   if (!s) return;
   // EO nudge: point at the misoriented edges (no move revealed).
@@ -848,7 +845,7 @@ function buildTopBar(): HTMLElement {
 }
 
 function catLabel(c: Category): string {
-  return c === 'Blocks' ? 'Block building' : c;
+  return c === 'Blocks' ? 'Block building' : c === 'EO' ? 'Edge Orientation' : c;
 }
 // The current selection as one big sentence (Category · Trainer · Mode) with a
 // Change button that reveals the full picker — sits just below the top bar.
@@ -1063,7 +1060,6 @@ function buildCoachBody(s: StepDef | null): HTMLElement {
   const c = el('div', 'console');
   if (!s) { coachLine(c, '', 'c-muted', 'No active step.'); return c; }
   if (state.mode === 'scramble') { coachLine(c, '', 'c-muted', 'Apply the scramble — solving auto-starts when matched.'); return c; }
-  if (!state.historyValid) { coachLine(c, 'hint', 'c-hint', 'Move history lost on resync — press “Next scramble”.'); return c; }
   const a = state.assist;
   if (!a) { coachLine(c, '', 'c-muted', 'Press Hint, Next move or Full solution when you want help.'); return c; }
   if (a.kind === 'nudge') {
@@ -1549,7 +1545,10 @@ function btn(label: string, onClick: () => void, className = '', disabled = fals
 
 // --- boot ---
 applyTheme(getTheme());
-state = freshTrainer('course222'); // default: the graded 2×2×2 course
+// Resume where you left off (e.g. start in Edge Orientation if that's what you
+// were practising); fall back to the graded 2×2×2 course on first run.
+const savedTrainer = localStorage.getItem(LAST_TRAINER_KEY);
+state = freshTrainer(trainerById(savedTrainer ?? 'course222').id);
 render();
 
 // Hidden test hook (Manual Moves panel was removed from the UI).
