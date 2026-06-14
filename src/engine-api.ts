@@ -15,6 +15,7 @@ import {
   type RotationMove,
 } from './engine/puzzles/cube3x3/index.ts';
 import { genPruningTable, solve, type PruningTable } from './engine/search/index.ts';
+import { NET_COORDS } from './blocks.ts';
 
 export type { Move3x3, RotationMove, Cube3x3Mask };
 export { Cube3x3, MOVESETS, SOLVED_FACELET_CUBE };
@@ -230,4 +231,90 @@ export function optimalToMask(
 ): Move3x3[] | null {
   const sols = solveToMask(scramble, mask, cfg, preRotation, 1);
   return sols[0] ?? null;
+}
+
+// --- state-based solving (no move history needed) ---
+//
+// solveToMask needs the move trail from solved to build its puzzle. After a BLE
+// resync the trail is unknown, but the LIVE cube state still fully determines the
+// solution. We reconstruct the exact same masked puzzle from the cube's facelets
+// by mapping each sticker to its home (solved) position. Proven equivalent to
+// solveToMask across thousands of random states (blocks, block+EO, and EO).
+
+// Cubies = facelets sharing a 3D coordinate; within a cubie colours are distinct,
+// so colour -> solved-facelet-index is unambiguous.
+const CUBIE_GROUPS: number[][] = (() => {
+  const by = new Map<string, number[]>();
+  NET_COORDS.forEach((c, i) => {
+    const k = c.join(',');
+    (by.get(k) ?? by.set(k, []).get(k)!).push(i);
+  });
+  return [...by.values()];
+})();
+const HOME_BY_COLORSET = new Map<string, Map<string, number>>();
+for (const g of CUBIE_GROUPS) {
+  const cs = g.map((i) => SOLVED_FACELET_CUBE[i]).sort().join('');
+  const m = new Map<string, number>();
+  g.forEach((i) => m.set(SOLVED_FACELET_CUBE[i] as string, i));
+  HOME_BY_COLORSET.set(cs, m);
+}
+
+/** For each facelet position, the solved index of the sticker currently there. */
+function homePermutation(state: readonly string[]): number[] {
+  const home = new Array<number>(54);
+  for (const g of CUBIE_GROUPS) {
+    const cs = g.map((i) => state[i]).sort().join('');
+    const map = HOME_BY_COLORSET.get(cs);
+    if (!map) return []; // unrecognisable state — fail safe (no suggestion)
+    for (const j of g) {
+      const h = map.get(state[j]);
+      if (h === undefined) return [];
+      home[j] = h;
+    }
+  }
+  return home;
+}
+
+function maskedSolvedFacelets(mask: Cube3x3Mask): string[] {
+  const solved = new Set<number>(mask.solvedFaceletIndices as readonly number[]);
+  const eo = new Set<number>((mask.eoFaceletIndices ?? []) as readonly number[]);
+  return [...Array(54).keys()].map((i) =>
+    solved.has(i) ? (SOLVED_FACELET_CUBE[i] as string) : eo.has(i) ? 'O' : 'X',
+  );
+}
+
+/**
+ * Optimal solution(s) bringing the LIVE cube to the masked step, computed from
+ * its current state alone (no move history) — so it stays correct after a resync.
+ */
+export function solveFromStateMulti(
+  cube: Cube3x3,
+  mask: Cube3x3Mask,
+  cfg: StepSolverConfig,
+  maxSolutionCount = 3,
+): Move3x3[][] {
+  const ms = maskedSolvedFacelets(mask);
+  const home = homePermutation(cube.stateData as unknown as string[]);
+  if (home.length === 0) return [];
+  const masked = [...Array(54).keys()].map((j) => ms[home[j]]);
+  const puzzle = new Cube3x3([...cfg.moveSet], masked as never, ms as never);
+  const table = getTable(mask, cfg);
+  try {
+    return solve(puzzle, table, {
+      pruningDepth: cfg.pruningDepth,
+      depthLimit: cfg.depthLimit,
+      maxSolutionCount,
+    });
+  } catch {
+    return [];
+  }
+}
+
+/** Single optimal solution from the live cube state, or null. */
+export function solveFromState(
+  cube: Cube3x3,
+  mask: Cube3x3Mask,
+  cfg: StepSolverConfig,
+): Move3x3[] | null {
+  return solveFromStateMulti(cube, mask, cfg, 1)[0] ?? null;
 }
