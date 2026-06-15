@@ -140,6 +140,7 @@ interface State {
   battery: number | null;
   status: string;
   showSettings: boolean;
+  showStats: boolean; // top-bar Stats overlay — accessible in any mode, not just mid-session
   showPicker: boolean;
   rightTab: 'coach' | 'stats';
   log: string[];
@@ -266,6 +267,7 @@ function startScramble(base: Cube3x3, baseHistory: Move3x3[], explicit?: Move3x3
     battery: state?.battery ?? null,
     status: 'Apply the scramble to your cube. The cube view follows along.',
     showSettings: false,
+    showStats: state?.showStats ?? false,
     showPicker: state?.showPicker ?? false,
     rightTab: state?.rightTab ?? 'coach',
     log: state?.log ?? [],
@@ -593,17 +595,6 @@ function resetToSolved() {
   state.status = 'Cube reset to solved — apply the scramble to begin.';
   render();
 }
-function rewindStep() {
-  if (!requireHistory()) return;
-  state.cube = state.stepStartCube.clone();
-  state.history = [...state.stepStartHistory];
-  state.movesThisStep = [];
-  state.stepDone[state.stepIndex] = false;
-  state.assist = null;
-  state.learn = null;
-  state.status = 'Step rewound to its starting state.';
-  render();
-}
 
 function enterLearn() {
   if (!requireHistory()) return;
@@ -846,7 +837,8 @@ function render() {
   main.appendChild(left);
 
   const right = el('div', 'panel grow');
-  if (allDone) buildReviewPane(right);
+  if (state.showStats) buildStatsPane(right);
+  else if (allDone) buildReviewPane(right);
   else if (s && state.learn) buildLearnPane(right, s);
   else buildSessionPane(right, s, info);
   main.appendChild(right);
@@ -859,9 +851,6 @@ function render() {
 // --- top bar + toolbar ---
 function segBtn(label: string, onClick: () => void, active: boolean): HTMLButtonElement {
   return btn(label, onClick, `seg-btn${active ? ' active' : ''}`);
-}
-function tabBtn(label: string, active: boolean, onClick: () => void): HTMLButtonElement {
-  return btn(label, onClick, `tab${active ? ' active' : ''}`);
 }
 function iconBtn(label: string, onClick: () => void): HTMLButtonElement {
   return btn(label, onClick, 'icon-btn');
@@ -886,6 +875,10 @@ function buildTopBar(): HTMLElement {
   pill.addEventListener('click', toggleConnect);
   top.appendChild(pill);
 
+  const statsBtn = iconBtn('Stats', () => { state.showStats = !state.showStats; render(); });
+  if (state.showStats) { statsBtn.style.borderColor = 'var(--accent)'; statsBtn.style.fontWeight = '600'; statsBtn.style.color = 'var(--accent)'; }
+  statsBtn.title = state.showStats ? 'Close stats' : 'Show stats';
+  top.appendChild(statsBtn);
   top.appendChild(iconBtn('⚙', () => { state.showSettings = true; render(); }));
   return top;
 }
@@ -1040,21 +1033,27 @@ function buildJourneyPanel(): HTMLElement {
   return p;
 }
 
-// --- right pane: session (tabs + actions on top + meter + output console) ---
+// --- right pane: session (actions on top + meter + output console) ---
 function buildSessionPane(right: HTMLElement, s: StepDef | null, info: { frac: number; caption: string }) {
   const ideal = idealFromStart();
-  const tabs = el('div', 'panel-tabs');
-  tabs.appendChild(tabBtn('Coach', state.rightTab === 'coach', () => { state.rightTab = 'coach'; render(); }));
-  tabs.appendChild(tabBtn('Stats', state.rightTab === 'stats', () => { state.rightTab = 'stats'; render(); }));
-  tabs.appendChild(el('div', 'spacer'));
-  if (ideal != null) tabs.appendChild(el('span', 'tag', `ideal ${ideal}`));
-  right.appendChild(tabs);
-
-  if (state.rightTab === 'stats') { right.appendChild(buildStatsBody()); return; }
+  const hd = el('div', 'panel-tabs');
+  hd.appendChild(el('div', 'spacer'));
+  if (ideal != null) hd.appendChild(el('span', 'tag', `ideal ${ideal}`));
+  right.appendChild(hd);
 
   right.appendChild(buildActions(s));
   right.appendChild(buildStepMeter(s, info, ideal));
   right.appendChild(buildCoachBody(s));
+}
+
+// --- right pane: Stats overlay (top-bar toggle; available in any mode) ---
+function buildStatsPane(right: HTMLElement) {
+  const hd = el('div', 'panel-tabs');
+  hd.appendChild(el('div', 'panel-hd', 'Stats'));
+  hd.appendChild(el('div', 'spacer'));
+  hd.appendChild(btn('Close', () => { state.showStats = false; render(); }, 'btn ghost'));
+  right.appendChild(hd);
+  right.appendChild(buildStatsBody());
 }
 
 function buildActions(s: StepDef | null): HTMLElement {
@@ -1065,7 +1064,7 @@ function buildActions(s: StepDef | null): HTMLElement {
   actions.appendChild(btn('Next move', () => assist('move'), 'btn', !solving));
   actions.appendChild(btn('Full solution', () => assist('ideal'), 'btn', !solving));
   actions.appendChild(btn('Learn', enterLearn, 'btn', !solving));
-  actions.appendChild(btn('Rewind', rewindStep, 'btn', !solving));
+  actions.appendChild(btn('Retry', tryAgain, 'btn', !solving));
   return actions;
 }
 
@@ -1180,7 +1179,7 @@ function buildLearnPane(right: HTMLElement, s: StepDef) {
   if (done < shown.length) right.appendChild(el('div', 'meter-cap', `next move: ${shown[done]} (${done}/${shown.length})`));
   const row = el('div', 'row');
   row.style.marginTop = '14px';
-  row.appendChild(btn('Stop walkthrough', stopLearn, 'btn ghost'));
+  row.appendChild(btn('Stop walkthrough', stopLearn, 'btn'));
   right.appendChild(row);
 }
 
