@@ -119,14 +119,17 @@ const STEP_EOLINE: StepDef = {
   blurb: 'Orient all edges and place the DF and DB edges — the ZZ first step.',
   candidateMasks: [EOLINE_MASK], canonicalMask: EOLINE_MASK,
   hold: 'White on top; orient on the F/B axis and place the DF/DB line (ZZ).',
-  solver: { moveSet: BLOCK_MOVES, pruningDepth: 4, depthLimit: 9 },
+  // Optimal EOLine from a real scramble tops out ~7 HTM; 11 is a safe ceiling (IDA*
+  // stops at the optimal, so the headroom is free). pruningDepth 5 keeps search fast.
+  solver: { moveSet: BLOCK_MOVES, pruningDepth: 5, depthLimit: 11 },
 };
 const STEP_EOCROSS: StepDef = {
   id: 'eocross', label: 'EOCross', kind: 'eo',
   blurb: 'Orient all edges and solve the bottom cross in one — an advanced ZZ start.',
   candidateMasks: [EOCROSS_MASK], canonicalMask: EOCROSS_MASK,
   hold: 'White on top; orient on the F/B axis while building the D-cross (ZZ).',
-  solver: { moveSet: BLOCK_MOVES, pruningDepth: 4, depthLimit: 10 },
+  // Optimal EOCross from a real scramble tops out ~9 HTM; 12 is a safe ceiling.
+  solver: { moveSet: BLOCK_MOVES, pruningDepth: 5, depthLimit: 12 },
 };
 const STEP_PETRUS_EO: StepDef = {
   id: 'petrus-eo', label: 'EO (keep the block)', kind: 'eo',
@@ -203,6 +206,8 @@ export const TRAINERS: TrainerDef[] = [
   // EO — orient edges, keeping progressively more built. (2×3×3 B is coming once
   // its scramble generator can pre-build two full layers cheaply.)
   { id: 'eo', label: 'Full', category: 'EO', description: 'Orient all 12 edges (free — no block kept). The core EO skill.', steps: [STEP_EO] },
+  { id: 'eoline', label: 'EOLine', category: 'EO', description: 'Orient all edges and place the DF + DB edges together — the ZZ first step (EOLine).', steps: [STEP_EOLINE] },
+  { id: 'eocross', label: 'EOCross', category: 'EO', description: 'Orient all edges and solve the bottom cross in one — an advanced ZZ opening (EOCross).', steps: [STEP_EOCROSS] },
   { id: 'eo123', label: '1×2×3', category: 'EO', description: 'Orient all edges while preserving a 1×2×3 first block (Roux first block / LEOR start).', steps: [STEP_EO_123] },
   { id: 'eo223L', label: '2×2×3 L', category: 'EO', description: 'Orient all edges while preserving a 2×2×3 on the left (Petrus, block on the side).', steps: [STEP_EO_223] },
   { id: 'eo223B', label: '2×2×3 B', category: 'EO', description: 'Orient all edges while preserving a 2×2×3 at the back (Petrus EO after a y).', steps: [STEP_EO_223B] },
