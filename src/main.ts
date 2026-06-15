@@ -439,7 +439,36 @@ function handleMove(move: string) {
     return;
   }
   step(move as Move3x3);
+  // #4: neutral "advance" gesture (see maybeAdvanceGesture). Runs on the live move
+  // stream only — seed-queue replays call step() directly and bypass this.
+  if (maybeAdvanceGesture(move as Move3x3)) return; // nextScramble() already rendered
   render();
+}
+
+// #4: four identical U or D quarter-turns (U U U U, or D' D' D' D', …) net to a full
+// rotation — identity on the cube state — so they make a safe gesture that doesn't
+// disturb anything. It's armed ONLY in the review state (journey complete, not
+// mid-solve, not during a walkthrough): the run resets on any other move and whenever
+// we're not in review, so it can never fire while you're actually solving (even four
+// U's during a solve are ignored). The turns are applied to the model first (above),
+// so by the 4th the cube is back to where it was and model↔cube stay in sync; then we
+// advance to the next scramble.
+let advanceRunMove = '';
+let advanceRunCount = 0;
+function maybeAdvanceGesture(move: Move3x3): boolean {
+  const inReview = state.mode === 'solve' && !state.learn && state.stepDone.every(Boolean);
+  if (!inReview) { advanceRunMove = ''; advanceRunCount = 0; return false; }
+  const isAdvanceTurn = move === 'U' || move === "U'" || move === 'D' || move === "D'";
+  if (isAdvanceTurn && move === advanceRunMove) advanceRunCount++;
+  else if (isAdvanceTurn) { advanceRunMove = move; advanceRunCount = 1; }
+  else { advanceRunMove = ''; advanceRunCount = 0; }
+  if (advanceRunCount >= 4) {
+    advanceRunMove = '';
+    advanceRunCount = 0;
+    nextScramble();
+    return true;
+  }
+  return false;
 }
 
 // Read the cube's true state and reconcile the model to it (manual Sync).
