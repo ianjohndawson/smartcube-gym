@@ -404,6 +404,15 @@ function checkStepCompletion() {
 }
 
 function handleMove(move: string) {
+  // Connect-seed window: the cube's authoritative state hasn't landed yet.
+  // Queue the move and replay it once we've seeded, so it's never applied to a
+  // stale (pre-seed) model. Without this, a MOVE that beats the seeding FACELETS
+  // makes handleFacelets bridge a phantom inverse move — a permanent model↔cube
+  // offset that breaks scramble tracking and solve detection.
+  if (awaitingConnectSeed) {
+    seedQueue.push(move);
+    return;
+  }
   step(move as Move3x3);
   render();
 }
@@ -417,20 +426,57 @@ function syncCube() {
   render();
 }
 
-// Resync the model to the cube's true state — ONLY on an explicit Sync press.
-// (gan-web-bluetooth emits periodic facelet snapshots, but acting on those
-// automatically fights the live move stream — it corrupted move tracking while
-// applying a scramble — so it's strictly manual.)
+// --- Facelet sync state ---
+//
+// awaitingConnectSeed — set on connect, cleared by the FIRST FACELETS snapshot.
+//   Seeds the model from the cube's true physical state. Any MOVE events during
+//   this window are buffered in seedQueue (see handleMove) and replayed on top
+//   of the seeded state, so a move can never race ahead of the seed and trigger
+//   a phantom bridge. GAN cubes push an unsolicited FACELETS on connect, and the
+//   firmware can have a stale snapshot in flight — this window closes that gap.
+//
+// awaitingSync — set only by an explicit Sync button press, for reconciling
+//   drift mid-session (the original manual path).
+//
+// Periodic FACELETS that arrive while neither flag is set are ignored, so the
+// live move stream is never fought during a scramble or solve.
+let awaitingConnectSeed = false;
+let seedQueue: string[] = [];
 let awaitingSync = false;
+
 function handleFacelets(kociemba: string) {
-  if (!awaitingSync) return;
-  awaitingSync = false;
   let trueCube: Cube3x3;
   try {
     trueCube = cubeFromFacelets(kociembaToNet(kociemba));
   } catch {
+    awaitingConnectSeed = false;
+    awaitingSync = false;
+    seedQueue = [];
     return;
   }
+
+  // --- Connect-time seed (authoritative; takes priority over manual sync) ---
+  if (awaitingConnectSeed) {
+    awaitingConnectSeed = false;
+    const queued = seedQueue.splice(0);
+    // If the cube is already where the current (eager) scramble expects to start,
+    // keep that scramble; otherwise start fresh from the cube's true state.
+    if (trueCube.encode() === state.base.encode()) {
+      state.cube = trueCube;
+    } else {
+      state = startScramble(trueCube, []);
+      state.status = 'Synced to your cube — scramble ready.';
+    }
+    state.connected = true;
+    // Replay any moves the cube reported during the seed window, in order.
+    for (const m of queued) step(m as Move3x3);
+    render();
+    return;
+  }
+
+  // --- Manual Sync button ---
+  if (!awaitingSync) return;
+  awaitingSync = false;
   if (trueCube.encode() === state.cube.encode()) { state.status = 'Already in sync with your cube.'; render(); return; }
   // Small drift (a few missed moves): bridge them so the move history stays valid
   // and you keep your place in the current scramble/solve.
@@ -461,7 +507,7 @@ const cube = new CubeManager({
   onMove: (m) => handleMove(m),
   onFacelets: (f) => handleFacelets(f),
   onBattery: (b) => { state.battery = b; render(); },
-  onConnect: (name) => { state.connected = true; state.lastError = ''; state.status = `Connected to ${name} — reading cube state…`; awaitingSync = true; cube.requestFacelets(); render(); },
+  onConnect: (name) => { state.connected = true; state.lastError = ''; state.status = `Connected to ${name} — reading cube state…`; awaitingConnectSeed = true; seedQueue = []; cube.requestFacelets(); render(); },
   onDisconnect: () => { state.connected = false; state.status = 'Cube disconnected.'; render(); },
   onError: (e) => { state.lastError = String((e as Error)?.message ?? e); state.status = `Bluetooth error: ${state.lastError}`; render(); },
   // Trace of raw cube events (for diagnosing BLE quirks; shown in Settings).
