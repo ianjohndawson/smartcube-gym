@@ -159,6 +159,14 @@ function currentStep(): StepDef | null {
   return steps()[state.stepIndex] ?? null;
 }
 
+// Scramble lengths. SCRAMBLE_LEN is the uniform random-scramble length shared by
+// the general block/drill paths AND the EO path (EO reaches it by padding its short
+// bad-edge setup with EO-safe moves, so the mechanism differs but the length now
+// matches — #3). The course path bands its own length by difficulty and is
+// intentionally exempt.
+const SCRAMBLE_LEN = 16;
+const EO_SCRAMBLE_LEN = SCRAMBLE_LEN;
+
 function makeScramble(base: Cube3x3, baseHistory: Move3x3[], stepsList: StepDef[]): Move3x3[] {
   const first = stepsList[0];
   // Course: generate a scramble whose optimal solution to the block lands in the
@@ -192,31 +200,46 @@ function makeScramble(base: Cube3x3, baseHistory: Move3x3[], stepsList: StepDef[
     const prereq = first.prereqMask;
     const buildCfg = { ...first.solver, depthLimit: 16 };
     for (let attempt = 0; attempt < 20; attempt++) {
-      const scr = genScramble(16);
+      const scr = genScramble(SCRAMBLE_LEN);
       const build = optimalToMask([...baseHistory, ...scr], prereq, buildCfg) ?? [];
       const full = [...scr, ...build];
       const cube = applyMoves(base, full);
       if (isMaskSolvedState(cube, prereq) && !isMaskSolvedState(cube, first.canonicalMask)) return full;
     }
-    const scr = genScramble(16);
+    const scr = genScramble(SCRAMBLE_LEN);
     return [...scr, ...(optimalToMask([...baseHistory, ...scr], prereq, buildCfg) ?? [])];
   }
   if (first.kind === 'eo') {
-    // Pad every EO scramble up to a uniform ~10 moves with EO-PRESERVING moves
-    // (they don't change the bad-edge pattern). This obfuscates: a short scramble
-    // is just the optimal solution reversed, and a uniform length hides the
-    // difficulty. The targeted bad-edge case (and so the optimal) is unchanged.
+    // Pad every EO scramble up to a uniform length with EO-PRESERVING moves (they
+    // don't change the bad-edge pattern). This obfuscates: a short scramble is just
+    // the optimal solution reversed, and a uniform length hides the difficulty. The
+    // targeted bad-edge case (and so the optimal) is unchanged.
+    //
+    // #5: the pad/eoSeq join used to leave cancelling or combining moves at the seam
+    // (e.g. pad ends `R`, eoSeq starts `R'` -> `R R'`; or `D2` then `D` -> `D'`).
+    // simplifyMoves only merges consecutive same-face turns (which commute), so a
+    // length-preserved concatenation has NO cancellation. Both halves are already
+    // internally clean — the pad guards same-face repeats, and eoSeq is a shortest
+    // BFS sequence — so the seam is the only place a collapse can happen. Reject any
+    // pad whose seam collapses and return the untouched concatenation: the bad-edge
+    // case AND the uniform length both stay intact.
     const eoSeq = sampleEoScramble();
-    const pad = Math.max(0, 10 - eoSeq.length);
-    return [...genEoSafeScramble(pad), ...eoSeq];
+    const need = Math.max(0, EO_SCRAMBLE_LEN - eoSeq.length);
+    for (let attempt = 0; attempt < 40; attempt++) {
+      const full = [...genEoSafeScramble(need), ...eoSeq];
+      if (simplifyMoves(full).length === full.length) return full;
+    }
+    // Unreachable in practice; clean the seam as a fallback. simplifyMoves preserves
+    // the exact target state, so the bad-edge case and solved-ness are unchanged.
+    return simplifyMoves([...genEoSafeScramble(need), ...eoSeq]);
   }
   // Blocks: a normal-length random scramble, rejecting any that pre-solve the step.
   for (let attempt = 0; attempt < 25; attempt++) {
-    const moves = genScramble(16);
+    const moves = genScramble(SCRAMBLE_LEN);
     const targetHistory = [...baseHistory, ...moves];
     if (!isMaskSolvedState(applyMoves(newSolved(), targetHistory), first.canonicalMask)) return moves;
   }
-  return genScramble(16);
+  return genScramble(SCRAMBLE_LEN);
 }
 
 function computePrefixEncodes(base: Cube3x3, moves: Move3x3[]): string[] {
@@ -1644,4 +1667,3 @@ setInterval(() => {
     t.textContent = fmtTime(Date.now() - state.solveStartMs);
   }
 }, 100);
-
