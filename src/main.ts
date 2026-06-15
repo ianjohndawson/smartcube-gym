@@ -335,7 +335,7 @@ function afterChange() {
       state.finishedMs = null;
       if (state.pendingLearn) {
         state.pendingLearn = false;
-        enterLearn();
+        beginLearnWalkthrough();
         return;
       }
       state.status = `Scrambled! ${currentStep()?.label ?? ''} — find your solution.`;
@@ -596,15 +596,48 @@ function resetToSolved() {
   render();
 }
 
+// Learn (mid-solve): walk the ideal for the current step. The physical cube is
+// wherever the solver left it, so we must NOT fabricate the software model back to
+// step start — that desyncs the model from the cube (the next physical move lands
+// on a position the cube isn't in). Instead hand back the moves that physically
+// return the cube to this step's start, then arm pendingLearn so the walkthrough
+// begins only once the cube has actually returned. Mirrors learnFromReview, but
+// returns to *step* start (not the full scramble) and preserves stepIndex so
+// multi-step trainers stay on the current step.
 function enterLearn() {
   if (!requireHistory()) return;
   const s = currentStep();
   if (!s) return;
   const ideal = solveFromState(state.stepStartCube, s.canonicalMask, s.solver) ?? [];
   if (ideal.length === 0) { state.status = 'Nothing to learn from here.'; render(); return; }
-  // rewind to the start of this case, then guide through the ideal
-  state.cube = state.stepStartCube.clone();
-  state.history = [...state.stepStartHistory];
+  const back = simplifyMoves(invertSeq(state.movesThisStep));
+  // Already at step start (nothing done this step yet) — go straight in.
+  if (back.length === 0) { beginLearnWalkthrough(); return; }
+  // Drop into a return-to-step-start phase, reusing the scramble-tracking machinery
+  // (target = the step-start state). pendingLearn fires beginLearnWalkthrough when
+  // the cube physically lands back on the step start.
+  state.mode = 'scramble';
+  state.base = state.cube;
+  state.target = state.stepStartCube.clone();
+  state.scrambleMoves = back;
+  state.scrambleBaseLen = state.history.length;
+  state.scrambleReached = 0;
+  state.prefixEncodes = computePrefixEncodes(state.cube, back);
+  state.assist = null;
+  state.learn = null;
+  state.pendingLearn = true;
+  state.status = `Apply the ${back.length} move${back.length === 1 ? '' : 's'} above to return to the start of ${s.label}, then follow the ideal.`;
+  render();
+}
+
+// Start the guided ideal replay. Assumes the cube has physically returned to the
+// start of the current step (stepStartCube); never fabricates the model. Reached
+// either directly (no moves done this step) or via the pendingLearn return phase.
+function beginLearnWalkthrough() {
+  const s = currentStep();
+  if (!s) return;
+  const ideal = solveFromState(state.stepStartCube, s.canonicalMask, s.solver) ?? [];
+  if (ideal.length === 0) { state.status = 'Nothing to learn from here.'; render(); return; }
   state.movesThisStep = [];
   state.stepDone[state.stepIndex] = false;
   state.assist = null;
@@ -795,7 +828,7 @@ function assist(kind: 'nudge' | 'move' | 'ideal') {
   state.status =
     effective === 'nudge' ? `Hint: focus on the ${focus?.description ?? 'highlighted piece'} — pair and insert it.`
     : effective === 'move' ? `Next move: ${moves[0]}`
-    : 'Showing the full solution for this step.';
+    : 'Showing the ideal for this step — press “Walk it through” to try it guided.';
   render();
 }
 
@@ -1062,8 +1095,13 @@ function buildActions(s: StepDef | null): HTMLElement {
   actions.style.marginBottom = '14px';
   actions.appendChild(btn('Hint', () => assist('nudge'), 'btn default', !solving));
   actions.appendChild(btn('Next move', () => assist('move'), 'btn', !solving));
-  actions.appendChild(btn('Full solution', () => assist('ideal'), 'btn', !solving));
-  actions.appendChild(btn('Learn', enterLearn, 'btn', !solving));
+  actions.appendChild(btn('Show ideal', () => assist('ideal'), 'btn', !solving));
+  // Once the ideal is revealed (assist === 'ideal'), offer to try it: "Walk it
+  // through" hands the cube back to the step start, then guides the moves. Only
+  // surfaced while solving and only when there's actually a solution shown.
+  if (solving && state.assist?.kind === 'ideal') {
+    actions.appendChild(btn('Walk it through', enterLearn, 'btn default'));
+  }
   actions.appendChild(btn('Retry', tryAgain, 'btn', !solving));
   return actions;
 }
@@ -1100,15 +1138,15 @@ function coachLine(parent: HTMLElement, tag: string, cls: string, msg: string) {
   parent.appendChild(l);
 }
 
-// Output console: shows requested help only (Hint/Next move/Full solution), not auto-answers.
+// Output console: shows requested help only (Hint/Next move/Show ideal), not auto-answers.
 function buildCoachBody(s: StepDef | null): HTMLElement {
   const c = el('div', 'console');
   if (!s) { coachLine(c, '', 'c-muted', 'No active step.'); return c; }
   if (state.mode === 'scramble') { coachLine(c, '', 'c-muted', 'Apply the scramble — solving auto-starts when matched.'); return c; }
   const a = state.assist;
-  if (!a) { coachLine(c, '', 'c-muted', 'Press Hint, Next move or Full solution when you want help.'); return c; }
+  if (!a) { coachLine(c, '', 'c-muted', 'Press Hint, Next move or Show ideal when you want help.'); return c; }
   if (a.kind === 'nudge') {
-    // Rule-based recognition + technique (no exact moves — that's Next move / Full solution).
+    // Rule-based recognition + technique (no exact moves — that's Next move / Show ideal).
     const h = s.kind === 'eo' ? eoHint(state.cube) : blockHint(a.focus, true);
     if (h.name) coachLine(c, 'pattern', 'c-good', h.name);
     for (const ln of h.lines) coachLine(c, '', 'c-coach', ln);
@@ -1606,3 +1644,4 @@ setInterval(() => {
     t.textContent = fmtTime(Date.now() - state.solveStartMs);
   }
 }, 100);
+
