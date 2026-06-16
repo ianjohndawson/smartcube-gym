@@ -374,11 +374,33 @@ function step(move: Move3x3) {
   state.assist = null;
   if (state.learn) { afterLearnMove(); return; }
   if (state.mode === 'solve') {
+    // Free-EO 'ask': before the axis is committed, a four-times side-face spin picks
+    // its axis hands-free (the spins net to identity, restoring the scramble).
+    if (isFreeEo(currentStep()) && !state.eoCommitted) {
+      const g = eoAxisGestureStep(move);
+      if ((g === 'gb' || g === 'ro') && state.cube.encode() === state.stepStartCube.encode()) {
+        commitAxisByGesture(g);
+        return;
+      }
+      if (g === 'building') {
+        // Part of a potential spin: apply and time it, but hold off committing the
+        // default. Still run afterChange so a one-move EO that lands here is caught.
+        state.movesThisStep.push(move);
+        if (state.solveStartMs == null) state.solveStartMs = Date.now();
+        afterChange();
+        return;
+      }
+      // 'break' (a different/ non-spin move): fall through and commit the default.
+    }
     state.movesThisStep.push(move);
     if (state.solveStartMs == null) state.solveStartMs = Date.now(); // start timer on first move
     // Free-EO 'ask': a solve move made before the prompt is answered pre-commits
     // the provisional (last-used) axis, so the timer/scoring frame is never ambiguous.
-    if (!state.eoCommitted && isFreeEo(currentStep())) { state.eoCommitted = true; saveLastEoAxis(state.eoAxis); }
+    if (!state.eoCommitted && isFreeEo(currentStep())) {
+      state.eoCommitted = true;
+      saveLastEoAxis(state.eoAxis);
+      state.status = `Solving EO — ${AXIS_LABEL[state.eoAxis]} (last used).`;
+    }
   }
   afterChange();
 }
@@ -417,6 +439,7 @@ function afterChange() {
       state.finishedMs = null;
       // Free-EO: decide (or prompt for) the side axis now that the scramble is set.
       const cs0 = currentStep();
+      resetEoGesture();
       if (cs0 && isFreeEo(cs0)) commitEoAxisOnScramble(cs0);
       if (state.pendingLearn) {
         state.pendingLearn = false;
@@ -1033,6 +1056,37 @@ function commitAxis(axis: SolveAxis) {
   state.status = `Solving EO — ${AXIS_LABEL[axis]}.`;
   render();
 }
+// Hands-free axis pick: spinning one side face four times (e.g. R R R R) nets to
+// identity, so it leaves the scramble untouched and makes a safe gesture. Colour
+// pairs map to axes in the model frame: F/B (green/blue) -> gb, R/L (red/orange)
+// -> ro. Only meaningful while an ask-prompt is open (before the axis is committed).
+let eoGestureMove: Move3x3 | '' = '';
+let eoGestureCount = 0;
+function resetEoGesture() { eoGestureMove = ''; eoGestureCount = 0; }
+function eoAxisGestureStep(move: Move3x3): 'gb' | 'ro' | 'building' | 'break' {
+  const quarterSide =
+    move === 'F' || move === "F'" || move === 'B' || move === "B'" ||
+    move === 'R' || move === "R'" || move === 'L' || move === "L'";
+  if (!quarterSide) { resetEoGesture(); return 'break'; }
+  if (move === eoGestureMove) eoGestureCount++;
+  else { eoGestureMove = move; eoGestureCount = 1; }
+  if (eoGestureCount >= 4) {
+    resetEoGesture();
+    return move[0] === 'R' || move[0] === 'L' ? 'ro' : 'gb';
+  }
+  return 'building';
+}
+/** Commit an axis chosen via the spin gesture. The four spins restored the scramble,
+ * so we start the solve fresh (clear moves, reset the timer) — exactly as if the
+ * axis button had been tapped. */
+function commitAxisByGesture(axis: SolveAxis) {
+  state.eoAxis = axis;
+  state.eoCommitted = true;
+  saveLastEoAxis(axis);
+  state.movesThisStep = [];
+  state.solveStartMs = null;
+  state.status = `${AXIS_SHORT[axis]} front selected — solve EO.`;
+}
 function awaitingAxisChoice(s: StepDef | null): boolean {
   return isFreeEo(s) && state.mode === 'solve' && !state.eoCommitted && !state.learn && !state.stepDone.every(Boolean);
 }
@@ -1330,15 +1384,19 @@ function buildJourneyPanel(): HTMLElement {
 // --- right pane: session (actions on top + meter + output console) ---
 // Free-EO 'ask': choose the side axis to solve EO against. Deliberately shows NO
 // move counts — reading which axis is shorter is itself the recognition skill.
+// Defaults to your last-used axis: it's the primary button, the cube is already
+// shown in that hold, and starting to solve commits to it (see step()).
 function buildAxisPrompt(right: HTMLElement, _s: StepDef) {
+  const last = lastEoAxis();
+  const other = OTHER_AXIS[last];
   right.appendChild(el('div', 'panel-hd', 'Choose your EO axis'));
-  right.appendChild(el('div', 'blurb', 'Solve edge orientation against either side axis. Read the cube, pick the one you think is shorter — then solve it.'));
+  right.appendChild(el('div', 'blurb', 'Solve edge orientation against either side axis. Read the cube, pick the one you think is shorter — then solve it. Hands-free: spin a Blue/Green face ×4 for Blue, or a Red/Orange face ×4 for Red.'));
   const row = el('div', 'row');
   row.style.marginTop = '14px';
-  row.appendChild(btn(`${AXIS_SHORT.gb} front`, () => commitAxis('gb'), 'btn default'));
-  row.appendChild(btn(`${AXIS_SHORT.ro} front`, () => commitAxis('ro'), 'btn'));
+  row.appendChild(btn(`${AXIS_SHORT[last]} front`, () => commitAxis(last), 'btn default'));
+  row.appendChild(btn(`${AXIS_SHORT[other]} front`, () => commitAxis(other), 'btn'));
   right.appendChild(row);
-  right.appendChild(el('div', 'meter-cap', `${AXIS_SHORT.gb} = ${AXIS_LABEL.gb} · ${AXIS_SHORT.ro} = ${AXIS_LABEL.ro}`));
+  right.appendChild(el('div', 'meter-cap', `Or just start solving — uses ${AXIS_SHORT[last]} front (your last pick). ${AXIS_SHORT.gb} = ${AXIS_LABEL.gb} · ${AXIS_SHORT.ro} = ${AXIS_LABEL.ro}`));
 }
 
 function buildSessionPane(right: HTMLElement, s: StepDef | null, info: { frac: number; caption: string }) {
