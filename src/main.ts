@@ -76,7 +76,7 @@ function progressInfo(cube: Cube3x3, s: StepDef): { frac: number; pct: number; c
 // nearly there. EO: by bad-edge count.
 function classifyCase(start: Cube3x3, s: StepDef, optimal: Move3x3[]): string {
   if (s.kind === 'eo') {
-    const bad = isFreeEo(s) ? axisBad(start, eoRot()).count : start.EO.filter((g) => !g).length;
+    const bad = isFreeEo(s) ? axisBad(start, state.eoAxis).count : start.EO.filter((g) => !g).length;
     return bad === 0 ? 'already oriented' : `${bad} bad edges`;
   }
   const homes = blockPiecesFor(s.canonicalMask);
@@ -99,6 +99,7 @@ function classifyCase(start: Cube3x3, s: StepDef, optimal: Move3x3[]): string {
 }
 
 // EO orbit facelets (mirror the engine's getEO) so we can highlight bad edges.
+// Per edge: a PRIMARY sticker (U/D-facing for F/B-EO) and a SECONDARY sticker.
 const EO_PRIMARY = [1, 3, 5, 7, 32, 24, 26, 30, 46, 48, 50, 52];
 const EO_SECONDARY = [19, 10, 16, 13, 21, 23, 27, 29, 37, 34, 40, 43];
 function badEdgeStickers(c: Cube3x3): number[] {
@@ -108,20 +109,39 @@ function badEdgeStickers(c: Cube3x3): number[] {
   });
   return out;
 }
-// Axis-agnostic bad-edge detection (free-EO). cube.EO is F/B-axis only and reads
-// centres dynamically, so it can't measure EO on a cube rotated to a chosen side
-// axis. Instead identify each edge by colour (homePermutation): the U/D-orbit
-// sticker of an oriented edge belongs to an EO-orbit home. `rot` rotates a clone
-// so the chosen axis sits front; the returned sticker positions are already in
-// that displayed frame (so they must NOT be re-rotated by rotateHighlight).
-const EO_ORBIT_SET = new Set<number>(EO_PRIMARY);
-function axisBad(c: Cube3x3, rot: readonly RotationMove[]): { count: number; stickers: number[] } {
-  const home = homePermutation(applyMoves(c, rot as Move3x3[]).stateData as unknown as string[]);
+// Free-EO bad-edge detection, per chosen side axis, computed in the MODEL frame.
+// EO is axis-specific: the F/B orbit (above) is for the G/B "blue" axis; the R/O
+// "red" axis uses the same orbit rotated by y (the y-image of the F/B orbit — the
+// L/R-facing edge stickers). Both are evaluated WITHOUT rotating the state (the
+// rotation is display-only); we identify each edge by colour via homePermutation
+// and an edge is good iff its axis-PRIMARY sticker has a home in that axis's orbit.
+// Derived as y(EO_PRIMARY)/y(EO_SECONDARY) and verified against a constructive
+// {U,D,F,B,R2,L2}-only oracle (those moves preserve R/L-axis EO).
+const EO_PRIMARY_RL = [5, 1, 7, 3, 29, 21, 23, 27, 48, 52, 46, 50];
+const EO_SECONDARY_RL = [16, 19, 13, 10, 30, 32, 24, 26, 34, 43, 37, 40];
+const AXIS_EO_PRIMARY: Record<SolveAxis, number[]> = { gb: EO_PRIMARY, ro: EO_PRIMARY_RL };
+const AXIS_EO_SECONDARY: Record<SolveAxis, number[]> = { gb: EO_SECONDARY, ro: EO_SECONDARY_RL };
+const AXIS_EO_ORBIT: Record<SolveAxis, number[]> = {
+  gb: [...EO_PRIMARY].sort((a, b) => a - b),
+  ro: [...EO_PRIMARY_RL].sort((a, b) => a - b),
+};
+const AXIS_EO_ORBIT_SET: Record<SolveAxis, Set<number>> = {
+  gb: new Set(EO_PRIMARY),
+  ro: new Set(EO_PRIMARY_RL),
+};
+// Centres-free EO mask for an axis (model frame). Centres are intentionally
+// omitted — they don't constrain EO and any face turn leaves them put.
+function axisEoMask(axis: SolveAxis): Cube3x3Mask {
+  return { solvedFaceletIndices: [], eoFaceletIndices: AXIS_EO_ORBIT[axis] };
+}
+function axisBad(c: Cube3x3, axis: SolveAxis): { count: number; stickers: number[] } {
+  const home = homePermutation(c.stateData as unknown as string[]);
   const stickers: number[] = [];
   if (home.length === 0) return { count: 0, stickers };
+  const P = AXIS_EO_PRIMARY[axis], S = AXIS_EO_SECONDARY[axis], orbit = AXIS_EO_ORBIT_SET[axis];
   let count = 0;
   for (let i = 0; i < 12; i++)
-    if (!EO_ORBIT_SET.has(home[EO_PRIMARY[i]])) { count++; stickers.push(EO_PRIMARY[i], EO_SECONDARY[i]); }
+    if (!orbit.has(home[P[i]])) { count++; stickers.push(P[i], S[i]); }
   return { count, stickers };
 }
 import {
@@ -424,7 +444,7 @@ function afterChange() {
 }
 
 function stepSolved(s: StepDef): boolean {
-  if (isFreeEo(s)) return isEoSolvedFromState(applyMoves(state.cube, eoRot() as Move3x3[]), eoEdgesMask(s));
+  if (isFreeEo(s)) return isEoSolvedFromState(state.cube, axisEoMask(state.eoAxis));
   return isMaskSolvedState(state.cube, s.canonicalMask);
 }
 
@@ -433,14 +453,11 @@ function checkStepCompletion() {
   if (!s || state.stepDone[state.stepIndex]) return;
   if (stepSolved(s)) {
     // Score from the cube state captured at the step's start — no move history
-    // needed, so this stays correct even after a BLE resync. Free-EO scores
-    // against the chosen axis (rotated state + centres-free mask), the optimal
-    // translated back to the model frame so it renders through the shared pipeline.
+    // needed, so this stays correct even after a BLE resync. Free-EO scores in the
+    // model frame against the chosen axis's centres-free orbit mask (the rotation
+    // is display-only), so the optimal is already model-frame for the pipeline.
     const optimal = isFreeEo(s)
-      ? toModelMoves(
-          solveFromState(applyMoves(state.stepStartCube, eoRot() as Move3x3[]), eoEdgesMask(s), s.solver) ?? [],
-          eoRot(),
-        )
+      ? solveFromState(state.stepStartCube, axisEoMask(state.eoAxis), s.solver) ?? []
       : solveFromState(state.stepStartCube, s.canonicalMask, s.solver) ?? [];
     const used = htmCount(state.movesThisStep);
     const caseLabel = classifyCase(state.stepStartCube, s, optimal);
@@ -457,8 +474,8 @@ function checkStepCompletion() {
     if (isFreeEo(s)) {
       const start = state.stepStartCube;
       state.lastResult.eo = {
-        gb: { len: eoAxisOptimalLen(start, s, 'gb'), bad: axisBad(start, AXIS_ROTATION.gb).count },
-        ro: { len: eoAxisOptimalLen(start, s, 'ro'), bad: axisBad(start, AXIS_ROTATION.ro).count },
+        gb: { len: eoAxisOptimalLen(start, s, 'gb'), bad: axisBad(start, 'gb').count },
+        ro: { len: eoAxisOptimalLen(start, s, 'ro'), bad: axisBad(start, 'ro').count },
       };
     }
     // Log to the Stats history. Record solve time only for single-step trainers
@@ -944,14 +961,8 @@ function isFreeEo(s: StepDef | null): boolean {
 function eoRot(): RotationMove[] {
   return AXIS_ROTATION[state.eoAxis];
 }
-/** Centres-free EO mask for the rotated axis. The canonical EO_MASK pins all six
- * centres, which an axis rotation displaces (unsolvable post-rotation); the EO
- * orbit flag is all the rotated check/solve needs. */
-function eoEdgesMask(s: StepDef): Cube3x3Mask {
-  return { solvedFaceletIndices: [], eoFaceletIndices: s.canonicalMask.eoFaceletIndices! };
-}
 function orientedEdges(cube: Cube3x3, s: StepDef): number {
-  return isFreeEo(s) ? 12 - axisBad(cube, eoRot()).count : cube.EO.filter(Boolean).length;
+  return isFreeEo(s) ? 12 - axisBad(cube, state.eoAxis).count : cube.EO.filter(Boolean).length;
 }
 // Axis-agnostic EO coach hint (free-EO). cube.EO / eoHint are F/B-axis only, so on
 // the red axis they'd describe the wrong edges; phrase orientation relative to the
@@ -969,19 +980,17 @@ function freeEoHint(bad: number): { name?: string; lines: string[] } {
   else lines.push('Roughly halve the bad count with each F/B turn (it flips four at once).');
   return { name, lines };
 }
-/** Optimal EO length for a given axis, from a start state. */
-function eoAxisOptimalLen(start: Cube3x3, s: StepDef, axis: SolveAxis): number {
-  const m = solveFromState(applyMoves(start, AXIS_ROTATION[axis] as Move3x3[]), eoEdgesMask(s), s.solver);
+/** Optimal EO length for a given axis, from a start state. Evaluated in the MODEL
+ * frame with that axis's centres-free orbit mask (the rotation is display-only). */
+function eoAxisOptimalLen(start: Cube3x3, _s: StepDef, axis: SolveAxis): number {
+  const m = solveFromState(start, axisEoMask(axis), _s.solver);
   return m ? m.length : 0;
 }
-/** Teaching route for the current step, always returned in MODEL frame so the
- * shared disp()/walkthrough pipeline can render it in the held frame. For free-EO
- * the route is computed on the rotated cube then translated back to model. */
+/** Teaching route for the current step, in MODEL frame so the shared disp()/
+ * walkthrough pipeline can render it in the held frame. Free-EO solves the chosen
+ * axis's orbit directly in the model frame (no state rotation, no translation). */
 function idealRoute(start: Cube3x3, s: StepDef): Move3x3[] {
-  if (isFreeEo(s)) {
-    const d = humanSolveFromState(applyMoves(start, eoRot() as Move3x3[]), eoEdgesMask(s), s.solver) ?? [];
-    return toModelMoves(d, eoRot());
-  }
+  if (isFreeEo(s)) return humanSolveFromState(start, axisEoMask(state.eoAxis), s.solver) ?? [];
   return humanSolveFromState(start, s.canonicalMask, s.solver) ?? [];
 }
 function idealLen(start: Cube3x3, s: StepDef): number {
@@ -1060,7 +1069,7 @@ function assist(kind: 'nudge' | 'move' | 'ideal') {
   if (!s) return;
   // EO nudge: point at the misoriented edges (no move revealed).
   if (kind === 'nudge' && s.kind === 'eo') {
-    const bad = isFreeEo(s) ? axisBad(state.cube, eoRot()).count : state.cube.EO.filter((g) => !g).length;
+    const bad = isFreeEo(s) ? axisBad(state.cube, state.eoAxis).count : state.cube.EO.filter((g) => !g).length;
     state.assist = { kind: 'nudge', moves: [], focus: null };
     state.status = `${bad} bad edges highlighted — work out how to orient them.`;
     render();
@@ -1239,19 +1248,17 @@ function buildCubePanel(s: StepDef | null): HTMLElement {
   const wrap = el('div', 'cube-wrap');
   let highlight: Set<number> | null = null;
   let note = '';
-  // Free-EO bad-edge stickers are computed on the rotated clone, so they're already
-  // in the displayed frame and must NOT be re-rotated by rotateHighlight below.
-  let displayFrameHighlight = false;
   if (state.assist) {
     if (state.assist.kind === 'ideal') { highlight = new Set(s!.canonicalMask.solvedFaceletIndices); note = 'highlighted: the target facelets'; }
     else if (state.assist.kind === 'nudge' && s?.kind === 'eo') {
-      if (isFreeEo(s)) { highlight = new Set(axisBad(state.cube, eoRot()).stickers); displayFrameHighlight = true; }
-      else highlight = new Set(badEdgeStickers(state.cube));
+      // Bad-edge stickers are model-frame (computed without rotating the state),
+      // so they go through the same rotateHighlight as every other highlight.
+      highlight = new Set(isFreeEo(s) ? axisBad(state.cube, state.eoAxis).stickers : badEdgeStickers(state.cube));
       note = 'highlighted: the misoriented edges';
     }
     else if (state.assist.focus) { highlight = new Set(state.assist.focus.current); note = `highlighted: the ${state.assist.focus.description}`; }
   }
-  if (solveFrame() && highlight && !displayFrameHighlight) highlight = rotateHighlight(highlight, solveRotation());
+  if (solveFrame() && highlight) highlight = rotateHighlight(highlight, solveRotation());
   // Blank the corners only for *pure* EO (no block kept). A block-preserving EO
   // step (e.g. Petrus) needs its corners visible.
   const pureEo = s?.kind === 'eo' && s.canonicalMask.solvedFaceletIndices.length <= 6;
@@ -1414,7 +1421,7 @@ function buildCoachBody(s: StepDef | null): HTMLElement {
   if (!a) { coachLine(c, '', 'c-muted', 'Press Hint, Next move or Show ideal when you want help.'); return c; }
   if (a.kind === 'nudge') {
     // Rule-based recognition + technique (no exact moves — that's Next move / Show ideal).
-    const h = s.kind === 'eo' ? (isFreeEo(s) ? freeEoHint(axisBad(state.cube, eoRot()).count) : eoHint(state.cube)) : blockHint(a.focus, true);
+    const h = s.kind === 'eo' ? (isFreeEo(s) ? freeEoHint(axisBad(state.cube, state.eoAxis).count) : eoHint(state.cube)) : blockHint(a.focus, true);
     if (h.name) coachLine(c, 'pattern', 'c-good', h.name);
     for (const ln of h.lines) coachLine(c, '', 'c-coach', ln);
   } else if (a.kind === 'move') {
