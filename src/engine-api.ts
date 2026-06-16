@@ -259,8 +259,10 @@ for (const g of CUBIE_GROUPS) {
   HOME_BY_COLORSET.set(cs, m);
 }
 
-/** For each facelet position, the solved index of the sticker currently there. */
-function homePermutation(state: readonly string[]): number[] {
+/** For each facelet position, the solved index of the sticker currently there.
+ * Colour-identified, so it "sees through" whole-cube rotations — the basis for
+ * axis-agnostic EO (evaluate EO against whichever axis is rotated to front). */
+export function homePermutation(state: readonly string[]): number[] {
   const home = new Array<number>(54);
   for (const g of CUBIE_GROUPS) {
     const cs = g.map((i) => state[i]).sort().join('');
@@ -308,6 +310,22 @@ export function solveFromStateMulti(
   } catch {
     return [];
   }
+}
+
+/**
+ * Cheap, search-free "is EO solved?" from the live state, for an EO-edges mask
+ * (solvedFaceletIndices may be empty; eoFaceletIndices flags the oriented orbit).
+ * Equivalent to solveFromState(...).length === 0 but O(54) — the masked current
+ * facelets equal the masked solved facelets. Colour-identified, so it is correct
+ * on a cube that has been whole-rotated to choose a side axis (where cube.EO,
+ * which reads centres dynamically, is NOT a valid measure).
+ */
+export function isEoSolvedFromState(cube: Cube3x3, mask: Cube3x3Mask): boolean {
+  const ms = maskedSolvedFacelets(mask);
+  const home = homePermutation(cube.stateData as unknown as string[]);
+  if (home.length === 0) return false;
+  for (let j = 0; j < 54; j++) if (ms[home[j]] !== ms[j]) return false;
+  return true;
 }
 
 /** Single optimal solution from the live cube state, or null. */
