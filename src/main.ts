@@ -23,6 +23,7 @@ import {
   type StepDef,
 } from './steps.ts';
 import { nextFocusPiece, targetPieceStates, type FocusPiece } from './pieces.ts';
+import { humanSolveFromState } from './human-solve.ts';
 import { eoHint, blockHint } from './hints.ts';
 import { sampleEoScramble } from './eo-scramble.ts';
 import { genEoSafeScramble } from './steps.ts';
@@ -660,7 +661,7 @@ function enterLearn() {
   if (!requireHistory()) return;
   const s = currentStep();
   if (!s) return;
-  const ideal = solveFromState(state.stepStartCube, s.canonicalMask, s.solver) ?? [];
+  const ideal = humanSolveFromState(state.stepStartCube, s.canonicalMask, s.solver) ?? [];
   if (ideal.length === 0) { state.status = 'Nothing to learn from here.'; render(); return; }
   const back = simplifyMoves(invertSeq(state.movesThisStep));
   // Already at step start (nothing done this step yet) — go straight in.
@@ -688,13 +689,17 @@ function enterLearn() {
 function beginLearnWalkthrough() {
   const s = currentStep();
   if (!s) return;
-  const ideal = solveFromState(state.stepStartCube, s.canonicalMask, s.solver) ?? [];
+  const ideal = humanSolveFromState(state.stepStartCube, s.canonicalMask, s.solver) ?? [];
   if (ideal.length === 0) { state.status = 'Nothing to learn from here.'; render(); return; }
   state.movesThisStep = [];
   state.stepDone[state.stepIndex] = false;
   state.assist = null;
   state.learn = { moves: ideal, baseLen: state.history.length };
-  state.status = `Learn by example: follow the ${ideal.length} highlighted moves for ${s.label}.`;
+  // Show the method route alongside the theoretical optimal so the efficiency
+  // gap is visible without teaching the awkward (back/bottom-heavy) optimal.
+  const opt = solveFromState(state.stepStartCube, s.canonicalMask, s.solver)?.length ?? ideal.length;
+  const gap = ideal.length > opt ? ` (method route; theoretical best ${opt})` : '';
+  state.status = `Learn by example: follow the ${ideal.length} highlighted moves for ${s.label}${gap}.`;
   render();
 }
 
@@ -852,7 +857,9 @@ function disp(moves: Move3x3[]): Move3x3[] {
 function continuation(): Move3x3[] {
   const s = currentStep();
   if (!s) return [];
-  return solveFromState(state.cube, s.canonicalMask, s.solver) ?? [];
+  // Teach the method route (human-ranked / build-then-extend); scoring still
+  // uses the true optimal via idealFromStart().
+  return humanSolveFromState(state.cube, s.canonicalMask, s.solver) ?? [];
 }
 function idealFromStart(): number | null {
   const s = currentStep();
