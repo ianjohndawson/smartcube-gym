@@ -466,9 +466,22 @@ function afterChange() {
   }
 }
 
+// The placement that counts as completing this step, or null if not yet done.
+// Accepts ANY configured candidate placement (e.g. any of the 2×2×2 corner
+// blocks), not just the canonical one — building a valid block anywhere is
+// success. Prefers the canonical placement when it's the solved one, so
+// single-candidate steps (EO, drills) behave exactly as before.
+function solvedStepMask(s: StepDef) {
+  if (isMaskSolvedState(state.cube, s.canonicalMask)) return s.canonicalMask;
+  for (const m of s.candidateMasks) {
+    if (isMaskSolvedState(state.cube, m)) return m;
+  }
+  return null;
+}
+
 function stepSolved(s: StepDef): boolean {
   if (isFreeEo(s)) return isEoSolvedFromState(state.cube, axisEoMask(state.eoAxis));
-  return isMaskSolvedState(state.cube, s.canonicalMask);
+  return solvedStepMask(s) != null;
 }
 
 function checkStepCompletion() {
@@ -478,10 +491,13 @@ function checkStepCompletion() {
     // Score from the cube state captured at the step's start — no move history
     // needed, so this stays correct even after a BLE resync. Free-EO scores in the
     // model frame against the chosen axis's centres-free orbit mask (the rotation
-    // is display-only), so the optimal is already model-frame for the pipeline.
+    // is display-only). Block steps score against the placement actually completed
+    // (any valid 2×2×2 etc.), so a non-canonical block is judged against its own
+    // optimal rather than the canonical one.
+    const solvedMask = solvedStepMask(s) ?? s.canonicalMask;
     const optimal = isFreeEo(s)
       ? solveFromState(state.stepStartCube, axisEoMask(state.eoAxis), s.solver) ?? []
-      : solveFromState(state.stepStartCube, s.canonicalMask, s.solver) ?? [];
+      : solveFromState(state.stepStartCube, solvedMask, s.solver) ?? [];
     const used = htmCount(state.movesThisStep);
     const caseLabel = classifyCase(state.stepStartCube, s, optimal);
     state.lastResult = {
@@ -613,13 +629,19 @@ function handleFacelets(kociemba: string) {
   if (awaitingConnectSeed) {
     awaitingConnectSeed = false;
     const queued = seedQueue.splice(0);
-    // If the cube is already where the current (eager) scramble expects to start,
-    // keep that scramble; otherwise start fresh from the cube's true state.
+    // GAN cubes can't sense absolute state: on connect they push a snapshot that
+    // is often STALE (a physically solved cube can report as scrambled). So only
+    // trust a connect snapshot that decodes to solved, or to exactly the current
+    // scramble's base. Otherwise assume the normal case — a freshly-solved cube —
+    // and keep the model as-is. Press Sync if you really connected mid-scramble.
     if (trueCube.encode() === state.base.encode()) {
       state.cube = trueCube;
-    } else {
+      state.status = 'Cube connected — apply the scramble to begin.';
+    } else if (trueCube.encode() === newSolved().encode()) {
       state = startScramble(trueCube, []);
-      state.status = 'Synced to your cube — scramble ready.';
+      state.status = 'Cube connected — apply the scramble to begin.';
+    } else {
+      state.status = 'Connected — assuming a solved cube. If yours is scrambled, press Sync.';
     }
     state.connected = true;
     // Replay any moves the cube reported during the seed window, in order.
