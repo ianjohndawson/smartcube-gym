@@ -1,21 +1,21 @@
-SmartCube Gym
+# SmartCube Gym
 
 Train intuition, blockbuilding, and efficiency with a smart cube.
 
-SmartCube Gym is a browser-based training platform for intuitive Rubik’s Cube methods, including Petrus, Roux, LEOR, APB, and ZZ. Unlike traditional trainers that focus on algorithm memorisation or full solves, SmartCube Gym focuses on the skills that make intuitive methods effective:
+SmartCube Gym is a browser-based training platform for intuitive Rubik's Cube methods, including Petrus, Roux, LEOR, APB, and ZZ. Unlike traditional trainers that focus on algorithm memorisation or full solves, SmartCube Gym focuses on the skills that make intuitive methods effective:
 
-* Blockbuilding
-* Edge Orientation (EO)
-* Piece tracking
-* Move efficiency
-* Planning ahead
-* Method-specific solving stages
+- Blockbuilding
+- Edge Orientation (EO)
+- Piece tracking
+- Move efficiency
+- Planning ahead
+- Method-specific solving stages
 
 Connect a compatible smart cube and receive live, solver-driven feedback while you practise.
 
-⸻
+---
 
-Why SmartCube Gym?
+## Why SmartCube Gym?
 
 Most cubing tools are designed around complete solves and algorithm drilling.
 
@@ -23,79 +23,79 @@ SmartCube Gym takes a different approach.
 
 Instead of asking:
 
-Can you solve the cube?
+> Can you solve the cube?
 
 it asks:
 
-Can you build this block efficiently?
+> Can you build this block efficiently?
 
-Can you orient all edges quickly?
+> Can you orient all edges quickly?
 
-Can you find a shorter solution?
+> Can you find a shorter solution?
 
-Can you recognise opportunities you missed?
+> Can you recognise opportunities you missed?
 
 The goal is deliberate practice of the core skills used by intuitive solving methods.
 
-⸻
+---
 
-Features
+## Features
 
-Smart Cube Support
+### Smart Cube Support
 
-* Browser-based Bluetooth connectivity
-* GAN smart cube support
-* No installation required
-* Runs entirely in your browser
+- Browser-based Bluetooth connectivity
+- GAN smart cube support
+- No installation required
+- Runs entirely in your browser
 
-Solver-Driven Coaching
+### Solver-Driven Coaching
 
 The built-in solver continuously analyses your progress and can:
 
-* Measure move efficiency
-* Compare your solution against optimal
-* Track improvement over time
-* Provide hints and guidance
-* Evaluate alternative solutions
+- Measure move efficiency
+- Compare your solution against optimal
+- Track improvement over time
+- Provide hints and guidance
+- Evaluate alternative solutions
 
 No cloud services, AI models, or external APIs are required.
 
-Blockbuilding Practice
+### Blockbuilding Practice
 
 Train specific skills rather than complete solves:
 
-* 2×2×2 blocks
-* 2×2×3 blocks
-* 1×2×3 blocks
-* Edge Orientation (EO)
-* EOLine
-* EOCross
-* Method-specific building stages
+- 2×2×2 blocks
+- 2×2×3 blocks
+- 1×2×3 blocks
+- Edge Orientation (EO)
+- EOLine
+- EOCross
+- Method-specific building stages
 
-Multiple Methods
+### Multiple Methods
 
 Current and planned support includes:
 
-* Petrus
-* Roux
-* LEOR
-* APB
-* ZZ
+- Petrus
+- Roux
+- LEOR
+- APB
+- ZZ
 
 The training engine is goal-based, allowing new exercises and solving stages to be added without redesigning the application.
 
-Coaching Modes
+### Coaching Modes
 
-* Guided practice
-* Free practice
-* Live progress tracking
-* Hint generation
-* Efficiency scoring
-* Statistics and performance history
+- Guided practice
+- Free practice
+- Live progress tracking
+- Hint generation
+- Efficiency scoring
+- Statistics and performance history
 
-⸻
+---
 
-Example Training Session
+## Example Training Session
 
 1. Connect your smart cube.
 2. Select a training goal.
@@ -109,142 +109,150 @@ The objective is not necessarily to finish the cube.
 
 The objective is to improve the individual skills that make efficient solving possible.
 
-⸻
+---
 
-Supported Training Goals
+## Supported Training Goals
 
 Current goals include:
 
-* 2×2×2 Block
-* 2×2×3 Block
-* 1×2×3 Block
-* Edge Orientation (EO)
-* EOLine
-* EOCross
+- 2×2×2 Block
+- 2×2×3 Block
+- 1×2×3 Block
+- Edge Orientation (EO)
+- EOLine
+- EOCross
 
 Additional goals and method-specific stages are planned.
 
-⸻
+---
 
-How It Works
+## How It Works
 
 SmartCube Gym represents solving goals as cube-state constraints.
 
 Examples include:
 
-* Build any valid 2×2×2 block.
-* Build any valid 2×2×3 block.
-* Build a valid 1×2×3 block.
-* Orient all edges.
-* Create an EOLine.
-* Create an EOCross.
+- Build any valid 2×2×2 block.
+- Build any valid 2×2×3 block.
+- Build a valid 1×2×3 block.
+- Orient all edges.
+- Create an EOLine.
+- Create an EOCross.
 
 The solver continuously evaluates cube state against these goals and can measure both completion and efficiency.
 
 Because goals are represented generically, the same coaching system can support multiple solving methods.
 
-⸻
+---
 
-Philosophy
+## Philosophy
 
 SmartCube Gym is built around a simple idea:
 
-Algorithms are easy to memorise. Intuition is harder to train.
+> Algorithms are easy to memorise. Intuition is harder to train.
 
 Most cubers spend thousands of solves practising complete solutions.
 
 Very few spend focused time practising:
 
-* Blockbuilding
-* EO recognition
-* Piece tracking
-* Efficient move selection
-* Planning and lookahead
+- Blockbuilding
+- EO recognition
+- Piece tracking
+- Efficient move selection
+- Planning and lookahead
 
 SmartCube Gym exists to make that practice possible.
 
-⸻
+---
 
-Privacy
+## Privacy
 
 Everything runs locally in your browser.
 
-* No accounts
-* No telemetry
-* No cloud processing
-* No external AI services
+- No accounts
+- No telemetry
+- No cloud processing
+- No external AI services
 
 Your cube data remains on your device.
 
-⸻
+---
 
-Development
+## Development
 
-Prerequisites
+### Prerequisites
 
-* Node.js 18+
-* A modern Chromium-based browser with Web Bluetooth support
-* A compatible smart cube
+- Node.js 18+
+- A modern Chromium-based browser with Web Bluetooth support
+- A compatible smart cube
 
-Installation
+### Installation
 
+```bash
 git clone https://github.com/ianjohndawson/smartcube-gym.git
 cd smartcube-gym
 npm install
+```
 
-Development Server
+### Development Server
 
+```bash
 npm run dev
+```
 
-Production Build
+### Production Build
 
+```bash
 npm run build
+```
 
-Preview Production Build
+### Preview Production Build
 
+```bash
 npm run preview
+```
 
-⸻
+---
 
-Roadmap
+## Roadmap
 
 Planned and experimental areas include:
 
-* Additional smart cube support
-* Expanded LEOR and APB training paths
-* Advanced coaching metrics
-* Session analysis
-* Enhanced statistics and progress tracking
-* Additional method-specific training goals
+- Additional smart cube support
+- Expanded LEOR and APB training paths
+- Advanced coaching metrics
+- Session analysis
+- Enhanced statistics and progress tracking
+- Additional method-specific training goals
 
-⸻
+---
 
-Contributing
+## Contributing
 
 Contributions, bug reports, feature requests, and method ideas are welcome.
 
 If you find a bug or have a suggestion, please open an issue.
 
-⸻
+---
 
-Acknowledgements
+## Acknowledgements
 
 SmartCube Gym incorporates and builds upon components derived from the CrystalCube project.
 
-The engine code located in src/engine/ retains its original MPL-2.0 licensing and attribution requirements. See src/engine/ATTRIBUTION.md for details.
+The engine code located in `src/engine/` retains its original MPL-2.0 licensing and attribution requirements. See `src/engine/ATTRIBUTION.md` for details.
 
-The CrystalCube-derived engine provides the solver infrastructure that powers SmartCube Gym’s analysis, evaluation, and coaching capabilities.
+The CrystalCube-derived engine provides the solver infrastructure that powers SmartCube Gym's analysis, evaluation, and coaching capabilities.
 
-⸻
+---
 
-License
+## License
 
-SmartCube Gym is licensed under GPL-3.0-or-later. See the LICENSE file for details.
+SmartCube Gym is licensed under **GPL-3.0-or-later**. See the `LICENSE` file for details.
 
 Parts of this project have different licensing requirements:
 
-* The code in src/engine/ is derived from CrystalCube and remains licensed under MPL-2.0.
-* Attribution and licensing details for the engine code can be found in src/engine/ATTRIBUTION.md.
-* MPL-2.0 §3.3 permits inclusion of MPL-covered files within a GPL-licensed larger work.
+- The code in `src/engine/` is derived from CrystalCube and remains licensed under **MPL-2.0**.
+- Attribution and licensing details for the engine code can be found in `src/engine/ATTRIBUTION.md`.
+- MPL-2.0 §3.3 permits inclusion of MPL-covered files within a GPL-licensed larger work.
 
-Unless otherwise noted, all original SmartCube Gym code outside src/engine/ is licensed under GPL-3.0-or-later.
+Unless otherwise noted, all original SmartCube Gym code outside `src/engine/` is licensed under GPL-3.0-or-later.
