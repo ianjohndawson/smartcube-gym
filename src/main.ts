@@ -54,6 +54,22 @@ function blockPiecesFor(mask: StepDef['canonicalMask']): number[][] {
 // Step progress as WHOLE pieces placed (+ edges oriented for EO) — meaningful,
 // unlike a raw facelet-colour match. Returns fraction, percent, and a caption.
 function progressInfo(cube: Cube3x3, s: StepDef): { frac: number; pct: number; caption: string } {
+  // Free-EO (Full EO / EOLine / EOCross): score against the CHOSEN axis. Edge
+  // orientation is already axis-aware (orientedEdges); the line/cross pieces are
+  // counted colour-identified (home[i]===i) so a red-axis line — which sits at a
+  // y-image of the model-frame DF/DB line — is recognised as placed.
+  if (isFreeEo(s)) {
+    const oriented = orientedEdges(cube, s);
+    const pieces = blockPiecesFor(eoMaskForStep(s, state.eoAxis));
+    if (pieces.length) {
+      const home = homePermutation(cube.stateData as unknown as string[]);
+      const placed = home.length ? pieces.filter((g) => g.every((i) => home[i] === i)).length : 0;
+      const frac = (placed + oriented) / (pieces.length + 12);
+      return { frac, pct: Math.round(frac * 100), caption: `${placed}/${pieces.length} pieces · ${oriented}/12 edges` };
+    }
+    const frac = oriented / 12;
+    return { frac, pct: Math.round(frac * 100), caption: `${oriented}/12 edges oriented` };
+  }
   const f = faceletString(cube);
   const pieces = blockPiecesFor(s.canonicalMask);
   const placed = pieces.filter((g) => g.every((i) => f[i] === SOLVED_STR[i])).length;
@@ -133,6 +149,26 @@ const AXIS_EO_ORBIT_SET: Record<SolveAxis, Set<number>> = {
 // omitted — they don't constrain EO and any face turn leaves them put.
 function axisEoMask(axis: SolveAxis): Cube3x3Mask {
   return { solvedFaceletIndices: [], eoFaceletIndices: AXIS_EO_ORBIT[axis] };
+}
+// Per-axis bottom line / cross placement targets (centres-free, model frame).
+// The blue (gb) line is DF+DB; the red (ro) line is its y-image DL+DR. The
+// D-cross is the same set on both axes (y permutes the four D-edges among
+// themselves), so a single centres-free cross target serves both.
+const AXIS_LINE: Record<SolveAxis, number[]> = {
+  gb: [37, 43, 46, 52],
+  ro: [34, 40, 48, 50],
+};
+const CROSS_NC = [34, 37, 40, 43, 46, 48, 50, 52];
+// Corner facelets as a set, for the "EO keeps no block" corner-blank test.
+const CORNER_SET = new Set(CORNER_FACELETS);
+// EO target mask for a step on a chosen side axis. Full EO ('eo') keeps no
+// pieces; EOLine/EOCross add the line/cross placement to the same axis's EO
+// orbit so completion requires every edge oriented AND the line/cross placed
+// — evaluated colour-identified in the model frame (rotation is display-only).
+function eoMaskForStep(s: StepDef | null, axis: SolveAxis): Cube3x3Mask {
+  if (s?.id === 'eoline') return { solvedFaceletIndices: AXIS_LINE[axis], eoFaceletIndices: AXIS_EO_ORBIT[axis] };
+  if (s?.id === 'eocross') return { solvedFaceletIndices: CROSS_NC, eoFaceletIndices: AXIS_EO_ORBIT[axis] };
+  return axisEoMask(axis);
 }
 function axisBad(c: Cube3x3, axis: SolveAxis): { count: number; stickers: number[] } {
   const home = homePermutation(c.stateData as unknown as string[]);
@@ -480,7 +516,7 @@ function solvedStepMask(s: StepDef) {
 }
 
 function stepSolved(s: StepDef): boolean {
-  if (isFreeEo(s)) return isEoSolvedFromState(state.cube, axisEoMask(state.eoAxis));
+  if (isFreeEo(s)) return isEoSolvedFromState(state.cube, eoMaskForStep(s, state.eoAxis));
   return solvedStepMask(s) != null;
 }
 
@@ -496,7 +532,7 @@ function checkStepCompletion() {
     // optimal rather than the canonical one.
     const solvedMask = solvedStepMask(s) ?? s.canonicalMask;
     const optimal = isFreeEo(s)
-      ? solveFromState(state.stepStartCube, axisEoMask(state.eoAxis), s.solver) ?? []
+      ? solveFromState(state.stepStartCube, eoMaskForStep(s, state.eoAxis), s.solver) ?? []
       : solveFromState(state.stepStartCube, solvedMask, s.solver) ?? [];
     const used = htmCount(state.movesThisStep);
     const caseLabel = classifyCase(state.stepStartCube, s, optimal);
@@ -998,10 +1034,13 @@ function saveLastEoAxis(a: SolveAxis) {
   localStorage.setItem(EO_LAST_AXIS_KEY, a);
 }
 
-/** The Full EO trainer step (id 'eo') — the only step with free side-axis choice.
- * Block-keeping EO (eo123/eo223/petrus-eo) and EOLine/EOCross are unaffected. */
+/** Free side-axis EO steps: Full EO ('eo') plus the ZZ line/cross drills, all of
+ * which orient every edge and so support the red/green axis choice, the 4-move
+ * axis-pick spin, axis-aware scoring and the rotated (held-frame) display.
+ * Block-keeping EO (eo123/eo223/petrus-eo) is fixed to the F/B axis and excluded. */
+const FREE_EO_IDS = new Set(['eo', 'eoline', 'eocross']);
 function isFreeEo(s: StepDef | null): boolean {
-  return s?.id === 'eo';
+  return s != null && FREE_EO_IDS.has(s.id);
 }
 function eoRot(): RotationMove[] {
   return AXIS_ROTATION[state.eoAxis];
@@ -1028,14 +1067,14 @@ function freeEoHint(bad: number): { name?: string; lines: string[] } {
 /** Optimal EO length for a given axis, from a start state. Evaluated in the MODEL
  * frame with that axis's centres-free orbit mask (the rotation is display-only). */
 function eoAxisOptimalLen(start: Cube3x3, _s: StepDef, axis: SolveAxis): number {
-  const m = solveFromState(start, axisEoMask(axis), _s.solver);
+  const m = solveFromState(start, eoMaskForStep(_s, axis), _s.solver);
   return m ? m.length : 0;
 }
 /** Teaching route for the current step, in MODEL frame so the shared disp()/
  * walkthrough pipeline can render it in the held frame. Free-EO solves the chosen
  * axis's orbit directly in the model frame (no state rotation, no translation). */
 function idealRoute(start: Cube3x3, s: StepDef): Move3x3[] {
-  if (isFreeEo(s)) return humanSolveFromState(start, axisEoMask(state.eoAxis), s.solver) ?? [];
+  if (isFreeEo(s)) return humanSolveFromState(start, eoMaskForStep(s, state.eoAxis), s.solver) ?? [];
   return humanSolveFromState(start, s.canonicalMask, s.solver) ?? [];
 }
 function idealLen(start: Cube3x3, s: StepDef): number {
@@ -1335,9 +1374,11 @@ function buildCubePanel(s: StepDef | null): HTMLElement {
     else if (state.assist.focus) { highlight = new Set(state.assist.focus.current); note = `highlighted: the ${state.assist.focus.description}`; }
   }
   if (solveFrame() && highlight) highlight = rotateHighlight(highlight, solveRotation());
-  // Blank the corners only for *pure* EO (no block kept). A block-preserving EO
-  // step (e.g. Petrus) needs its corners visible.
-  const pureEo = s?.kind === 'eo' && s.canonicalMask.solvedFaceletIndices.length <= 6;
+  // Blank the corners for any EO step that keeps no block — corner state is
+  // irrelevant to edge orientation, so it's hidden for Full EO, EOLine and
+  // EOCross alike. A block-preserving EO step (Petrus / the eo123·eo223 drills)
+  // has corner facelets in its target, so its corners stay visible.
+  const pureEo = s?.kind === 'eo' && !s.canonicalMask.solvedFaceletIndices.some((i) => CORNER_SET.has(i));
   const blank = pureEo ? new Set(CORNER_FACELETS) : null;
   const facelets = solveFrame() ? rotatedFacelets(state.cube, solveRotation()) : faceletString(state.cube);
   wrap.appendChild(renderCubeNet(facelets, highlight, blank));
