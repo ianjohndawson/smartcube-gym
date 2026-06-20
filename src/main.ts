@@ -412,7 +412,7 @@ function step(move: Move3x3) {
   if (state.mode === 'solve') {
     // Free-EO 'ask': before the axis is committed, a four-times side-face spin picks
     // its axis hands-free (the spins net to identity, restoring the scramble).
-    if (isFreeEo(currentStep()) && !state.eoCommitted) {
+    if (eoAxisMode !== 'detect' && isFreeEo(currentStep()) && !state.eoCommitted) {
       const g = eoAxisGestureStep(move);
       if ((g === 'gb' || g === 'ro') && state.cube.encode() === state.stepStartCube.encode()) {
         commitAxisByGesture(g);
@@ -432,7 +432,9 @@ function step(move: Move3x3) {
     if (state.solveStartMs == null) state.solveStartMs = Date.now(); // start timer on first move
     // Free-EO 'ask': a solve move made before the prompt is answered pre-commits
     // the provisional (last-used) axis, so the timer/scoring frame is never ambiguous.
-    if (!state.eoCommitted && isFreeEo(currentStep())) {
+    // 'detect' mode never pre-commits: the axis is read off the finished state at
+    // completion, so the solve stays axis-agnostic the whole way through.
+    if (!state.eoCommitted && eoAxisMode !== 'detect' && isFreeEo(currentStep())) {
       state.eoCommitted = true;
       saveLastEoAxis(state.eoAxis);
       state.status = `Solving EO — ${AXIS_LABEL[state.eoAxis]} (last used).`;
@@ -515,14 +517,43 @@ function solvedStepMask(s: StepDef) {
   return null;
 }
 
+// Detect-mode EO: read which side axis the finished state actually satisfies.
+// Returns the solved axis, or null if neither is complete yet. If BOTH are complete
+// (rare — you oriented on both at once) it's not an error: prefer the shorter
+// optimal, tie -> last-used. The review still shows both axes either way.
+function detectSolvedEoAxis(s: StepDef): SolveAxis | null {
+  const gbOk = isEoSolvedFromState(state.cube, eoMaskForStep(s, 'gb'));
+  const roOk = isEoSolvedFromState(state.cube, eoMaskForStep(s, 'ro'));
+  if (gbOk && roOk) {
+    const gl = eoAxisOptimalLen(state.stepStartCube, s, 'gb');
+    const rl = eoAxisOptimalLen(state.stepStartCube, s, 'ro');
+    return rl < gl ? 'ro' : gl < rl ? 'gb' : lastEoAxis();
+  }
+  return gbOk ? 'gb' : roOk ? 'ro' : null;
+}
+
 function stepSolved(s: StepDef): boolean {
-  if (isFreeEo(s)) return isEoSolvedFromState(state.cube, eoMaskForStep(s, state.eoAxis));
+  if (isFreeEo(s)) {
+    // Uncommitted (detect mode): solved iff EITHER side axis is complete.
+    if (!state.eoCommitted) return detectSolvedEoAxis(s) != null;
+    return isEoSolvedFromState(state.cube, eoMaskForStep(s, state.eoAxis));
+  }
   return solvedStepMask(s) != null;
 }
 
 function checkStepCompletion() {
   const s = currentStep();
   if (!s || state.stepDone[state.stepIndex]) return;
+  // Detect mode: the finished state names the axis. Lock it in BEFORE scoring so
+  // every downstream calc (optimal length, case label, notation translation for the
+  // review) uses the axis you actually solved rather than the provisional one.
+  if (isFreeEo(s) && !state.eoCommitted) {
+    const a = detectSolvedEoAxis(s);
+    if (a == null) return; // neither axis complete yet — keep solving
+    state.eoAxis = a;
+    state.eoCommitted = true;
+    saveLastEoAxis(a);
+  }
   if (stepSolved(s)) {
     // Score from the cube state captured at the step's start — no move history
     // needed, so this stays correct even after a BLE resync. Free-EO scores in the
@@ -1015,13 +1046,14 @@ function setOrient(b: boolean) {
   render();
 }
 
-// Free-EO axis policy. 'ask' prompts each scramble; 'auto' picks the fewer-move
-// axis; 'gb'/'ro' pin an axis. The last axis actually used is remembered so an
-// 'ask' that gets pre-empted by a solve move falls back to it.
-type EoAxisMode = 'ask' | 'auto' | 'gb' | 'ro';
+// Free-EO axis policy. 'detect' commits NO axis up front and reads which one you
+// solved off the finished state; 'ask' prompts each scramble; 'auto' picks the
+// fewer-move axis; 'gb'/'ro' pin an axis. The last axis actually used is
+// remembered so an 'ask' that gets pre-empted by a solve move falls back to it.
+type EoAxisMode = 'detect' | 'ask' | 'auto' | 'gb' | 'ro';
 const EO_AXIS_MODE_KEY = 'cube-trainer.eo-axis-mode';
 const EO_LAST_AXIS_KEY = 'cube-trainer.eo-last-axis';
-let eoAxisMode: EoAxisMode = (localStorage.getItem(EO_AXIS_MODE_KEY) as EoAxisMode) || 'ask';
+let eoAxisMode: EoAxisMode = (localStorage.getItem(EO_AXIS_MODE_KEY) as EoAxisMode) || 'detect';
 function setEoAxisMode(m: EoAxisMode) {
   eoAxisMode = m;
   localStorage.setItem(EO_AXIS_MODE_KEY, m);
@@ -1084,6 +1116,16 @@ function idealLen(start: Cube3x3, s: StepDef): number {
 
 /** Commit (or provisionally set) the EO axis when a free-EO scramble completes. */
 function commitEoAxisOnScramble(s: StepDef) {
+  if (eoAxisMode === 'detect') {
+    // Defer the axis entirely: solve EO on whichever side you like and the finished
+    // state tells us which (see detectSolvedEoAxis / checkStepCompletion). No prompt,
+    // no pre-pick. eoAxis here is only a provisional for any mid-solve display — the
+    // on-screen orientation may not match your hands, which is fine (you're on the cube).
+    state.eoAxis = lastEoAxis();
+    state.eoCommitted = false;
+    state.status = 'Solve EO — Red front or Blue front, your call. I’ll read which off the cube.';
+    return;
+  }
   if (eoAxisMode === 'gb' || eoAxisMode === 'ro') {
     state.eoAxis = eoAxisMode;
     state.eoCommitted = true;
@@ -1973,10 +2015,10 @@ function renderSettings() {
   const eoGroup = el('div', 'group');
   eoGroup.appendChild(el('div', 'glabel', 'Full EO · side axis'));
   const eoSeg = el('div', 'seg');
-  const eoModes: [EoAxisMode, string][] = [['ask', 'Ask'], ['auto', 'Auto (fewer moves)'], ['gb', 'Blue front'], ['ro', 'Red front']];
+  const eoModes: [EoAxisMode, string][] = [['detect', 'Detect'], ['ask', 'Ask'], ['auto', 'Auto (fewer moves)'], ['gb', 'Blue front'], ['ro', 'Red front']];
   for (const [m, label] of eoModes) eoSeg.appendChild(segBtn(label, () => setEoAxisMode(m), eoAxisMode === m));
   eoGroup.appendChild(eoSeg);
-  eoGroup.appendChild(el('div', 'hint', 'Full EO trainer only: practise EO against either side axis. Ask prompts each scramble; Auto picks the shorter solution; Blue/Red pin an axis. Both are solved yellow-top.'));
+  eoGroup.appendChild(el('div', 'hint', 'Full EO trainer only: practise EO against either side axis. Detect commits no axis — solve whichever side you like and it reads which off your finished cube. Ask prompts each scramble; Auto picks the shorter solution; Blue/Red pin an axis. Both are solved yellow-top.'));
   modal.appendChild(eoGroup);
 
   modal.appendChild(el('hr'));
