@@ -48,3 +48,4 @@ for (let t = 0; t < N; t++) {
   }
 }
 console.log(`bridge recovered: ${bridged}/${N}, exact reproduction: ${exact}/${bridged}, hard (>4): ${hard}`);
+if (bridged !== N || exact !== bridged) process.exitCode = 1;

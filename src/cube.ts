@@ -1,3 +1,12 @@
+// DO NOT DELETE — this module looks unused from the app, but it is BOTH:
+//   1. An app dependency — src/resync.ts imports KOCIEMBA_FACELET_COORDS (so this
+//      file ships in the production bundle), and
+//   2. A validation oracle — scripts/parity-blocks.ts, resync-check.ts and
+//      resync-bridge-check.ts use the CubieCube machinery below as the
+//      independent reference the live engine paths are checked against.
+// Only the pure KOCIEMBA_FACELET_COORDS data reaches dist; the CubieCube oracle
+// code is tree-shaken out. Grep src/ AND scripts/ before touching any export here.
+//
 // Cube model using the standard Kociemba "cubie" representation.
 //
 // Corners (index = home slot):

@@ -1,4 +1,5 @@
-import { newSolved, applyMoves, parseMoves, optimalToMask, MOVESETS, anySolved, isMaskSolvedFromHistory, isMaskSolvedState, type Move3x3, type Cube3x3Mask } from '../src/engine-api.ts';
+import { newSolved, applyMoves, parseMoves, optimalToMask, MOVESETS, isMaskSolvedState, type Move3x3, type Cube3x3Mask } from '../src/engine-api.ts';
+import { anySolved, isMaskSolvedFromHistory } from './oracles.ts';
 import { MASKS } from '../src/engine/puzzles/cube3x3/index.ts';
 import { all222Masks, all223Masks, all123Masks } from '../src/blocks.ts';
 
@@ -20,3 +21,4 @@ for(let t=0;t<1500;t++){
 }
 console.log(`checks ${n}, EO-true ${eoTrue}, block-true ${blkTrue}, mismatches ${fail}`);
 console.log(fail===0?'PARITY OK — state-based detection matches existing':'PARITY FAILED');
+if (fail !== 0) process.exitCode = 1;

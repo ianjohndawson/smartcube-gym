@@ -17,6 +17,7 @@ import {
   type GanCubeEvent,
   type MacAddressProvider,
 } from 'gan-web-bluetooth';
+import * as store from './storage.ts';
 
 export interface CubeHandlers {
   onMove?: (move: string, serial: number) => void;
@@ -28,14 +29,13 @@ export interface CubeHandlers {
   onLog?: (line: string) => void; // human-readable trace of cube events
 }
 
-const MAC_KEY = 'block-trainer.cube-mac';
 const MAC_RE = /^([0-9a-fA-F]{2}[:-]){5}[0-9a-fA-F]{2}$/;
 
 export function getSavedMac(): string {
-  return localStorage.getItem(MAC_KEY) ?? '';
+  return store.getString('cube-mac', '');
 }
 export function clearSavedMac(): void {
-  localStorage.removeItem(MAC_KEY);
+  store.removeRaw('cube-mac');
 }
 
 const macProvider: MacAddressProvider = async (_device, isFallbackCall) => {
@@ -52,7 +52,7 @@ const macProvider: MacAddressProvider = async (_device, isFallbackCall) => {
   );
   const v = entered?.trim().toUpperCase().replace(/-/g, ':') ?? '';
   if (MAC_RE.test(v)) {
-    localStorage.setItem(MAC_KEY, v);
+    store.setRaw('cube-mac', v);
     return v;
   }
   return null;
@@ -125,19 +125,19 @@ export class CubeManager {
   private handleEvent(e: GanCubeEvent): void {
     switch (e.type) {
       case 'MOVE':
-        this.handlers.onLog?.(`MOVE ${(e as any).move}`);
-        this.handlers.onMove?.((e as any).move, (e as any).serial ?? 0);
+        this.handlers.onLog?.(`MOVE ${e.move}`);
+        this.handlers.onMove?.(e.move, e.serial ?? 0);
         break;
       case 'FACELETS':
         this.handlers.onLog?.('FACELETS sync');
-        this.handlers.onFacelets?.((e as any).facelets);
+        this.handlers.onFacelets?.(e.facelets);
         break;
       case 'BATTERY':
-        this.handlers.onLog?.(`BATTERY ${(e as any).batteryLevel}%`);
-        this.handlers.onBattery?.((e as any).batteryLevel ?? 0);
+        this.handlers.onLog?.(`BATTERY ${e.batteryLevel}%`);
+        this.handlers.onBattery?.(e.batteryLevel ?? 0);
         break;
       case 'HARDWARE':
-        this.handlers.onLog?.(`HARDWARE ${(e as any).hardwareName ?? ''} v${(e as any).softwareVersion ?? '?'}`);
+        this.handlers.onLog?.(`HARDWARE ${e.hardwareName ?? ''} v${e.softwareVersion ?? '?'}`);
         break;
       case 'GYRO':
         break; // ignore, too chatty

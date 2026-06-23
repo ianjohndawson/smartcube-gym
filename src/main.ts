@@ -32,6 +32,7 @@ import { eoHint, blockHint } from './hints.ts';
 import { sampleEoScramble } from './eo-scramble.ts';
 import { genEoSafeScramble } from './steps.ts';
 import { CORNER_FACELETS, NET_COORDS } from './blocks.ts';
+import * as store from './storage.ts';
 
 const SOLVED_STR = faceletString(newSolved());
 
@@ -62,7 +63,7 @@ function progressInfo(cube: Cube3x3, s: StepDef): { frac: number; pct: number; c
     const oriented = orientedEdges(cube, s);
     const pieces = blockPiecesFor(eoMaskForStep(s, state.eoAxis));
     if (pieces.length) {
-      const home = homePermutation(cube.stateData as unknown as string[]);
+      const home = homePermutation(cube.stateData);
       const placed = home.length ? pieces.filter((g) => g.every((i) => home[i] === i)).length : 0;
       const frac = (placed + oriented) / (pieces.length + 12);
       return { frac, pct: Math.round(frac * 100), caption: `${placed}/${pieces.length} pieces · ${oriented}/12 edges` };
@@ -171,7 +172,7 @@ function eoMaskForStep(s: StepDef | null, axis: SolveAxis): Cube3x3Mask {
   return axisEoMask(axis);
 }
 function axisBad(c: Cube3x3, axis: SolveAxis): { count: number; stickers: number[] } {
-  const home = homePermutation(c.stateData as unknown as string[]);
+  const home = homePermutation(c.stateData);
   const stickers: number[] = [];
   if (home.length === 0) return { count: 0, stickers };
   const P = AXIS_EO_PRIMARY[axis], S = AXIS_EO_SECONDARY[axis], orbit = AXIS_EO_ORBIT_SET[axis];
@@ -390,10 +391,8 @@ function startScramble(base: Cube3x3, baseHistory: Move3x3[], explicit?: Move3x3
   };
 }
 
-const LAST_TRAINER_KEY = 'cube-trainer.last-trainer';
-
 function freshTrainer(trainerId: string): State {
-  localStorage.setItem(LAST_TRAINER_KEY, trainerId);
+  store.setRaw('last-trainer', trainerId);
   if (state) state.trainerId = trainerId;
   else state = { trainerId } as State;
   return startScramble(newSolved(), []);
@@ -949,15 +948,14 @@ function fmtTime(ms: number): string {
 }
 
 // --- theming ---
-const THEME_KEY = 'cube-trainer.theme';
+const THEMES = ['dark', 'borland', 'matrix', 'future'];
 function getTheme(): string {
-  return localStorage.getItem(THEME_KEY) || 'borland';
+  return store.getEnum('theme', THEMES, 'borland');
 }
 function setTheme(t: string) {
-  localStorage.setItem(THEME_KEY, t);
+  store.setRaw('theme', t);
   applyTheme(t);
 }
-const THEMES = ['dark', 'borland', 'matrix', 'future'];
 function resolveTheme(t: string): string {
   return THEMES.includes(t) ? t : 'dark';
 }
@@ -1038,11 +1036,10 @@ let lastUnits = 0;
 let lastFlashKey = '';
 
 // --- solving orientation (phase-flip) + free-EO side-axis choice ---
-const ORIENT_KEY = 'cube-trainer.orient';
-let orientEnabled = localStorage.getItem(ORIENT_KEY) === '1';
+let orientEnabled = store.getBool('orient', false);
 function setOrient(b: boolean) {
   orientEnabled = b;
-  localStorage.setItem(ORIENT_KEY, b ? '1' : '0');
+  store.setBool('orient', b);
   render();
 }
 
@@ -1051,19 +1048,19 @@ function setOrient(b: boolean) {
 // fewer-move axis; 'gb'/'ro' pin an axis. The last axis actually used is
 // remembered so an 'ask' that gets pre-empted by a solve move falls back to it.
 type EoAxisMode = 'detect' | 'ask' | 'auto' | 'gb' | 'ro';
-const EO_AXIS_MODE_KEY = 'cube-trainer.eo-axis-mode';
-const EO_LAST_AXIS_KEY = 'cube-trainer.eo-last-axis';
-let eoAxisMode: EoAxisMode = (localStorage.getItem(EO_AXIS_MODE_KEY) as EoAxisMode) || 'detect';
+const EO_AXIS_MODES: readonly EoAxisMode[] = ['detect', 'ask', 'auto', 'gb', 'ro'];
+const EO_AXES: readonly SolveAxis[] = ['gb', 'ro'];
+let eoAxisMode: EoAxisMode = store.getEnum<EoAxisMode>('eo-axis-mode', EO_AXIS_MODES, 'detect');
 function setEoAxisMode(m: EoAxisMode) {
   eoAxisMode = m;
-  localStorage.setItem(EO_AXIS_MODE_KEY, m);
+  store.setEnum('eo-axis-mode', m);
   render();
 }
 function lastEoAxis(): SolveAxis {
-  return localStorage.getItem(EO_LAST_AXIS_KEY) === 'ro' ? 'ro' : 'gb';
+  return store.getEnum<SolveAxis>('eo-last-axis', EO_AXES, 'gb');
 }
 function saveLastEoAxis(a: SolveAxis) {
-  localStorage.setItem(EO_LAST_AXIS_KEY, a);
+  store.setEnum('eo-last-axis', a);
 }
 
 /** Free side-axis EO steps: Full EO ('eo') plus the ZZ line/cross drills, all of
@@ -1797,24 +1794,23 @@ function stepShort(s: StepDef): string {
 }
 
 // --- stats persistence ---
-const HISTORY_KEY = 'cube-trainer.history';
 interface HistRec { step: string; used: number; optimal: number; ts: number; ms?: number; }
 // What the last completed solve recorded — so it can be discarded ("didn't count").
 let lastRecord: { history: boolean; trainerId?: string; level?: number } = { history: false };
 function loadHistory(): HistRec[] {
-  try { return JSON.parse(localStorage.getItem(HISTORY_KEY) || '[]') as HistRec[]; } catch { return []; }
+  return store.getJSON<HistRec[]>('history', []);
 }
 function recordSolve(rec: HistRec) {
   const h = loadHistory();
   h.push(rec);
-  localStorage.setItem(HISTORY_KEY, JSON.stringify(h.slice(-500)));
+  store.setJSON('history', h.slice(-500));
 }
 // Remove the last recorded solve from Stats + the course window (a botched solve).
 function discardLastSolve() {
   if (lastRecord.history) {
     const h = loadHistory();
     h.pop();
-    localStorage.setItem(HISTORY_KEY, JSON.stringify(h));
+    store.setJSON('history', h);
   }
   if (lastRecord.trainerId != null && lastRecord.level != null) {
     const p = loadCourse();
@@ -1850,7 +1846,6 @@ function computeStats() {
 // ≤ COURSE_TOLERANCE)? A tolerance is used because the solver's optimal can be
 // an awkward, non-ergonomic line, so we reward solid human solving, not exact
 // optimality. Pass-rate → stars; ≥ the 1★ rate clears + unlocks the next level.
-const COURSE_KEY = 'cube-trainer.course';
 const COURSE_WINDOW = 12;
 const COURSE_TOLERANCE = 2; // a solve is "clean" if it's within +2 of optimal
 const COURSE_STAR_RATES = [0.70, 0.85, 1.0]; // clean-rate for 1★ / 2★ / 3★
@@ -1859,9 +1854,9 @@ interface CourseTrack { unlocked: number; current: number; levels: Record<number
 type CourseProg = Record<string, CourseTrack>;
 
 function loadCourse(): CourseProg {
-  try { return JSON.parse(localStorage.getItem(COURSE_KEY) || '{}') as CourseProg; } catch { return {}; }
+  return store.getJSON<CourseProg>('course', {});
 }
-function saveCourse(p: CourseProg) { localStorage.setItem(COURSE_KEY, JSON.stringify(p)); }
+function saveCourse(p: CourseProg) { store.setJSON('course', p); }
 function courseTrack(id: string): CourseTrack {
   const p = loadCourse();
   return p[id] ?? { unlocked: 0, current: 0, levels: {} };
@@ -2091,10 +2086,11 @@ function btn(label: string, onClick: () => void, className = '', disabled = fals
 }
 
 // --- boot ---
+store.runMigrations();
 applyTheme(getTheme());
 // Resume where you left off (e.g. start in Edge Orientation if that's what you
 // were practising); fall back to the graded 2×2×2 course on first run.
-const savedTrainer = localStorage.getItem(LAST_TRAINER_KEY);
+const savedTrainer = store.getRaw('last-trainer');
 state = freshTrainer(trainerById(savedTrainer ?? 'course222').id);
 render();
 

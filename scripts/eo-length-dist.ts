@@ -8,7 +8,7 @@ import { Cube3x3, MOVESETS, type Move3x3 } from '../src/engine-api.ts';
 const eoKey = (c: Cube3x3) => c.EO.map((g) => (g ? '0' : '1')).join('');
 const bad = (k: string) => k.split('').filter((b) => b === '1').length;
 
-const moves = MOVESETS.RUFLDB;
+const moves: readonly Move3x3[] = MOVESETS.RUFLDB;
 const depth = new Map<string, number>();
 const start = new Cube3x3();
 depth.set(eoKey(start), 0);
@@ -16,7 +16,7 @@ let frontier = [start];
 let d = 0;
 while (frontier.length) {
   const next: Cube3x3[] = [];
-  for (const c of frontier) for (const m of moves as Move3x3[]) {
+  for (const c of frontier) for (const m of moves) {
     const nc = c.clone().applyMove(m);
     const k = eoKey(nc);
     if (!depth.has(k)) { depth.set(k, d + 1); next.push(nc); }
