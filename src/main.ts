@@ -136,7 +136,7 @@ import {
   OTHER_AXIS,
   type SolveAxis,
 } from './orient.ts';
-import { CubeManager, clearSavedMac, getSavedMac } from './bluetooth.ts';
+import { CubeManager, clearSavedMacs, getSavedMacs } from './bluetooth.ts';
 
 type Mode = 'scramble' | 'solve';
 
@@ -1767,10 +1767,12 @@ function renderSettings() {
   // Cube
   const cubeGroup = el('div', 'group');
   cubeGroup.appendChild(el('div', 'glabel', 'Cube'));
-  const savedMac = getSavedMac();
-  cubeGroup.appendChild(el('div', 'hint', savedMac ? `Saved MAC: ${savedMac}` : 'No cube MAC saved. If auto-detection fails on connect, you’ll be asked for it once.'));
+  const macCount = Object.keys(getSavedMacs()).length;
+  cubeGroup.appendChild(el('div', 'hint', macCount
+    ? `${macCount} cube MAC${macCount === 1 ? '' : 's'} saved (one per cube). If a cube won’t connect, try forgetting them.`
+    : 'No cube MAC saved. If auto-detection fails on connect, you’ll be asked for it once.'));
   const macRow = el('div', 'row');
-  macRow.appendChild(btn('Forget cube MAC', () => { clearSavedMac(); state.status = 'Saved cube MAC cleared.'; render(); }, 'btn ghost'));
+  macRow.appendChild(btn('Forget saved MACs', () => { clearSavedMacs(); state.status = 'Saved cube MACs cleared.'; render(); }, 'btn ghost'));
   cubeGroup.appendChild(macRow);
   modal.appendChild(cubeGroup);
 

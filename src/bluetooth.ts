@@ -29,10 +29,29 @@ export interface CubeHandlers {
 
 const MAC_RE = /^([0-9a-fA-F]{2}[:-]){5}[0-9a-fA-F]{2}$/;
 
-export function getSavedMac(): string {
-  return store.getString('cube-mac', '');
+// Cube MACs are remembered PER DEVICE (keyed by the browser's stable per-origin
+// device id), so one cube's MAC is never handed to a different cube — the bug that
+// made a second cube try to decrypt with the first cube's key.
+type MacMap = Record<string, string>;
+const macKeyFor = (device: BluetoothDevice): string => device.id || device.name || '';
+function loadMacs(): MacMap {
+  return store.getJSON<MacMap>('cube-mac', {});
 }
-export function clearSavedMac(): void {
+function getMacFor(device: BluetoothDevice): string {
+  const k = macKeyFor(device);
+  return k ? loadMacs()[k] ?? '' : '';
+}
+function saveMacFor(device: BluetoothDevice, mac: string): void {
+  const k = macKeyFor(device);
+  if (!k) return;
+  const macs = loadMacs();
+  macs[k] = mac;
+  store.setJSON('cube-mac', macs);
+}
+export function getSavedMacs(): MacMap {
+  return loadMacs();
+}
+export function clearSavedMacs(): void {
   store.removeRaw('cube-mac');
 }
 
@@ -40,8 +59,8 @@ export function clearSavedMac(): void {
 // named type, so we mirror it locally.
 type MacAddressProvider = (device: BluetoothDevice, isFallbackCall?: boolean) => Promise<string | null>;
 
-const macProvider: MacAddressProvider = async (_device, isFallbackCall) => {
-  const cached = getSavedMac();
+const macProvider: MacAddressProvider = async (device, isFallbackCall) => {
+  const cached = getMacFor(device);
   if (cached) return cached;
   // Let the library attempt automatic detection first.
   if (!isFallbackCall) return null;
@@ -54,7 +73,7 @@ const macProvider: MacAddressProvider = async (_device, isFallbackCall) => {
   );
   const v = entered?.trim().toUpperCase().replace(/-/g, ':') ?? '';
   if (MAC_RE.test(v)) {
-    store.setRaw('cube-mac', v);
+    saveMacFor(device, v);
     return v;
   }
   return null;
@@ -87,6 +106,10 @@ export class CubeManager {
       this.handlers.onLog?.('Requesting cube…');
       this.conn = await connectSmartCube({
         macAddressProvider: macProvider,
+        // Let the library probe the address for QiYi / MoYu32 cubes when the
+        // advertisement and name hints don't reveal it (only kicks in for those
+        // protocols; GAN auto-reads its MAC and is unaffected).
+        enableAddressSearch: true,
         // Surface the library's resolution/status messages in the cube event log
         // (invaluable for diagnosing a new cube on real hardware).
         onStatus: (m) => this.handlers.onLog?.(m),
