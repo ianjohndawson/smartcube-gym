@@ -32,6 +32,15 @@ import { eoHint, blockHint } from './hints.ts';
 import { sampleEoScramble } from './eo-scramble.ts';
 import { genEoSafeScramble } from './steps.ts';
 import { CORNER_FACELETS, NET_COORDS } from './blocks.ts';
+import * as store from './storage.ts';
+import { applyTheme, getTheme, resolveTheme, setTheme } from './theme.ts';
+import { el, btn, renderCubeNet } from './dom.ts';
+import {
+  loadHistory, recordSolve, computeStats,
+  loadCourse, saveCourse, courseTrack, courseCurrent, setCourseCurrent, recordCourse,
+  COURSE_WINDOW, COURSE_TOLERANCE, COURSE_STAR_RATES,
+} from './stats.ts';
+import { axisBad, badEdgeStickers, eoAxisOptimalLen, eoMaskForStep, freeEoHint, isFreeEo } from './eo-axis.ts';
 
 const SOLVED_STR = faceletString(newSolved());
 
@@ -62,7 +71,7 @@ function progressInfo(cube: Cube3x3, s: StepDef): { frac: number; pct: number; c
     const oriented = orientedEdges(cube, s);
     const pieces = blockPiecesFor(eoMaskForStep(s, state.eoAxis));
     if (pieces.length) {
-      const home = homePermutation(cube.stateData as unknown as string[]);
+      const home = homePermutation(cube.stateData);
       const placed = home.length ? pieces.filter((g) => g.every((i) => home[i] === i)).length : 0;
       const frac = (placed + oriented) / (pieces.length + 12);
       return { frac, pct: Math.round(frac * 100), caption: `${placed}/${pieces.length} pieces · ${oriented}/12 edges` };
@@ -114,72 +123,8 @@ function classifyCase(start: Cube3x3, s: StepDef, optimal: Move3x3[]): string {
   return 'nearly there';
 }
 
-// EO orbit facelets (mirror the engine's getEO) so we can highlight bad edges.
-// Per edge: a PRIMARY sticker (U/D-facing for F/B-EO) and a SECONDARY sticker.
-const EO_PRIMARY = [1, 3, 5, 7, 32, 24, 26, 30, 46, 48, 50, 52];
-const EO_SECONDARY = [19, 10, 16, 13, 21, 23, 27, 29, 37, 34, 40, 43];
-function badEdgeStickers(c: Cube3x3): number[] {
-  const out: number[] = [];
-  c.EO.forEach((good, i) => {
-    if (!good) out.push(EO_PRIMARY[i], EO_SECONDARY[i]);
-  });
-  return out;
-}
-// Free-EO bad-edge detection, per chosen side axis, computed in the MODEL frame.
-// EO is axis-specific: the F/B orbit (above) is for the G/B "blue" axis; the R/O
-// "red" axis uses the same orbit rotated by y (the y-image of the F/B orbit — the
-// L/R-facing edge stickers). Both are evaluated WITHOUT rotating the state (the
-// rotation is display-only); we identify each edge by colour via homePermutation
-// and an edge is good iff its axis-PRIMARY sticker has a home in that axis's orbit.
-// Derived as y(EO_PRIMARY)/y(EO_SECONDARY) and verified against a constructive
-// {U,D,F,B,R2,L2}-only oracle (those moves preserve R/L-axis EO).
-const EO_PRIMARY_RL = [5, 1, 7, 3, 29, 21, 23, 27, 48, 52, 46, 50];
-const EO_SECONDARY_RL = [16, 19, 13, 10, 30, 32, 24, 26, 34, 43, 37, 40];
-const AXIS_EO_PRIMARY: Record<SolveAxis, number[]> = { gb: EO_PRIMARY, ro: EO_PRIMARY_RL };
-const AXIS_EO_SECONDARY: Record<SolveAxis, number[]> = { gb: EO_SECONDARY, ro: EO_SECONDARY_RL };
-const AXIS_EO_ORBIT: Record<SolveAxis, number[]> = {
-  gb: [...EO_PRIMARY].sort((a, b) => a - b),
-  ro: [...EO_PRIMARY_RL].sort((a, b) => a - b),
-};
-const AXIS_EO_ORBIT_SET: Record<SolveAxis, Set<number>> = {
-  gb: new Set(EO_PRIMARY),
-  ro: new Set(EO_PRIMARY_RL),
-};
-// Centres-free EO mask for an axis (model frame). Centres are intentionally
-// omitted — they don't constrain EO and any face turn leaves them put.
-function axisEoMask(axis: SolveAxis): Cube3x3Mask {
-  return { solvedFaceletIndices: [], eoFaceletIndices: AXIS_EO_ORBIT[axis] };
-}
-// Per-axis bottom line / cross placement targets (centres-free, model frame).
-// The blue (gb) line is DF+DB; the red (ro) line is its y-image DL+DR. The
-// D-cross is the same set on both axes (y permutes the four D-edges among
-// themselves), so a single centres-free cross target serves both.
-const AXIS_LINE: Record<SolveAxis, number[]> = {
-  gb: [37, 43, 46, 52],
-  ro: [34, 40, 48, 50],
-};
-const CROSS_NC = [34, 37, 40, 43, 46, 48, 50, 52];
 // Corner facelets as a set, for the "EO keeps no block" corner-blank test.
 const CORNER_SET = new Set(CORNER_FACELETS);
-// EO target mask for a step on a chosen side axis. Full EO ('eo') keeps no
-// pieces; EOLine/EOCross add the line/cross placement to the same axis's EO
-// orbit so completion requires every edge oriented AND the line/cross placed
-// — evaluated colour-identified in the model frame (rotation is display-only).
-function eoMaskForStep(s: StepDef | null, axis: SolveAxis): Cube3x3Mask {
-  if (s?.id === 'eoline') return { solvedFaceletIndices: AXIS_LINE[axis], eoFaceletIndices: AXIS_EO_ORBIT[axis] };
-  if (s?.id === 'eocross') return { solvedFaceletIndices: CROSS_NC, eoFaceletIndices: AXIS_EO_ORBIT[axis] };
-  return axisEoMask(axis);
-}
-function axisBad(c: Cube3x3, axis: SolveAxis): { count: number; stickers: number[] } {
-  const home = homePermutation(c.stateData as unknown as string[]);
-  const stickers: number[] = [];
-  if (home.length === 0) return { count: 0, stickers };
-  const P = AXIS_EO_PRIMARY[axis], S = AXIS_EO_SECONDARY[axis], orbit = AXIS_EO_ORBIT_SET[axis];
-  let count = 0;
-  for (let i = 0; i < 12; i++)
-    if (!orbit.has(home[P[i]])) { count++; stickers.push(P[i], S[i]); }
-  return { count, stickers };
-}
 import {
   orientLabel,
   rotateHighlight,
@@ -390,10 +335,8 @@ function startScramble(base: Cube3x3, baseHistory: Move3x3[], explicit?: Move3x3
   };
 }
 
-const LAST_TRAINER_KEY = 'cube-trainer.last-trainer';
-
 function freshTrainer(trainerId: string): State {
-  localStorage.setItem(LAST_TRAINER_KEY, trainerId);
+  store.setRaw('last-trainer', trainerId);
   if (state) state.trainerId = trainerId;
   else state = { trainerId } as State;
   return startScramble(newSolved(), []);
@@ -948,78 +891,6 @@ function fmtTime(ms: number): string {
   return `${m}:${(s - m * 60).toFixed(2).padStart(5, '0')}`;
 }
 
-// --- theming ---
-const THEME_KEY = 'cube-trainer.theme';
-function getTheme(): string {
-  return localStorage.getItem(THEME_KEY) || 'borland';
-}
-function setTheme(t: string) {
-  localStorage.setItem(THEME_KEY, t);
-  applyTheme(t);
-}
-const THEMES = ['dark', 'borland', 'matrix', 'future'];
-function resolveTheme(t: string): string {
-  return THEMES.includes(t) ? t : 'dark';
-}
-function applyTheme(t: string) {
-  // data-theme on <html> drives the token blocks in style.css.
-  document.documentElement.dataset.theme = resolveTheme(t);
-  ensureMatrixRain();
-}
-
-// --- Matrix theme: falling digital rain (lifecycle-managed canvas) ---
-let rainRAF = 0;
-let rainResize: (() => void) | null = null;
-function ensureMatrixRain() {
-  const on = resolveTheme(getTheme()) === 'matrix';
-  const exists = !!document.getElementById('matrix-rain');
-  if (on && !exists) startRain();
-  else if (!on && exists) stopRain();
-}
-function startRain() {
-  const canvas = document.createElement('canvas');
-  canvas.id = 'matrix-rain';
-  document.body.appendChild(canvas);
-  const ctx = canvas.getContext('2d');
-  if (!ctx) return;
-  const glyphs = 'ｱｲｳｴｵｶｷｸｹｺｻｼｽｾｿ0123456789ABCDEF<>*+=:.';
-  const fs = 16;
-  let cols = 0;
-  let drops: number[] = [];
-  const resize = () => {
-    canvas.width = window.innerWidth;
-    canvas.height = window.innerHeight;
-    cols = Math.ceil(canvas.width / fs);
-    drops = Array.from({ length: cols }, () => Math.random() * -50);
-  };
-  resize();
-  rainResize = resize;
-  window.addEventListener('resize', resize);
-  let last = 0;
-  const frame = (t: number) => {
-    rainRAF = requestAnimationFrame(frame);
-    if (t - last < 55) return; // ~18fps, gentle on the CPU
-    last = t;
-    ctx.fillStyle = 'rgba(0,6,0,0.10)';
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-    ctx.font = `${fs}px 'Share Tech Mono', monospace`;
-    for (let i = 0; i < cols; i++) {
-      const y = drops[i] * fs;
-      ctx.fillStyle = Math.random() < 0.03 ? '#c6ffd6' : '#00ff66';
-      ctx.fillText(glyphs[Math.floor(Math.random() * glyphs.length)], i * fs, y);
-      if (y > canvas.height && Math.random() > 0.975) drops[i] = 0;
-      drops[i]++;
-    }
-  };
-  rainRAF = requestAnimationFrame(frame);
-}
-function stopRain() {
-  if (rainRAF) cancelAnimationFrame(rainRAF);
-  rainRAF = 0;
-  if (rainResize) { window.removeEventListener('resize', rainResize); rainResize = null; }
-  document.getElementById('matrix-rain')?.remove();
-}
-
 // Brief green edge-flash when a block piece is placed / an edge is oriented.
 function flashPieces() {
   const f = document.createElement('div');
@@ -1038,11 +909,10 @@ let lastUnits = 0;
 let lastFlashKey = '';
 
 // --- solving orientation (phase-flip) + free-EO side-axis choice ---
-const ORIENT_KEY = 'cube-trainer.orient';
-let orientEnabled = localStorage.getItem(ORIENT_KEY) === '1';
+let orientEnabled = store.getBool('orient', false);
 function setOrient(b: boolean) {
   orientEnabled = b;
-  localStorage.setItem(ORIENT_KEY, b ? '1' : '0');
+  store.setBool('orient', b);
   render();
 }
 
@@ -1051,56 +921,26 @@ function setOrient(b: boolean) {
 // fewer-move axis; 'gb'/'ro' pin an axis. The last axis actually used is
 // remembered so an 'ask' that gets pre-empted by a solve move falls back to it.
 type EoAxisMode = 'detect' | 'ask' | 'auto' | 'gb' | 'ro';
-const EO_AXIS_MODE_KEY = 'cube-trainer.eo-axis-mode';
-const EO_LAST_AXIS_KEY = 'cube-trainer.eo-last-axis';
-let eoAxisMode: EoAxisMode = (localStorage.getItem(EO_AXIS_MODE_KEY) as EoAxisMode) || 'detect';
+const EO_AXIS_MODES: readonly EoAxisMode[] = ['detect', 'ask', 'auto', 'gb', 'ro'];
+const EO_AXES: readonly SolveAxis[] = ['gb', 'ro'];
+let eoAxisMode: EoAxisMode = store.getEnum<EoAxisMode>('eo-axis-mode', EO_AXIS_MODES, 'detect');
 function setEoAxisMode(m: EoAxisMode) {
   eoAxisMode = m;
-  localStorage.setItem(EO_AXIS_MODE_KEY, m);
+  store.setEnum('eo-axis-mode', m);
   render();
 }
 function lastEoAxis(): SolveAxis {
-  return localStorage.getItem(EO_LAST_AXIS_KEY) === 'ro' ? 'ro' : 'gb';
+  return store.getEnum<SolveAxis>('eo-last-axis', EO_AXES, 'gb');
 }
 function saveLastEoAxis(a: SolveAxis) {
-  localStorage.setItem(EO_LAST_AXIS_KEY, a);
+  store.setEnum('eo-last-axis', a);
 }
 
-/** Free side-axis EO steps: Full EO ('eo') plus the ZZ line/cross drills, all of
- * which orient every edge and so support the red/green axis choice, the 4-move
- * axis-pick spin, axis-aware scoring and the rotated (held-frame) display.
- * Block-keeping EO (eo123/eo223/petrus-eo) is fixed to the F/B axis and excluded. */
-const FREE_EO_IDS = new Set(['eo', 'eoline', 'eocross']);
-function isFreeEo(s: StepDef | null): boolean {
-  return s != null && FREE_EO_IDS.has(s.id);
-}
 function eoRot(): RotationMove[] {
   return AXIS_ROTATION[state.eoAxis];
 }
 function orientedEdges(cube: Cube3x3, s: StepDef): number {
   return isFreeEo(s) ? 12 - axisBad(cube, state.eoAxis).count : cube.EO.filter(Boolean).length;
-}
-// Axis-agnostic EO coach hint (free-EO). cube.EO / eoHint are F/B-axis only, so on
-// the red axis they'd describe the wrong edges; phrase orientation relative to the
-// *held* front/back face (the axis actually being solved) instead.
-function freeEoHint(bad: number): { name?: string; lines: string[] } {
-  if (bad === 0) return { lines: ['All 12 edges are oriented for this axis — EO is done.'] };
-  const lines = [
-    `${bad} bad edge${bad === 1 ? '' : 's'} (relative to the front/back you’re holding).`,
-    `An edge is bad if its front/back colour faces up, down or sideways — it can’t be solved with R, L, U, D alone.`,
-    `Each front or back quarter turn flips the four edges on that face, so fix them in pairs.`,
-  ];
-  const name = bad === 2 ? '2 bad edges' : bad === 4 ? '4 bad edges' : `${bad} bad edges`;
-  if (bad === 2) lines.push('Bring both bad edges onto the same F/B face, flip with one quarter turn, then rebuild.');
-  else if (bad === 4) lines.push('Flip two at a time, or set up so a single F/B turn catches all four.');
-  else lines.push('Roughly halve the bad count with each F/B turn (it flips four at once).');
-  return { name, lines };
-}
-/** Optimal EO length for a given axis, from a start state. Evaluated in the MODEL
- * frame with that axis's centres-free orbit mask (the rotation is display-only). */
-function eoAxisOptimalLen(start: Cube3x3, _s: StepDef, axis: SolveAxis): number {
-  const m = solveFromState(start, eoMaskForStep(_s, axis), _s.solver);
-  return m ? m.length : 0;
 }
 /** Teaching route for the current step, in MODEL frame so the shared disp()/
  * walkthrough pipeline can render it in the held frame. Free-EO solves the chosen
@@ -1796,25 +1636,16 @@ function stepShort(s: StepDef): string {
   return s.label;
 }
 
-// --- stats persistence ---
-const HISTORY_KEY = 'cube-trainer.history';
-interface HistRec { step: string; used: number; optimal: number; ts: number; ms?: number; }
-// What the last completed solve recorded — so it can be discarded ("didn't count").
+// Bookkeeping for the last completed solve, so it can be discarded ("didn't
+// count"). The history/course data layer lives in stats.ts; this controller
+// action also touches app state, so it stays here.
 let lastRecord: { history: boolean; trainerId?: string; level?: number } = { history: false };
-function loadHistory(): HistRec[] {
-  try { return JSON.parse(localStorage.getItem(HISTORY_KEY) || '[]') as HistRec[]; } catch { return []; }
-}
-function recordSolve(rec: HistRec) {
-  const h = loadHistory();
-  h.push(rec);
-  localStorage.setItem(HISTORY_KEY, JSON.stringify(h.slice(-500)));
-}
 // Remove the last recorded solve from Stats + the course window (a botched solve).
 function discardLastSolve() {
   if (lastRecord.history) {
     const h = loadHistory();
     h.pop();
-    localStorage.setItem(HISTORY_KEY, JSON.stringify(h));
+    store.setJSON('history', h);
   }
   if (lastRecord.trainerId != null && lastRecord.level != null) {
     const p = loadCourse();
@@ -1824,95 +1655,6 @@ function discardLastSolve() {
   lastRecord = { history: false };
   state.status = 'Solve discarded — not counted.';
   nextScramble();
-}
-function computeStats() {
-  const h = loadHistory();
-  const solves = h.length;
-  const times = h.filter((r) => r.ms != null).map((r) => r.ms as number);
-  const bestMs = times.length ? Math.min(...times) : null;
-  const avgMs = times.length ? times.reduce((a, b) => a + b, 0) / times.length : null;
-  const lastTimes = times.slice(-20);
-  if (!solves) return { solves: 0, avgOverIdeal: 0, optimalPct: 0, bestStreak: 0, last12: [] as number[], byStep: [] as { label: string; avg: number }[], bestMs, avgMs, lastTimes };
-  const extras = h.map((r) => r.used - r.optimal);
-  const avgOverIdeal = extras.reduce((a, b) => a + b, 0) / solves;
-  const optimalPct = Math.round((100 * h.filter((r) => r.used === r.optimal).length) / solves);
-  let best = 0, cur = 0;
-  for (const r of h) { if (r.used === r.optimal) { cur++; best = Math.max(best, cur); } else cur = 0; }
-  const byMap = new Map<string, { sum: number; n: number }>();
-  for (const r of h) { const m = byMap.get(r.step) ?? { sum: 0, n: 0 }; m.sum += r.used - r.optimal; m.n++; byMap.set(r.step, m); }
-  const byStep = [...byMap.entries()].map(([label, m]) => ({ label, avg: m.sum / m.n })).sort((a, b) => a.label.localeCompare(b.label));
-  return { solves, avgOverIdeal, optimalPct, bestStreak: best, last12: extras.slice(-12), byStep, bestMs, avgMs, lastTimes };
-}
-
-// --- course progress ---
-// Levels are cleared by CONSISTENCY, not a single average: over the last
-// COURSE_WINDOW solves, what fraction were "clean" (move-waste = used − optimal
-// ≤ COURSE_TOLERANCE)? A tolerance is used because the solver's optimal can be
-// an awkward, non-ergonomic line, so we reward solid human solving, not exact
-// optimality. Pass-rate → stars; ≥ the 1★ rate clears + unlocks the next level.
-const COURSE_KEY = 'cube-trainer.course';
-const COURSE_WINDOW = 12;
-const COURSE_TOLERANCE = 2; // a solve is "clean" if it's within +2 of optimal
-const COURSE_STAR_RATES = [0.70, 0.85, 1.0]; // clean-rate for 1★ / 2★ / 3★
-interface CourseLevel { recent: number[]; stars: number; }
-interface CourseTrack { unlocked: number; current: number; levels: Record<number, CourseLevel>; }
-type CourseProg = Record<string, CourseTrack>;
-
-function loadCourse(): CourseProg {
-  try { return JSON.parse(localStorage.getItem(COURSE_KEY) || '{}') as CourseProg; } catch { return {}; }
-}
-function saveCourse(p: CourseProg) { localStorage.setItem(COURSE_KEY, JSON.stringify(p)); }
-function courseTrack(id: string): CourseTrack {
-  const p = loadCourse();
-  return p[id] ?? { unlocked: 0, current: 0, levels: {} };
-}
-function courseCurrent(id: string): number {
-  return courseTrack(id).current;
-}
-function setCourseCurrent(id: string, level: number) {
-  const p = loadCourse();
-  const t = p[id] ?? { unlocked: 0, current: 0, levels: {} };
-  t.current = level;
-  p[id] = t;
-  saveCourse(p);
-}
-// Fraction of recent solves that were clean (waste ≤ tolerance).
-function cleanRate(recent: number[]): number {
-  if (!recent.length) return 0;
-  return recent.filter((w) => w <= COURSE_TOLERANCE).length / recent.length;
-}
-function starsForRate(rate: number): number {
-  if (rate >= COURSE_STAR_RATES[2]) return 3;
-  if (rate >= COURSE_STAR_RATES[1]) return 2;
-  if (rate >= COURSE_STAR_RATES[0]) return 1;
-  return 0;
-}
-// Record one solve at the current level; returns a short status note (cleared / progress).
-function recordCourse(trainerId: string, levelCount: number, waste: number): string {
-  const p = loadCourse();
-  const t = p[trainerId] ?? { unlocked: 0, current: 0, levels: {} };
-  const level = t.current;
-  const lv = t.levels[level] ?? { recent: [], stars: 0 };
-  lv.recent = [...lv.recent, waste].slice(-COURSE_WINDOW);
-  let note = '';
-  if (lv.recent.length >= COURSE_WINDOW) {
-    const stars = starsForRate(cleanRate(lv.recent));
-    const wasCleared = lv.stars >= 1;
-    lv.stars = Math.max(lv.stars, stars);
-    if (lv.stars >= 1) {
-      const newUnlocked = Math.min(levelCount - 1, level + 1);
-      if (t.unlocked < newUnlocked) t.unlocked = newUnlocked;
-      if (!wasCleared) {
-        note = `Level cleared ${'★'.repeat(lv.stars)}${'☆'.repeat(3 - lv.stars)}`;
-        if (level + 1 < levelCount) { t.current = level + 1; note += ` — Level ${level + 2} unlocked!`; }
-        else note += ' — track complete! 🏆';
-      }
-    }
-  }
-  t.levels[level] = lv;
-  p[trainerId] = t;
-  saveCourse(p);
-  return note;
 }
 
 // Track progress through a token sequence at the face level: tokens completed in
@@ -2058,43 +1800,12 @@ function renderSettings() {
   appEl.appendChild(backdrop);
 }
 
-function renderCubeNet(f: string, highlight: Set<number> | null = null, blank: Set<number> | null = null): HTMLElement {
-  const net = el('div', 'cube-net');
-  for (let i = 0; i < 54; i++) {
-    let row: number, col: number;
-    if (i < 9) { row = Math.floor(i / 3); col = 3 + (i % 3); }
-    else if (i < 45) { const p = i - 9; row = 3 + Math.floor(p / 12); col = p % 12; }
-    else { const j = i - 45; row = 6 + Math.floor(j / 3); col = 3 + (j % 3); }
-    const isBlank = blank?.has(i);
-    const dim = !isBlank && highlight && !highlight.has(i) ? ' dim' : '';
-    const sticker = el('div', isBlank ? 'sticker blank' : `sticker ${f[i]}${dim}`);
-    sticker.style.gridRow = `${row + 1}`;
-    sticker.style.gridColumn = `${col + 1}`;
-    net.appendChild(sticker);
-  }
-  return net;
-}
-
-function el(tag: string, className = '', text = ''): HTMLElement {
-  const e = document.createElement(tag);
-  if (className) e.className = className;
-  if (text) e.textContent = text;
-  return e;
-}
-function btn(label: string, onClick: () => void, className = '', disabled = false): HTMLButtonElement {
-  const b = document.createElement('button');
-  b.textContent = label;
-  if (className) b.className = className;
-  b.disabled = disabled;
-  b.addEventListener('click', onClick);
-  return b;
-}
-
 // --- boot ---
+store.runMigrations();
 applyTheme(getTheme());
 // Resume where you left off (e.g. start in Edge Orientation if that's what you
 // were practising); fall back to the graded 2×2×2 course on first run.
-const savedTrainer = localStorage.getItem(LAST_TRAINER_KEY);
+const savedTrainer = store.getRaw('last-trainer');
 state = freshTrainer(trainerById(savedTrainer ?? 'course222').id);
 render();
 

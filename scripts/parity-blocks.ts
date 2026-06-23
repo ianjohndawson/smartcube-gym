@@ -72,3 +72,4 @@ for (let t = 0; t < TRIALS; t++) {
 }
 console.log(`\n${TRIALS} trials, solved-block hits seen: ${solvedHits}, detection mismatches: ${mismatches}`);
 console.log(mismatches === 0 ? 'PARITY OK — new mask detection matches old cubie detection.' : 'PARITY FAILED');
+if (mismatches !== 0 || !coordOk) process.exitCode = 1;

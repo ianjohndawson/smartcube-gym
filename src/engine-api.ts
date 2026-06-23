@@ -11,6 +11,7 @@ import {
   SOLVED_FACELET_CUBE,
   invertMoves,
   type Cube3x3Mask,
+  type Facelet3x3,
   type Move3x3,
   type RotationMove,
 } from './engine/puzzles/cube3x3/index.ts';
@@ -32,9 +33,22 @@ export function newSolved(): Cube3x3 {
   return new Cube3x3();
 }
 
+/**
+ * Build a Cube3x3 from plain facelet string-arrays. The engine types facelets as
+ * a `Facelet` string-union; this is the single spot that asserts our strings are
+ * valid facelets, replacing the scattered `as never` casts at the constructor.
+ */
+function cubeFromFaceletArray(
+  moveSet: Readonly<Move3x3[]>,
+  facelets: string[],
+  solvedFacelets: string[] = facelets,
+): Cube3x3 {
+  return new Cube3x3(moveSet, facelets as Facelet3x3, solvedFacelets as Facelet3x3);
+}
+
 /** Build a tracked cube directly from a net-order facelet string (for resync). */
 export function cubeFromFacelets(netFacelets: string): Cube3x3 {
-  return new Cube3x3(MOVESETS.Full, netFacelets.split('') as never);
+  return cubeFromFaceletArray(MOVESETS.Full, netFacelets.split(''));
 }
 
 /**
@@ -75,24 +89,6 @@ export function isMaskSolvedState(cube: Cube3x3, mask: Cube3x3Mask): boolean {
   return true;
 }
 
-/** State-based progress (0..1) toward a mask: solved-facelets matching + edges oriented. */
-export function maskProgressState(cube: Cube3x3, mask: Cube3x3Mask): number {
-  const f = cube.stateData;
-  let total = 0;
-  let ok = 0;
-  for (const i of mask.solvedFaceletIndices) {
-    total++;
-    if (f[i] === SOLVED_FACELET_CUBE[i]) ok++;
-  }
-  if (mask.eoFaceletIndices) {
-    cube.EO.forEach((good) => {
-      total++;
-      if (good) ok++;
-    });
-  }
-  return total === 0 ? 1 : ok / total;
-}
-
 export function parseMoves(s: string): Move3x3[] {
   return Cube3x3.parseNotation(s) ?? [];
 }
@@ -106,51 +102,12 @@ export function applyMoves(state: Cube3x3, moves: Move3x3[]): Cube3x3 {
   return state.clone().applyMoves(moves);
 }
 
-export function statesEqual(a: Cube3x3, b: Cube3x3): boolean {
-  return a.encode() === b.encode();
-}
-
 /** Facelet string (U R F D L B + masked markers) for rendering. */
 export function faceletString(state: Cube3x3): string {
   return state.stateData.join('');
 }
 
 // --- detection + progress ---
-
-function maskSolved(state: Cube3x3, mask: Cube3x3Mask): boolean {
-  return state.clone().applyMask(mask).isSolved();
-}
-
-/** Index of the first candidate mask that is solved in `state`, or -1. */
-export function detectIndex(state: Cube3x3, masks: Cube3x3Mask[]): number {
-  for (let i = 0; i < masks.length; i++) if (maskSolved(state, masks[i])) return i;
-  return -1;
-}
-
-export function anySolved(state: Cube3x3, masks: Cube3x3Mask[]): boolean {
-  return detectIndex(state, masks) >= 0;
-}
-
-/**
- * History-based detection. EO (and other orientation) masks must be applied to a
- * SOLVED cube and then the move history replayed, so the orientation markers get
- * permuted — applying the mask to an already-scrambled state would read EO as
- * trivially solved. Correct for blocks too.
- */
-export function isMaskSolvedFromHistory(history: Move3x3[], mask: Cube3x3Mask): boolean {
-  return new Cube3x3().applyMask(mask).applyMoves([...history]).isSolved();
-}
-
-/** History-based progress (0..1) over a mask's solved + EO facelets. */
-export function maskProgressFromHistory(history: Move3x3[], mask: Cube3x3Mask): number {
-  const cur = new Cube3x3().applyMask(mask).applyMoves([...history]).stateData;
-  const solved = new Cube3x3().applyMask(mask).stateData;
-  const idxs = [...mask.solvedFaceletIndices, ...(mask.eoFaceletIndices ?? [])];
-  if (idxs.length === 0) return 1;
-  let ok = 0;
-  for (const i of idxs) if (cur[i] === solved[i]) ok++;
-  return ok / idxs.length;
-}
 
 /** Fraction (0..1) of a mask's solved-facelets currently matching the solved cube. */
 export function maskProgress(state: Cube3x3, mask: Cube3x3Mask): number {
@@ -160,20 +117,6 @@ export function maskProgress(state: Cube3x3, mask: Cube3x3Mask): number {
   let ok = 0;
   for (const i of idxs) if (facelets[i] === SOLVED_FACELET_CUBE[i]) ok++;
   return ok / idxs.length;
-}
-
-/** The candidate mask the state is closest to completing. */
-export function nearestMask(state: Cube3x3, masks: Cube3x3Mask[]): { mask: Cube3x3Mask; index: number } {
-  let best = 0;
-  let bestP = -1;
-  masks.forEach((m, i) => {
-    const p = maskProgress(state, m);
-    if (p > bestP) {
-      bestP = p;
-      best = i;
-    }
-  });
-  return { mask: masks[best], index: best };
 }
 
 // --- solving ---
@@ -296,10 +239,10 @@ export function solveFromStateMulti(
   maxSolutionCount = 3,
 ): Move3x3[][] {
   const ms = maskedSolvedFacelets(mask);
-  const home = homePermutation(cube.stateData as unknown as string[]);
+  const home = homePermutation(cube.stateData);
   if (home.length === 0) return [];
   const masked = [...Array(54).keys()].map((j) => ms[home[j]]);
-  const puzzle = new Cube3x3([...cfg.moveSet], masked as never, ms as never);
+  const puzzle = cubeFromFaceletArray([...cfg.moveSet], masked, ms);
   const table = getTable(mask, cfg);
   try {
     return solve(puzzle, table, {
@@ -322,7 +265,7 @@ export function solveFromStateMulti(
  */
 export function isEoSolvedFromState(cube: Cube3x3, mask: Cube3x3Mask): boolean {
   const ms = maskedSolvedFacelets(mask);
-  const home = homePermutation(cube.stateData as unknown as string[]);
+  const home = homePermutation(cube.stateData);
   if (home.length === 0) return false;
   for (let j = 0; j < 54; j++) if (ms[home[j]] !== ms[j]) return false;
   return true;

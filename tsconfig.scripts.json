@@ -1,0 +1,7 @@
+// Type-checks the validation harnesses too. The base tsconfig only includes
+// `src`, so scripts/ (which imports from ../src and is the oracle suite) was
+// never type-checked and could silently rot. `npm run check` uses this.
+{
+  "extends": "./tsconfig.json",
+  "include": ["src", "scripts"]
+}

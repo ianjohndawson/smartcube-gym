@@ -8,6 +8,8 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
+    "typecheck:scripts": "tsc -p tsconfig.scripts.json",
+    "check": "tsc -p tsconfig.scripts.json && tsx scripts/storage-check.ts && tsx scripts/detect-parity.ts && tsx scripts/parity-blocks.ts && tsx scripts/resync-check.ts && tsx scripts/resync-bridge-check.ts",
     "preview": "vite preview",
     "deploy": "gh-pages -d dist"
   },

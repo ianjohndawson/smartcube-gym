@@ -15,3 +15,4 @@ for(let t=0;t<3000;t++){
 }
 console.log(`resync conversion: pass ${pass}, fail ${fail}`);
 console.log(kociembaToNet.length !== undefined ? 'fn ok' : '');
+if (fail !== 0) process.exitCode = 1;

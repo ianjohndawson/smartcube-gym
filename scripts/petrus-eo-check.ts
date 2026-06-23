@@ -36,14 +36,14 @@ for (let i = 0; i < N; i++) {
   // Solve incrementally, exactly as the app's chained journey does.
   let hist = genScramble(16) as Move3x3[];
   const s222 = optimalToMask(hist, MASK_222, S222);
-  if (!s222.length) { skip++; continue; }
+  if (!s222 || !s222.length) { skip++; continue; }
   hist = [...hist, ...s222];
   const s223 = optimalToMask(hist, MASK_223, S223);
-  if (!s223.length || !isMaskSolvedState(applyMoves(newSolved(), hist.concat(s223)), MASK_223)) { skip++; continue; }
+  if (!s223 || !s223.length || !isMaskSolvedState(applyMoves(newSolved(), hist.concat(s223)), MASK_223)) { skip++; continue; }
   hist = [...hist, ...s223];
 
   const solEO = optimalToMask(hist, MASK_223_EO, SEO);
-  if (!solEO.length) { eoFail++; continue; }
+  if (!solEO || !solEO.length) { eoFail++; continue; }
   lens.push(solEO.length);
   const cubeEO = applyMoves(newSolved(), hist.concat(solEO));
   const eoGood = isMaskSolvedState(cubeEO, MASK_223_EO);
