@@ -15,7 +15,6 @@ import {
   findBridge,
   type Move3x3,
   type RotationMove,
-  type Cube3x3Mask,
 } from './engine-api.ts';
 import { kociembaToNet } from './resync.ts';
 import {
