@@ -14,9 +14,9 @@
     "deploy": "gh-pages -d dist"
   },
   "dependencies": {
-    "gan-web-bluetooth": "^3.0.2",
     "lodash": "^4.17.21",
-    "rxjs": "^7.8.1"
+    "rxjs": "^7.8.1",
+    "smartcube-web-bluetooth": "github:poliva/smartcube-web-bluetooth"
   },
   "devDependencies": {
     "@types/lodash": "^4.17.0",
