@@ -541,6 +541,7 @@ function handleMove(move: string) {
   // #4: neutral "advance" gesture (see maybeAdvanceGesture). Runs on the live move
   // stream only — seed-queue replays call step() directly and bypass this.
   if (maybeAdvanceGesture(move as Move3x3)) return; // nextScramble() already rendered
+  if (maybeRetryGesture(move as Move3x3)) return; // tryAgain() already rendered
   render();
 }
 
@@ -565,6 +566,32 @@ function maybeAdvanceGesture(move: Move3x3): boolean {
     advanceRunMove = '';
     advanceRunCount = 0;
     nextScramble();
+    return true;
+  }
+  return false;
+}
+
+// Companion to the advance gesture: four identical quarter-turns of ANY ONE side
+// face (F/B/R/L) — also identity on the cube — retries the same case (same as the
+// "Try again" button). Same review-only arming and per-move reset, so it can't fire
+// mid-solve. With this plus the U/D advance gesture, the EO review loop is hands-off
+// bar Discard. The four gesture turns cancel in simplifyMoves, so tryAgain's
+// "return to the scramble" sequence stays clean.
+let retryRunMove = '';
+let retryRunCount = 0;
+function maybeRetryGesture(move: Move3x3): boolean {
+  const inReview = state.mode === 'solve' && !state.learn && state.stepDone.every(Boolean);
+  if (!inReview) { retryRunMove = ''; retryRunCount = 0; return false; }
+  const isRetryTurn =
+    move === 'F' || move === "F'" || move === 'B' || move === "B'" ||
+    move === 'R' || move === "R'" || move === 'L' || move === "L'";
+  if (isRetryTurn && move === retryRunMove) retryRunCount++;
+  else if (isRetryTurn) { retryRunMove = move; retryRunCount = 1; }
+  else { retryRunMove = ''; retryRunCount = 0; }
+  if (retryRunCount >= 4) {
+    retryRunMove = '';
+    retryRunCount = 0;
+    tryAgain();
     return true;
   }
   return false;
