@@ -8,6 +8,11 @@ all validation harnesses executed. Findings are prioritised below. Each carries 
 Two legacy files surfaced from a completed engine migration: `solver.ts` (dead)
 and `cube.ts` (looks dead, but is a harness oracle — preserved).
 
+> **Resolution (2026-06): all findings below are implemented** — see `HANDOFF.md`
+> "Done". The only carry-over is H2's final sub-step (the `view/` builder split),
+> deferred because it isn't a pure move. The per-finding **Status** lines below are
+> the original audit's; treat them as historical.
+
 ---
 
 ## High

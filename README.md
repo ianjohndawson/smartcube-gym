@@ -44,7 +44,7 @@ The goal is deliberate practice of the core skills used by intuitive solving met
 ### Smart Cube Support
 
 - Browser-based Bluetooth connectivity
-- GAN smart cube support
+- Multi-brand smart cube support: GAN, MoYu, QiYi, Giiker/Mi, GoCube
 - No installation required
 - Runs entirely in your browser
 

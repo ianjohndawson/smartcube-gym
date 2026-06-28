@@ -1,87 +1,64 @@
-# HANDOFF.md — for the Claude Code session
+# HANDOFF.md — status + remaining work
 
-This repo was audited in a chat session (working from an iPad, so changes were
-verified in a sandbox rather than committed). This file is the plan to finish on
-a real machine. **Read `CLAUDE.md` first** for durable architecture, build/verify
-commands, and guardrails.
-
-Run `npm run build` + the relevant harness(es) after **each** item below.
+The repository audit (`AUDIT.md`) has been worked through on a real machine.
+**Read `CLAUDE.md` first** for durable architecture, build/verify commands, and
+guardrails. Run `npm run build` + `npm run check` (expect 0 mismatches) after each
+change.
 
 ---
 
-## Step 1 — implement the already-verified work directly
+## Done (2026-06)
 
-These were verified in the audit (build green, all harnesses 0 mismatches) but
-never reached the repo. There is no patch to apply — just do them directly.
-
-**Batch 1 (audit H1 + M1):**
-- Delete `src/solver.ts` — 100% dead, no importer anywhere in `src/` or `scripts/`
-  (grep first to confirm, per the guardrail).
-- Remove the 6 `(e as any)` casts in `bluetooth.ts`. The `gan-web-bluetooth`
-  library exports `GanCubeEvent` as a proper discriminated union, so inside
-  `case 'MOVE':` etc. TypeScript narrows `e` and exposes `.move` / `.serial` /
-  `.facelets` without the cast. Removing them restores type-safety and catches
-  field typos the `any` currently hides.
-
-**M3 — centralise localStorage:**
-- Create `src/storage.ts`: one namespace under the `cube-trainer.` prefix, typed
-  get/set primitives, validated enum reads (fall back to default on unknown
-  values), and a **non-destructive, one-time** migration that seeds the cube MAC
-  from the old `block-trainer.cube-mac` key into `cube-trainer.cube-mac` without
-  deleting the old key.
-- Route all ~15 `localStorage` call-sites in `main.ts` and `bluetooth.ts` through it.
-- Add `scripts/storage-check.ts` (≈13 behavioural assertions, including the
-  migration). Expect 13/13.
-
-Verify: `npm run build`; `npx tsx scripts/storage-check.ts`;
-`npx tsx scripts/detect-parity.ts` (expect 0 mismatches).
+- **Step 1** — deleted dead `src/solver.ts`; removed the `(e as any)` casts in
+  `bluetooth.ts`; added `src/storage.ts` (centralised, validated, prefixed,
+  per-device MAC) + `scripts/storage-check.ts` (13/13).
+- **M2** — test oracles moved to `scripts/oracles.ts`; dead facade exports removed
+  (`maskProgressState`, `statesEqual`, `maskProgressFromHistory`, `nearestMask`);
+  `cube.ts` annotated (it's both an app dep via `KOCIEMBA_FACELET_COORDS` and a
+  harness oracle — not dead).
+- **M4** — `tsconfig.scripts.json` + `npm run check`; the validation harnesses
+  carry CI exit codes and run in `.github/workflows/deploy.yml` before build/deploy.
+- **M5** — the engine-boundary casts collapsed into one `cubeFromFaceletArray`
+  helper (and the spurious `homePermutation` casts removed).
+- **H2 (steps 1–4)** — `main.ts` carved into `theme.ts`, `dom.ts`, `stats.ts`,
+  `eo-axis.ts` (~2,110 → ~1,720 lines). Pure moves, build-verified after each.
+- **Multi-cube Bluetooth** — swapped `gan-web-bluetooth` for
+  `smartcube-web-bluetooth` (GAN/MoYu/QiYi/Giiker/GoCube); per-device MAC cache +
+  MoYu32 address search. MoYu Super Weilong v2 (`WCU_MY32`) verified on hardware.
+- **EO axis modes** simplified to `detect`/`gb`/`ro` (dropped `ask` + `auto` and
+  their gesture/prompt machinery; fixed a stray prompt that showed in detect mode).
 
 ---
 
-## Step 2 — remaining work, in priority order
+## Remaining — TODO
 
-### M2 — separate test oracles from app code  *(do this BEFORE any further deletion)*
-**Why:** `cube.ts` and several `engine-api.ts` exports are unused by the app but
-are oracles for `scripts/`. That's invisible, so a future cleanup deletes them by
-accident (nearly happened in the audit).
-**How:**
-- Move `src/cube.ts` → `scripts/oracle-cube.ts` (only `parity-blocks.ts`,
-  `resync-check.ts`, `resync-bridge-check.ts` import it); repoint those imports.
-- Relocate the oracle-only `engine-api.ts` exports (`isMaskSolvedFromHistory`,
-  `anySolved`, and any others the harnesses use) into a `scripts/oracles.ts`,
-  marked oracle-only, so they don't ship in the bundle.
-- Genuinely dead in both app *and* harnesses — safe to remove: `maskProgressState`,
-  `statesEqual`, `maskProgressFromHistory`, `nearestMask`.
-**Done when:** app and harnesses both build/pass; nothing oracle-only ships in `dist`.
+### H2 step 5 — `view/` extraction (deferred; NOT a pure move)
+The ~18 `buildXxx()` panel builders in `main.ts` are bound to module-scope
+`state`, `render()`, `cube` and dozens of handlers. Extracting them needs a
+**state-context refactor first** — lift `state`/`render`/`cube`/the handler set
+into a shared module that both `main` and `view/` import. Behaviour-risky (not a
+pure move), so left as a deliberate follow-up.
 
-### M4 — type-check `scripts/` and run harnesses in CI
-**Why:** `tsconfig.json` includes only `src`, so `scripts/` is never type-checked,
-and CI runs only `tsc` + `vite build` — the harnesses can silently rot.
-**How:** add a typecheck pass that covers `scripts/` (a second tsconfig or an
-explicit include), and wire `npm run check` into the CI workflow.
-**Done when:** CI fails if a harness reports a mismatch or `scripts/` mistypes.
+### Build / CI hygiene
+- **CI Node 20 → 22** in `deploy.yml` (GitHub is deprecating Node-20 runners; the
+  deploy currently logs a deprecation warning).
+- **Pin `smartcube-web-bluetooth`** to a commit/tag — it's a GitHub dependency
+  (`github:poliva/smartcube-web-bluetooth`) currently tracking the default-branch
+  HEAD, so builds aren't reproducible.
 
-### M5 — collapse the engine-boundary casts
-The 5 `as unknown as string[]` / `as never` casts at the engine boundary →
-one typed helper. Small and self-contained.
-
-### H2 — carve up `main.ts` (~2,027 lines)
-**How:** extract in this order — **pure moves, no behaviour change**, build after each:
-1. `theme.ts` — theming + the matrix-rain canvas (self-contained).
-2. `dom.ts` — `el` / `btn` / `renderCubeNet`.
-3. `stats.ts` — history / course load/save/compute (clean once `storage.ts` exists).
-4. `eo-axis.ts` — axis-agnostic EO mode/gesture/commit + its EO index tables.
-5. `view/` — split the ~30 `buildXxx()` DOM builders by panel.
-Keep the core state machine in `main.ts`.
-**Done when:** `main.ts` is materially smaller; build + all harnesses pass.
-
-### Low priority
+### Low priority (from the audit)
 - Match build targets: vite `es2020` vs tsconfig `ES2022` (`vite.config.ts`).
-- Enable `noUnusedLocals` / `noUnusedParameters` (≈5 fixes; or exclude `src/engine/`).
+- Enable `noUnusedLocals` / `noUnusedParameters` (auto-catches orphaned imports;
+  exclude `src/engine/`).
 - Gate the `window.gym` debug hook behind `import.meta.env.DEV`.
-- Schedule a `noUncheckedIndexedAccess` pass (~84 fixes; worthwhile for an
-  index-heavy cube engine).
+- A `noUncheckedIndexedAccess` pass (~84 fixes; worthwhile for index-heavy code).
 - `npm audit`: esbuild/vite **dev-server-only** advisory; fix is a Vite major — defer.
+
+### Method / feature roadmap (Ian's, longer-term)
+- Roux LSE-EO needs a separate **M/U engine EO axis** (engine EO is F/B only) — the
+  main blocker for a real Roux path.
+- EOLine / EOCross have separate pre-existing known issues.
+- Curated worked-example cases (Petrus PDF); colour-neutral tier; ZZ/LEOR/APB journeys.
 
 ---
 
@@ -90,4 +67,6 @@ Keep the core state machine in `main.ts`.
 - **Grep `scripts/` before deleting any "unused" symbol** — it may be an oracle.
 - **Keep every harness at 0 mismatches**; add one when adding a non-trivial algorithm.
 - **Don't pipe `tsc` through `head`** (SIGPIPE undercounts errors) — redirect to a file.
+- **BLE can't be tested without hardware** — verify cube changes live with the
+  in-app event log; don't ship blind BLE changes.
 - All `localStorage` access goes through `src/storage.ts`.
