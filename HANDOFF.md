@@ -27,6 +27,11 @@ change.
   MoYu32 address search. MoYu Super Weilong v2 (`WCU_MY32`) verified on hardware.
 - **EO axis modes** simplified to `detect`/`gb`/`ro` (dropped `ask` + `auto` and
   their gesture/prompt machinery; fixed a stray prompt that showed in detect mode).
+- **CI / deps hygiene** — runner bumped to Node 22 with current action versions
+  (the Node-20 deprecation warning is cleared); `smartcube-web-bluetooth` pinned to
+  a commit (`44f1f09`) for reproducible builds.
+- **EO review hands-free retry** — a 4× side-face spin (F/B/R/L) retries the case,
+  mirroring the U/D advance gesture; the review loop is now hands-off bar Discard.
 
 ---
 
@@ -38,13 +43,6 @@ The ~18 `buildXxx()` panel builders in `main.ts` are bound to module-scope
 **state-context refactor first** — lift `state`/`render`/`cube`/the handler set
 into a shared module that both `main` and `view/` import. Behaviour-risky (not a
 pure move), so left as a deliberate follow-up.
-
-### Build / CI hygiene
-- **CI Node 20 → 22** in `deploy.yml` (GitHub is deprecating Node-20 runners; the
-  deploy currently logs a deprecation warning).
-- **Pin `smartcube-web-bluetooth`** to a commit/tag — it's a GitHub dependency
-  (`github:poliva/smartcube-web-bluetooth`) currently tracking the default-branch
-  HEAD, so builds aren't reproducible.
 
 ### Low priority (from the audit)
 - Match build targets: vite `es2020` vs tsconfig `ES2022` (`vite.config.ts`).
