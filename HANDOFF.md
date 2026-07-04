@@ -55,7 +55,28 @@ pure move), so left as a deliberate follow-up.
 ### Method / feature roadmap (Ian's, longer-term)
 - Roux LSE-EO needs a separate **M/U engine EO axis** (engine EO is F/B only) — the
   main blocker for a real Roux path.
-- EOLine / EOCross have separate pre-existing known issues.
+- EOLine / EOCross: the cross/line completion targets the WHITE (model-U) face —
+  built on the bottom of the yellow-top solve view (a standard white cross, yellow on
+  top). Previously it required the cross on the yellow (D) face, so a white cross with
+  EO done was never recognised. Detection (eo-axis.ts), optimal, ideal-target highlight
+  (steps.ts canonical masks) and the hold text were all moved to the white face. The
+  side AXIS is free: solve R/O or G/B, whichever is easier, and the program reads which
+  off the finished cube (detectSolvedEoAxis) — but the cross/line pole is fixed to white
+  (Ian's confirmed convention; we do NOT also accept a yellow cross). Guarded by
+  `scripts/eo-cross-axis-check.ts` in `npm run check`.
+- 2×2×3 + EO (unified APB/Petrus): one EO trainer (`eo223`) replaces the old
+  `eo223L`/`eo223B`. Geometry in `src/block-eo.ts`: ONE canonical model target — a
+  2×2×3 on WHITE (yellow-top / white-bottom) + the F/B orbit — and a **Method** setting
+  (Settings › "2×2×3 + EO · method", default Petrus) that only picks the DISPLAY: APB
+  (`x2` view) shows the block bottom-left / F-B moves; Petrus (`x2 y`) shows it
+  bottom-back / R-L moves — same solve, notation transposed through the existing
+  `disp()`/`toDisplayMoves` path. Each scramble rolls one of 4 whole-cube-`y`
+  orientations (a random long-side colour); the app KNOWS the roll, so detection is one
+  determined mask (`isBlockEoSolved`, colour-identified) — not "accept any". State:
+  `state.blockEoOrient`; module `block-eo.ts` (`blockEoTarget`/`blockEoDisplayRots`/
+  `blockEoAxis`); main.ts branches gated by `isBlockEo`. The Petrus **journey** EO step
+  (`petrus-eo`) is deliberately left as-is (block-building + journeys are a separate
+  deep-dive). Guarded by `scripts/block-eo-check.ts` in `npm run check`.
 - Curated worked-example cases (Petrus PDF); colour-neutral tier; ZZ/LEOR/APB journeys.
 
 ---
