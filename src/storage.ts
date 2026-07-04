@@ -22,6 +22,7 @@ export type Key =
   | 'orient'
   | 'eo-axis-mode'
   | 'eo-last-axis'
+  | 'block-eo-method'
   | 'history'
   | 'course'
   | 'last-trainer'

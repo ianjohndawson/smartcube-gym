@@ -5,12 +5,12 @@ import {
   all123Masks,
   all222Masks,
   all223Masks,
-  blockMaskFromRanges,
   MASK_123_LEFT,
   MASK_123_RIGHT,
   MASK_222_DLF,
   MASK_223_BOTTOM_LEFT,
 } from './blocks.ts';
+import { blockEoPrereq, blockEoTarget } from './block-eo.ts';
 import { MOVESETS, type Cube3x3Mask, type Move3x3, type StepSolverConfig } from './engine-api.ts';
 import { MASKS } from './engine/puzzles/cube3x3/index.ts';
 
@@ -78,10 +78,19 @@ const STEP_123_LEFT: StepDef = {
 
 // --- EO steps ---
 const EO_MASK = MASKS.EO as Cube3x3Mask;
-const EOLINE_MASK = MASKS.EOLine as Cube3x3Mask;
-const EOCROSS_MASK = MASKS.EOCross as Cube3x3Mask;
 // EO orbit facelets (F/B axis) reused to compose block-preserving EO targets.
 const EO_FACELETS = MASKS.EO.eoFaceletIndices!;
+// EOLine/EOCross convention: the free-EO solve view is rendered yellow-top, so the
+// line/cross is built on the *bottom* of what you see — the WHITE (model-U) face (a
+// standard white cross). These canonical masks (centres + the white line/cross) drive
+// the ideal-target highlight and the default (gb) display; the live per-axis detection
+// and optimal solve go through eo-axis.ts (eoMaskForStep), which carries the same
+// white-face targets per axis. Engine masks.ts is left as-is (third-party structure).
+const EO_CENTERS = [4, 22, 25, 28, 31, 49];
+const U_CROSS = [1, 3, 5, 7, 10, 13, 16, 19]; // white cross (U face), y-symmetric → serves both axes
+const U_LINE_GB = [1, 7, 13, 19]; // UF + UB — the blue (gb) bottom line on the white face
+const EOLINE_MASK: Cube3x3Mask = { solvedFaceletIndices: [...EO_CENTERS, ...U_LINE_GB], eoFaceletIndices: EO_FACELETS };
+const EOCROSS_MASK: Cube3x3Mask = { solvedFaceletIndices: [...EO_CENTERS, ...U_CROSS], eoFaceletIndices: EO_FACELETS };
 
 // Petrus EO: orient all edges while keeping the 2×2×3. Target = the 2×2×3 block
 // AND every edge oriented; the optimal solver may break the block mid-solution
@@ -95,13 +104,6 @@ const MASK_123_EO: Cube3x3Mask = {
   eoFaceletIndices: EO_FACELETS,
 };
 
-// 2×2×3 built at the BACK-bottom (full width, bottom two, back two) — the Petrus
-// position so the block is in front after a y, for the held-back EO.
-const MASK_223_BACK = blockMaskFromRanges([0, 1, 2], [0, 1], [0, 1]);
-const MASK_223B_EO: Cube3x3Mask = {
-  solvedFaceletIndices: MASK_223_BACK.solvedFaceletIndices,
-  eoFaceletIndices: EO_FACELETS,
-};
 // Both side 1×2×3 blocks (left already built, right being built) — Roux F2B sides.
 const MASK_123_LR: Cube3x3Mask = {
   solvedFaceletIndices: [...MASK_123_LEFT.solvedFaceletIndices, ...MASK_123_RIGHT.solvedFaceletIndices],
@@ -118,7 +120,7 @@ const STEP_EOLINE: StepDef = {
   id: 'eoline', label: 'EOLine', kind: 'eo',
   blurb: 'Orient all edges and place the DF and DB edges — the ZZ first step.',
   candidateMasks: [EOLINE_MASK], canonicalMask: EOLINE_MASK,
-  hold: 'White on top; orient on the F/B axis and place the DF/DB line (ZZ).',
+  hold: 'Yellow on top; orient on the F/B axis and place the bottom (white) line (ZZ).',
   // Optimal EOLine from a real scramble tops out ~7 HTM; 11 is a safe ceiling (IDA*
   // stops at the optimal, so the headroom is free). pruningDepth 5 keeps search fast.
   solver: { moveSet: BLOCK_MOVES, pruningDepth: 5, depthLimit: 11 },
@@ -127,7 +129,7 @@ const STEP_EOCROSS: StepDef = {
   id: 'eocross', label: 'EOCross', kind: 'eo',
   blurb: 'Orient all edges and solve the bottom cross in one — an advanced ZZ start.',
   candidateMasks: [EOCROSS_MASK], canonicalMask: EOCROSS_MASK,
-  hold: 'White on top; orient on the F/B axis while building the D-cross (ZZ).',
+  hold: 'Yellow on top; orient on the F/B axis while building the bottom (white) cross (ZZ).',
   // Optimal EOCross from a real scramble tops out ~9 HTM; 12 is a safe ceiling.
   solver: { moveSet: BLOCK_MOVES, pruningDepth: 5, depthLimit: 12 },
 };
@@ -139,11 +141,17 @@ const STEP_PETRUS_EO: StepDef = {
   solver: { moveSet: BLOCK_MOVES, pruningDepth: 5, depthLimit: 14 },
 };
 // Standalone drills: the scramble pre-builds the block (prereqMask), leaving only EO to do.
+// Unified 2×2×3 + EO (APB + Petrus). The oriented target is ONE canonical state — a
+// 2×2×3 on WHITE (yellow-top / white-bottom) plus every edge oriented; the Method
+// setting (Petrus = block turned to the bottom-back, fixed with R/L; APB = block on
+// the left, fixed with F/B) only picks the DISPLAY viewpoint. Detection/scoring go
+// against the per-scramble rolled orientation (a random long-side colour), resolved
+// live in main.ts via block-eo.ts — these static masks are just the orient-0 default.
 const STEP_EO_223: StepDef = {
-  id: 'eo223', label: '2×2×3 L', kind: 'eo',
-  blurb: 'Starting from a finished 2×2×3, orient all 12 edges without breaking it (the Petrus EO skill, drilled on its own).',
-  candidateMasks: [MASK_223_EO], canonicalMask: MASK_223_EO, prereqMask: MASK_223_BOTTOM_LEFT,
-  hold: 'Keep the 2×2×3 intact; orient edges on the F/B axis (block held at the back).',
+  id: 'eo223', label: '2×2×3', kind: 'eo',
+  blurb: 'Keep a finished 2×2×3 and orient all 12 edges — the Petrus / APB EO step. Choose your hold (block at the back or on the left) in Settings › Method.',
+  candidateMasks: [blockEoTarget(0)], canonicalMask: blockEoTarget(0), prereqMask: blockEoPrereq(0),
+  hold: 'Yellow on top, white on the bottom; keep the 2×2×3 and orient every edge — hold set by Method.',
   solver: { moveSet: BLOCK_MOVES, pruningDepth: 5, depthLimit: 14 },
 };
 const STEP_EO_123: StepDef = {
@@ -151,13 +159,6 @@ const STEP_EO_123: StepDef = {
   blurb: 'Starting from a finished 1×2×3 first block (Roux first block / LEOR start), orient all 12 edges without breaking it.',
   candidateMasks: [MASK_123_EO], canonicalMask: MASK_123_EO, prereqMask: MASK_123_LEFT,
   hold: 'Keep the 1×2×3 intact; orient edges on the F/B axis.',
-  solver: { moveSet: BLOCK_MOVES, pruningDepth: 5, depthLimit: 14 },
-};
-const STEP_EO_223B: StepDef = {
-  id: 'eo223B', label: '2×2×3 B', kind: 'eo',
-  blurb: 'Starting from a 2×2×3 built at the back, orient all 12 edges keeping it — the Petrus EO hold after a y.',
-  candidateMasks: [MASK_223B_EO], canonicalMask: MASK_223B_EO, prereqMask: MASK_223_BACK,
-  hold: '2×2×3 built at the back (so it sits in front after a y); orient on the F/B axis.',
   solver: { moveSet: BLOCK_MOVES, pruningDepth: 5, depthLimit: 14 },
 };
 
@@ -209,8 +210,7 @@ export const TRAINERS: TrainerDef[] = [
   { id: 'eoline', label: 'EOLine', category: 'EO', description: 'Orient all edges and place the DF + DB edges together — the ZZ first step (EOLine).', steps: [STEP_EOLINE] },
   { id: 'eocross', label: 'EOCross', category: 'EO', description: 'Orient all edges and solve the bottom cross in one — an advanced ZZ opening (EOCross).', steps: [STEP_EOCROSS] },
   { id: 'eo123', label: '1×2×3', category: 'EO', description: 'Orient all edges while preserving a 1×2×3 first block (Roux first block / LEOR start).', steps: [STEP_EO_123] },
-  { id: 'eo223L', label: '2×2×3 L', category: 'EO', description: 'Orient all edges while preserving a 2×2×3 on the left (Petrus, block on the side).', steps: [STEP_EO_223] },
-  { id: 'eo223B', label: '2×2×3 B', category: 'EO', description: 'Orient all edges while preserving a 2×2×3 at the back (Petrus EO after a y).', steps: [STEP_EO_223B] },
+  { id: 'eo223', label: '2×2×3', category: 'EO', description: 'Orient all edges while keeping a finished 2×2×3 — Petrus / APB EO. One target; pick the hold (block at the back or on the left) in Settings › Method.', steps: [STEP_EO_223] },
 
   // Block building — individual block skills.
   { id: 'b123L', label: '1×2×3 L', category: 'Blocks', description: 'Build a 1×2×3 first block against a centre.', steps: [STEP_123_LEFT] },

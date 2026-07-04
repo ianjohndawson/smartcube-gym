@@ -52,8 +52,15 @@ const SLACK = 2;
 // The 1×2×2 left square — the milestone built before a 1×2×3 first block.
 const SQUARE_1x2x2 = blockMaskFromRanges([0], [0, 1], [1, 2]);
 
+// Signature of a mask for the pedagogy tables below. MUST include the EO orbit:
+// the block-preserving EO masks (MASK_223_EO etc.) reuse a block's exact
+// solvedFaceletIndices array, so keying on placement alone collides them with the
+// pure block mask — routing an EO step through block build-then-extend pedagogy.
+// EO edges make the key distinct, so EO steps fall through to plain optimal (which
+// is what this module intends for EO — see the header).
 function sig(m: Cube3x3Mask): string {
-  return [...m.solvedFaceletIndices].sort((a, b) => a - b).join(',');
+  return [...m.solvedFaceletIndices].sort((a, b) => a - b).join(',') +
+    '|' + [...(m.eoFaceletIndices ?? [])].sort((a, b) => a - b).join(',');
 }
 
 // Optional milestone to build first (build-then-extend). Keyed by canonical mask.

@@ -45,14 +45,17 @@ function axisEoMask(axis: SolveAxis): Cube3x3Mask {
   return { solvedFaceletIndices: [], eoFaceletIndices: AXIS_EO_ORBIT[axis] };
 }
 // Per-axis bottom line / cross placement targets (centres-free, model frame).
-// The blue (gb) line is DF+DB; the red (ro) line is its y-image DL+DR. The
-// D-cross is the same set on both axes (y permutes the four D-edges among
-// themselves), so a single centres-free cross target serves both.
+// CONVENTION: the free-EO solve view is rendered yellow-top (AXIS_ROTATION starts
+// with x2), so the cross/line is built on the *bottom* of what you see — the WHITE
+// (model-U) face — a standard white cross. The targets are therefore on the U face
+// (the x2-image of the D-face sets): the blue (gb) line is UF+UB; the red (ro) line
+// is its y-image UL+UR. The U-cross is the same set on both axes (y permutes the
+// four U-edges among themselves), so a single centres-free cross target serves both.
 const AXIS_LINE: Record<SolveAxis, number[]> = {
-  gb: [37, 43, 46, 52],
-  ro: [34, 40, 48, 50],
+  gb: [1, 7, 13, 19],
+  ro: [3, 5, 10, 16],
 };
-const CROSS_NC = [34, 37, 40, 43, 46, 48, 50, 52];
+const CROSS_NC = [1, 3, 5, 7, 10, 13, 16, 19];
 // EO target mask for a step on a chosen side axis. Full EO ('eo') keeps no
 // pieces; EOLine/EOCross add the line/cross placement to the same axis's EO
 // orbit so completion requires every edge oriented AND the line/cross placed

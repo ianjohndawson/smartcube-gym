@@ -40,6 +40,7 @@ import {
   COURSE_WINDOW, COURSE_TOLERANCE, COURSE_STAR_RATES,
 } from './stats.ts';
 import { axisBad, badEdgeStickers, eoAxisOptimalLen, eoMaskForStep, freeEoHint, isFreeEo } from './eo-axis.ts';
+import { blockEoAxis, blockEoDisplayRots, blockEoPrereq, blockEoTarget, isBlockEoSolved, randomBlockEoOrient, type BlockEoMethod } from './block-eo.ts';
 
 const SOLVED_STR = faceletString(newSolved());
 
@@ -66,9 +67,9 @@ function progressInfo(cube: Cube3x3, s: StepDef): { frac: number; pct: number; c
   // orientation is already axis-aware (orientedEdges); the line/cross pieces are
   // counted colour-identified (home[i]===i) so a red-axis line — which sits at a
   // y-image of the model-frame DF/DB line — is recognised as placed.
-  if (isFreeEo(s)) {
+  if (isFreeEo(s) || isBlockEo(s)) {
     const oriented = orientedEdges(cube, s);
-    const pieces = blockPiecesFor(eoMaskForStep(s, state.eoAxis));
+    const pieces = blockPiecesFor(isBlockEo(s) ? blockEoTarget(state.blockEoOrient) : eoMaskForStep(s, state.eoAxis));
     if (pieces.length) {
       const home = homePermutation(cube.stateData);
       const placed = home.length ? pieces.filter((g) => g.every((i) => home[i] === i)).length : 0;
@@ -100,7 +101,8 @@ function progressInfo(cube: Cube3x3, s: StepDef): { frac: number; pct: number; c
 // nearly there. EO: by bad-edge count.
 function classifyCase(start: Cube3x3, s: StepDef, optimal: Move3x3[]): string {
   if (s.kind === 'eo') {
-    const bad = isFreeEo(s) ? axisBad(start, state.eoAxis).count : start.EO.filter((g) => !g).length;
+    const ax = eoStepAxis(s);
+    const bad = ax ? axisBad(start, ax).count : start.EO.filter((g) => !g).length;
     return bad === 0 ? 'already oriented' : `${bad} bad edges`;
   }
   const homes = blockPiecesFor(s.canonicalMask);
@@ -167,6 +169,7 @@ interface State {
   stepDone: boolean[];
   eoAxis: SolveAxis; // free-EO: which side axis EO is solved against this scramble
   eoCommitted: boolean; // free-EO: axis decided for this scramble (vs awaiting an ask-prompt)
+  blockEoOrient: number; // 2×2×3+EO: rolled orientation (0..3) — the random long-side colour
   assist: { kind: 'nudge' | 'move' | 'ideal'; moves: Move3x3[]; focus: FocusPiece | null } | null;
   learn: { moves: Move3x3[]; baseLen: number } | null; // guided ideal replay
   lastResult: { step: string; used: number; optimal: number | null; yourMoves: Move3x3[]; idealMoves: Move3x3[]; case?: string; eo?: { gb: { len: number; bad: number }; ro: { len: number; bad: number } } } | null;
@@ -201,7 +204,7 @@ function currentStep(): StepDef | null {
 const SCRAMBLE_LEN = 16;
 const EO_SCRAMBLE_LEN = SCRAMBLE_LEN;
 
-function makeScramble(base: Cube3x3, baseHistory: Move3x3[], stepsList: StepDef[]): Move3x3[] {
+function makeScramble(base: Cube3x3, baseHistory: Move3x3[], stepsList: StepDef[], blockEoOrient = 0): Move3x3[] {
   const first = stepsList[0];
   // Course: generate a scramble whose optimal solution to the block lands in the
   // current level's difficulty band. Shorter random scrambles for easier bands.
@@ -231,14 +234,18 @@ function makeScramble(base: Cube3x3, baseHistory: Move3x3[], stepsList: StepDef[
   // rest scrambled. Random-scramble, then solve to the prereq only; reject cases
   // where this step's target is already complete (nothing to practise).
   if (first.prereqMask) {
-    const prereq = first.prereqMask;
+    // 2×2×3+EO pre-builds the rolled orientation's block; its target is colour-identified
+    // (isBlockEoSolved), not the static canonical mask.
+    const beo = isBlockEo(first);
+    const prereq = beo ? blockEoPrereq(blockEoOrient) : first.prereqMask;
+    const targetDone = (c: Cube3x3) => beo ? isBlockEoSolved(c, blockEoOrient) : isMaskSolvedState(c, first.canonicalMask);
     const buildCfg = { ...first.solver, depthLimit: 16 };
     for (let attempt = 0; attempt < 20; attempt++) {
       const scr = genScramble(SCRAMBLE_LEN);
       const build = optimalToMask([...baseHistory, ...scr], prereq, buildCfg) ?? [];
       const full = [...scr, ...build];
       const cube = applyMoves(base, full);
-      if (isMaskSolvedState(cube, prereq) && !isMaskSolvedState(cube, first.canonicalMask)) return full;
+      if (isMaskSolvedState(cube, prereq) && !targetDone(cube)) return full;
     }
     const scr = genScramble(SCRAMBLE_LEN);
     return [...scr, ...(optimalToMask([...baseHistory, ...scr], prereq, buildCfg) ?? [])];
@@ -291,7 +298,10 @@ function computePrefixEncodes(base: Cube3x3, moves: Move3x3[]): string[] {
  *  the same case) instead of a fresh random scramble. */
 function startScramble(base: Cube3x3, baseHistory: Move3x3[], explicit?: Move3x3[]): State {
   const t = trainerById(state?.trainerId ?? 'petrus');
-  const moves = explicit ?? makeScramble(base, baseHistory, t.steps);
+  // Roll the 2×2×3+EO orientation (random long-side colour) for this scramble; reuse
+  // the current one when reproducing an explicit setup (retry/undo keeps the case).
+  const blockEoOrient = explicit ? (state?.blockEoOrient ?? 0) : isBlockEo(t.steps[0]) ? randomBlockEoOrient() : 0;
+  const moves = explicit ?? makeScramble(base, baseHistory, t.steps, blockEoOrient);
   return {
     category: t.category,
     trainerId: t.id,
@@ -319,6 +329,7 @@ function startScramble(base: Cube3x3, baseHistory: Move3x3[], explicit?: Move3x3
     stepDone: t.steps.map(() => false),
     eoAxis: lastEoAxis(),
     eoCommitted: false,
+    blockEoOrient,
     assist: null,
     learn: null,
     lastResult: state?.lastResult ?? null,
@@ -449,6 +460,8 @@ function detectSolvedEoAxis(s: StepDef): SolveAxis | null {
 }
 
 function stepSolved(s: StepDef): boolean {
+  // 2×2×3+EO: colour-identified against the rolled orientation's known target.
+  if (isBlockEo(s)) return isBlockEoSolved(state.cube, state.blockEoOrient);
   if (isFreeEo(s)) {
     // Uncommitted (detect mode): solved iff EITHER side axis is complete.
     if (!state.eoCommitted) return detectSolvedEoAxis(s) != null;
@@ -478,7 +491,9 @@ function checkStepCompletion() {
     // (any valid 2×2×2 etc.), so a non-canonical block is judged against its own
     // optimal rather than the canonical one.
     const solvedMask = solvedStepMask(s) ?? s.canonicalMask;
-    const optimal = isFreeEo(s)
+    const optimal = isBlockEo(s)
+      ? solveFromState(state.stepStartCube, blockEoTarget(state.blockEoOrient), s.solver) ?? []
+      : isFreeEo(s)
       ? solveFromState(state.stepStartCube, eoMaskForStep(s, state.eoAxis), s.solver) ?? []
       : solveFromState(state.stepStartCube, solvedMask, s.solver) ?? [];
     const used = htmCount(state.movesThisStep);
@@ -929,6 +944,20 @@ function setEoAxisMode(m: EoAxisMode) {
   store.setEnum('eo-axis-mode', m);
   render();
 }
+
+// Unified 2×2×3 + EO drill: keep a finished 2×2×3 while orienting all edges. Detection
+// is against a per-scramble rolled orientation (a random long-side colour); the Method
+// setting only picks the display viewpoint (Petrus block-back / APB block-left).
+function isBlockEo(s: StepDef | null): boolean {
+  return s?.id === 'eo223';
+}
+const BLOCK_EO_METHODS: readonly BlockEoMethod[] = ['petrus', 'apb'];
+let blockEoMethod: BlockEoMethod = store.getEnum<BlockEoMethod>('block-eo-method', BLOCK_EO_METHODS, 'petrus');
+function setBlockEoMethod(m: BlockEoMethod) {
+  blockEoMethod = m;
+  store.setEnum('block-eo-method', m);
+  render();
+}
 function lastEoAxis(): SolveAxis {
   return store.getEnum<SolveAxis>('eo-last-axis', EO_AXES, 'gb');
 }
@@ -939,17 +968,28 @@ function saveLastEoAxis(a: SolveAxis) {
 function eoRot(): RotationMove[] {
   return AXIS_ROTATION[state.eoAxis];
 }
+/** The side axis an axis-aware EO step is measured against — the chosen axis for
+ * free-EO, the rolled orientation's axis for the 2×2×3+EO drill — or null for the
+ * fixed F/B-axis steps (which read cube.EO / eoHint directly). */
+function eoStepAxis(s: StepDef | null): SolveAxis | null {
+  if (isBlockEo(s)) return blockEoAxis(state.blockEoOrient);
+  if (isFreeEo(s)) return state.eoAxis;
+  return null;
+}
 function orientedEdges(cube: Cube3x3, s: StepDef): number {
-  return isFreeEo(s) ? 12 - axisBad(cube, state.eoAxis).count : cube.EO.filter(Boolean).length;
+  const ax = eoStepAxis(s);
+  return ax ? 12 - axisBad(cube, ax).count : cube.EO.filter(Boolean).length;
 }
 /** Teaching route for the current step, in MODEL frame so the shared disp()/
  * walkthrough pipeline can render it in the held frame. Free-EO solves the chosen
  * axis's orbit directly in the model frame (no state rotation, no translation). */
 function idealRoute(start: Cube3x3, s: StepDef): Move3x3[] {
+  if (isBlockEo(s)) return humanSolveFromState(start, blockEoTarget(state.blockEoOrient), s.solver) ?? [];
   if (isFreeEo(s)) return humanSolveFromState(start, eoMaskForStep(s, state.eoAxis), s.solver) ?? [];
   return humanSolveFromState(start, s.canonicalMask, s.solver) ?? [];
 }
 function idealLen(start: Cube3x3, s: StepDef): number {
+  if (isBlockEo(s)) return solveFromState(start, blockEoTarget(state.blockEoOrient), s.solver)?.length ?? 0;
   if (isFreeEo(s)) return eoAxisOptimalLen(start, s, state.eoAxis);
   return solveFromState(start, s.canonicalMask, s.solver)?.length ?? 0;
 }
@@ -977,7 +1017,11 @@ function commitEoAxisOnScramble() {
 /** The rotation list (model -> held frame) for the current solve display. Free-EO
  * always uses its chosen side axis (yellow-top); otherwise the legacy phase-flip. */
 function solveRotation(): RotationMove[] {
-  if (state.mode === 'solve' && isFreeEo(currentStep())) return eoRot();
+  const s = currentStep();
+  if (state.mode === 'solve') {
+    if (isBlockEo(s)) return blockEoDisplayRots(blockEoMethod, state.blockEoOrient);
+    if (isFreeEo(s)) return eoRot();
+  }
   return orientEnabled ? (['x2'] as RotationMove[]) : [];
 }
 /** True when a solve-phase held frame is active (rotate view + translate notation). */
@@ -1006,7 +1050,8 @@ function assist(kind: 'nudge' | 'move' | 'ideal') {
   if (!s) return;
   // EO nudge: point at the misoriented edges (no move revealed).
   if (kind === 'nudge' && s.kind === 'eo') {
-    const bad = isFreeEo(s) ? axisBad(state.cube, state.eoAxis).count : state.cube.EO.filter((g) => !g).length;
+    const ax = eoStepAxis(s);
+    const bad = ax ? axisBad(state.cube, ax).count : state.cube.EO.filter((g) => !g).length;
     state.assist = { kind: 'nudge', moves: [], focus: null };
     state.status = `${bad} bad edges highlighted — work out how to orient them.`;
     render();
@@ -1189,7 +1234,8 @@ function buildCubePanel(s: StepDef | null): HTMLElement {
     else if (state.assist.kind === 'nudge' && s?.kind === 'eo') {
       // Bad-edge stickers are model-frame (computed without rotating the state),
       // so they go through the same rotateHighlight as every other highlight.
-      highlight = new Set(isFreeEo(s) ? axisBad(state.cube, state.eoAxis).stickers : badEdgeStickers(state.cube));
+      const ax = eoStepAxis(s);
+      highlight = new Set(ax ? axisBad(state.cube, ax).stickers : badEdgeStickers(state.cube));
       note = 'highlighted: the misoriented edges';
     }
     else if (state.assist.focus) { highlight = new Set(state.assist.focus.current); note = `highlighted: the ${state.assist.focus.description}`; }
@@ -1347,7 +1393,8 @@ function buildCoachBody(s: StepDef | null): HTMLElement {
   if (!a) { coachLine(c, '', 'c-muted', 'Press Hint, Next move or Show ideal when you want help.'); return c; }
   if (a.kind === 'nudge') {
     // Rule-based recognition + technique (no exact moves — that's Next move / Show ideal).
-    const h = s.kind === 'eo' ? (isFreeEo(s) ? freeEoHint(axisBad(state.cube, state.eoAxis).count) : eoHint(state.cube)) : blockHint(a.focus, true);
+    const ax = eoStepAxis(s);
+    const h = s.kind === 'eo' ? (ax ? freeEoHint(axisBad(state.cube, ax).count) : eoHint(state.cube)) : blockHint(a.focus, true);
     if (h.name) coachLine(c, 'pattern', 'c-good', h.name);
     for (const ln of h.lines) coachLine(c, '', 'c-coach', ln);
   } else if (a.kind === 'move') {
@@ -1685,6 +1732,18 @@ function renderSettings() {
   eoGroup.appendChild(eoSeg);
   eoGroup.appendChild(el('div', 'hint', 'Full EO trainer only: practise EO against either side axis. Detect commits no axis — solve whichever side you like and it reads which off your finished cube. Ask prompts each scramble; Auto picks the shorter solution; Blue/Red pin an axis. Both are solved yellow-top.'));
   modal.appendChild(eoGroup);
+
+  modal.appendChild(el('hr'));
+
+  // 2×2×3 + EO trainer — hold/method (display-only; same solve, transposed notation)
+  const beoGroup = el('div', 'group');
+  beoGroup.appendChild(el('div', 'glabel', '2×2×3 + EO · method'));
+  const beoSeg = el('div', 'seg');
+  const beoModes: [BlockEoMethod, string][] = [['petrus', 'Petrus (back)'], ['apb', 'APB (left)']];
+  for (const [m, label] of beoModes) beoSeg.appendChild(segBtn(label, () => setBlockEoMethod(m), blockEoMethod === m));
+  beoGroup.appendChild(beoSeg);
+  beoGroup.appendChild(el('div', 'hint', '2×2×3 + EO drill only: same solve, your hold. Petrus turns the block to the bottom-back (fix with R/L); APB keeps it on the left (fix with F/B). Always yellow-top / white-bottom; the long-side colour is random each scramble.'));
+  modal.appendChild(beoGroup);
 
   modal.appendChild(el('hr'));
 
