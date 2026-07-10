@@ -67,7 +67,10 @@ export function all223Masks(): Cube3x3Mask[] {
   return out;
 }
 
-/** All distinct 1x2x3 sub-blocks, as masks. */
+/** All distinct 1x2x3 sub-blocks, as masks. Includes the 12 MIDDLE slabs
+ *  (single axis = 1) — geometrically 1×2×3 but only two movable pieces (two
+ *  edges, no corners). Kept complete for the geometry-sweep harnesses; steps
+ *  must use side123Masks below. */
 export function all123Masks(): Cube3x3Mask[] {
   const out: Cube3x3Mask[] = [];
   for (const ys of PAIRS) for (const zs of SINGLES) out.push(blockMaskFromRanges(FULL, ys, zs));
@@ -76,6 +79,22 @@ export function all123Masks(): Cube3x3Mask[] {
   for (const xs of SINGLES) for (const zs of PAIRS) out.push(blockMaskFromRanges(xs, FULL, zs));
   for (const xs of PAIRS) for (const ys of SINGLES) out.push(blockMaskFromRanges(xs, ys, FULL));
   for (const xs of SINGLES) for (const ys of PAIRS) out.push(blockMaskFromRanges(xs, ys, FULL));
+  return out;
+}
+
+/** The 24 side-anchored 1x2x3 blocks — the valid TRAINING placements (Roux
+ *  FB/SB, LEOR first block are all built against a face). Accepting the middle
+ *  slabs would let a first-block step "complete" the moment two matching edges
+ *  happen to land (e.g. DF+DB mid-solve), which is why steps use this list. */
+export function side123Masks(): Cube3x3Mask[] {
+  const SIDES = [[0], [2]];
+  const out: Cube3x3Mask[] = [];
+  for (const ys of PAIRS) for (const zs of SIDES) out.push(blockMaskFromRanges(FULL, ys, zs));
+  for (const ys of SIDES) for (const zs of PAIRS) out.push(blockMaskFromRanges(FULL, ys, zs));
+  for (const xs of PAIRS) for (const zs of SIDES) out.push(blockMaskFromRanges(xs, FULL, zs));
+  for (const xs of SIDES) for (const zs of PAIRS) out.push(blockMaskFromRanges(xs, FULL, zs));
+  for (const xs of PAIRS) for (const ys of SIDES) out.push(blockMaskFromRanges(xs, ys, FULL));
+  for (const xs of SIDES) for (const ys of PAIRS) out.push(blockMaskFromRanges(xs, ys, FULL));
   return out;
 }
 

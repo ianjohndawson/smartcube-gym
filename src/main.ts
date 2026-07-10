@@ -33,7 +33,7 @@ import { genEoSafeScramble } from './steps.ts';
 import { CORNER_FACELETS, NET_COORDS } from './blocks.ts';
 import * as store from './storage.ts';
 import { applyTheme, getTheme, resolveTheme, setTheme } from './theme.ts';
-import { el, btn, renderCubeNet } from './dom.ts';
+import { el, btn, renderCubeNet, renderCube3D } from './dom.ts';
 import {
   loadHistory, recordSolve, computeStats,
   loadCourse, saveCourse, courseTrack, courseCurrent, setCourseCurrent, recordCourse,
@@ -166,6 +166,7 @@ interface State {
   stepStartHistory: Move3x3[];
   stepStartCube: Cube3x3; // live cube state at the start of the current step (for state-based ideal/scoring)
   movesThisStep: Move3x3[];
+  movesThisStepTs: number[]; // Date.now() per movesThisStep move (raw stream — pause/lookahead analysis)
   stepDone: boolean[];
   eoAxis: SolveAxis; // free-EO: which side axis EO is solved against this scramble
   eoCommitted: boolean; // free-EO: axis decided for this scramble (vs awaiting an ask-prompt)
@@ -218,8 +219,9 @@ function makeScramble(base: Cube3x3, baseHistory: Move3x3[], stepsList: StepDef[
       const scr = genScramble(len);
       last = scr;
       const cube = applyMoves(base, scr);
-      if (isMaskSolvedState(cube, first.canonicalMask)) continue; // pre-solved
-      const opt = (optimalToMask([...baseHistory, ...scr], first.canonicalMask, cfg) ?? []).length;
+      // Pre-solved in ANY accepted placement (completion accepts every candidate).
+      if (first.candidateMasks.some((m) => isMaskSolvedState(cube, m))) continue;
+      const opt = (solveFromState(cube, first.canonicalMask, cfg) ?? []).length;
       const eff = opt === 0 ? 99 : opt; // 0 = deeper than the measure limit
       if (eff >= band.min && eff <= band.max) return scr;
     }
@@ -274,11 +276,14 @@ function makeScramble(base: Cube3x3, baseHistory: Move3x3[], stepsList: StepDef[
     // the exact target state, so the bad-edge case and solved-ness are unchanged.
     return simplifyMoves([...genEoSafeScramble(need), ...eoSeq]);
   }
-  // Blocks: a normal-length random scramble, rejecting any that pre-solve the step.
+  // Blocks: a normal-length random scramble, rejecting any that pre-solve the
+  // step in ANY accepted placement — completion accepts every candidate, so a
+  // scramble that leaves some other 2×2×2 built would be a degenerate solve.
+  // Checked state-based from the actual base, so it's right after a resync too.
   for (let attempt = 0; attempt < 25; attempt++) {
     const moves = genScramble(SCRAMBLE_LEN);
-    const targetHistory = [...baseHistory, ...moves];
-    if (!isMaskSolvedState(applyMoves(newSolved(), targetHistory), first.canonicalMask)) return moves;
+    const cube = applyMoves(base, moves);
+    if (!first.candidateMasks.some((m) => isMaskSolvedState(cube, m))) return moves;
   }
   return genScramble(SCRAMBLE_LEN);
 }
@@ -326,6 +331,7 @@ function startScramble(base: Cube3x3, baseHistory: Move3x3[], explicit?: Move3x3
     stepStartHistory: [...baseHistory],
     stepStartCube: base,
     movesThisStep: [],
+    movesThisStepTs: [],
     stepDone: t.steps.map(() => false),
     eoAxis: lastEoAxis(),
     eoCommitted: false,
@@ -366,6 +372,7 @@ function step(move: Move3x3) {
     // Free-EO stays axis-agnostic through the solve: detect reads the axis off the
     // finished state; gb/ro already pinned it at scramble time. No per-move axis work.
     state.movesThisStep.push(move);
+    state.movesThisStepTs.push(Date.now());
     if (state.solveStartMs == null) state.solveStartMs = Date.now(); // start timer on first move
   }
   afterChange();
@@ -384,6 +391,7 @@ function afterLearnMove() {
       state.stepStartHistory = [...state.history];
       state.stepStartCube = state.cube;
       state.movesThisStep = [];
+      state.movesThisStepTs = [];
     }
   }
 }
@@ -399,6 +407,7 @@ function afterChange() {
       state.stepStartHistory = [...state.history];
       state.stepStartCube = state.cube;
       state.movesThisStep = [];
+      state.movesThisStepTs = [];
       state.assist = null;
       state.solveStartMs = null; // timer starts on the first solve move
       state.solveStartLen = state.history.length;
@@ -520,7 +529,11 @@ function checkStepCompletion() {
     lastRecord = { history: false };
     const single = steps().length === 1;
     const ms = single && state.solveStartMs != null ? Date.now() - state.solveStartMs : undefined;
-    recordSolve({ step: stepShort(s), used, optimal: optimal.length, ts: Date.now(), ms });
+    // Inter-move pauses (raw stream, 10ms grain) — the raw material for the
+    // hesitation / lookahead analysis; recorded from day one so history accrues.
+    const mts = state.movesThisStepTs;
+    const gaps = mts.length > 1 ? mts.slice(1).map((t, i) => Math.round((t - mts[i]) / 10) * 10) : undefined;
+    recordSolve({ step: stepShort(s), used, optimal: optimal.length, ts: Date.now(), ms, gaps });
     lastRecord.history = true;
     state.stepDone[state.stepIndex] = true;
     state.assist = null;
@@ -538,6 +551,7 @@ function checkStepCompletion() {
       state.stepStartHistory = [...state.history];
       state.stepStartCube = state.cube;
       state.movesThisStep = [];
+      state.movesThisStepTs = [];
     }
   }
 }
@@ -685,7 +699,11 @@ function handleFacelets(kociemba: string) {
   if (bridge) {
     state.cube = trueCube;
     state.history.push(...bridge);
-    if (state.mode === 'solve') state.movesThisStep.push(...bridge);
+    if (state.mode === 'solve') {
+      state.movesThisStep.push(...bridge);
+      const now = Date.now();
+      state.movesThisStepTs.push(...bridge.map(() => now));
+    }
     afterChange();
     render();
     return;
@@ -838,6 +856,7 @@ function beginLearnWalkthrough() {
   const ideal = idealRoute(state.stepStartCube, s);
   if (ideal.length === 0) { state.status = 'Nothing to learn from here.'; render(); return; }
   state.movesThisStep = [];
+  state.movesThisStepTs = [];
   state.stepDone[state.stepIndex] = false;
   state.assist = null;
   state.learn = { moves: ideal, baseLen: state.history.length };
@@ -928,6 +947,17 @@ let orientEnabled = store.getBool('orient', false);
 function setOrient(b: boolean) {
   orientEnabled = b;
   store.setBool('orient', b);
+  render();
+}
+
+// Cube view: the spinnable 3D orbit cube (default) vs the flat 54-sticker net.
+// Applies to every trainer category. Persisted like the other display prefs.
+type CubeView = '3d' | 'net';
+const CUBE_VIEWS: readonly CubeView[] = ['3d', 'net'];
+let cubeView: CubeView = store.getEnum<CubeView>('cube-view', CUBE_VIEWS, '3d');
+function setCubeView(v: CubeView) {
+  cubeView = v;
+  store.setEnum('cube-view', v);
   render();
 }
 
@@ -1248,7 +1278,8 @@ function buildCubePanel(s: StepDef | null): HTMLElement {
   const pureEo = s?.kind === 'eo' && !s.canonicalMask.solvedFaceletIndices.some((i) => CORNER_SET.has(i));
   const blank = pureEo ? new Set(CORNER_FACELETS) : null;
   const facelets = solveFrame() ? rotatedFacelets(state.cube, solveRotation()) : faceletString(state.cube);
-  wrap.appendChild(renderCubeNet(facelets, highlight, blank));
+  // Same facelets/highlight/blank feed either view; the toggle only picks the shape.
+  wrap.appendChild(cubeView === '3d' ? renderCube3D(facelets, highlight, blank) : renderCubeNet(facelets, highlight, blank));
   // Transient status toast over the cube (fades via CSS; see STATUS_FLASH_MS).
   if (state.status && Date.now() - statusShownAt < STATUS_FLASH_MS) {
     wrap.appendChild(el('div', 'cube-toast', state.status));
@@ -1711,6 +1742,18 @@ function renderSettings() {
 
   modal.appendChild(el('hr'));
 
+  // Cube view — 3D orbit cube vs flat net (applies to every trainer, EO included)
+  const viewGroup = el('div', 'group');
+  viewGroup.appendChild(el('div', 'glabel', 'Cube view'));
+  const viewSeg = el('div', 'seg');
+  viewSeg.appendChild(segBtn('3D cube', () => setCubeView('3d'), cubeView === '3d'));
+  viewSeg.appendChild(segBtn('Flat net', () => setCubeView('net'), cubeView === 'net'));
+  viewGroup.appendChild(viewSeg);
+  viewGroup.appendChild(el('div', 'hint', 'Drag or use the arrow keys to spin the 3D cube; the floating panels are back-views of the hidden faces. Flat net shows all six faces unfolded.'));
+  modal.appendChild(viewGroup);
+
+  modal.appendChild(el('hr'));
+
   // Solve orientation
   const orientGroup = el('div', 'group');
   orientGroup.appendChild(el('div', 'glabel', 'Solve orientation'));
@@ -1730,7 +1773,7 @@ function renderSettings() {
   const eoModes: [EoAxisMode, string][] = [['detect', 'Detect'], ['gb', 'Blue front'], ['ro', 'Red front']];
   for (const [m, label] of eoModes) eoSeg.appendChild(segBtn(label, () => setEoAxisMode(m), eoAxisMode === m));
   eoGroup.appendChild(eoSeg);
-  eoGroup.appendChild(el('div', 'hint', 'Full EO trainer only: practise EO against either side axis. Detect commits no axis — solve whichever side you like and it reads which off your finished cube. Ask prompts each scramble; Auto picks the shorter solution; Blue/Red pin an axis. Both are solved yellow-top.'));
+  eoGroup.appendChild(el('div', 'hint', 'Full EO trainer only: practise EO against either side axis. Detect commits no axis — solve whichever side you like and it reads which off your finished cube. Blue/Red pin an axis up front. All are solved yellow-top.'));
   modal.appendChild(eoGroup);
 
   modal.appendChild(el('hr'));

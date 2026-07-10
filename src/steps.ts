@@ -2,9 +2,9 @@
 // Each TrainerDef is a sequence of StepDefs sharing one shell.
 
 import {
-  all123Masks,
   all222Masks,
   all223Masks,
+  side123Masks,
   MASK_123_LEFT,
   MASK_123_RIGHT,
   MASK_222_DLF,
@@ -53,9 +53,16 @@ export interface TrainerDef {
 
 const BLOCK_MOVES = MOVESETS.RUFLDB;
 
+// The 2×2×3 solver runs pruningDepth 5: the vendored IDDFS caps the whole
+// search at 1e6 visited nodes, and a pd-4 table prunes too weakly for the
+// depth-9+ searches real 2×2×3 cases need — measured (2026-07-09) at 11% of
+// 16-move scrambles burning the whole budget and returning NO solution, plus
+// multi-second searches. At pd5 the same set solves with 0 nulls and ~130ms
+// average, for a ~1.6s one-off table build per mask. 222/123 measured clean
+// at pd4 (0 nulls, ms-scale searches, ~50-100ms tables).
 const SOLVER: Record<BlockFamily, StepSolverConfig> = {
   '222': { moveSet: BLOCK_MOVES, pruningDepth: 4, depthLimit: 11 },
-  '223': { moveSet: BLOCK_MOVES, pruningDepth: 4, depthLimit: 14 },
+  '223': { moveSet: BLOCK_MOVES, pruningDepth: 5, depthLimit: 14 },
   '123': { moveSet: BLOCK_MOVES, pruningDepth: 4, depthLimit: 12 },
 };
 
@@ -73,7 +80,7 @@ const STEP_223: StepDef = {
 const STEP_123_LEFT: StepDef = {
   id: '123L', label: '1×2×3 L', kind: 'block', family: '123',
   blurb: 'Build a 1×2×3 block against a centre — 2 corners and 3 edges.',
-  candidateMasks: all123Masks(), canonicalMask: MASK_123_LEFT, solver: SOLVER['123'],
+  candidateMasks: side123Masks(), canonicalMask: MASK_123_LEFT, solver: SOLVER['123'],
 };
 
 // --- EO steps ---
@@ -198,6 +205,16 @@ const COURSE_123: CourseBand[] = [
   { label: 'L4 · full', min: 11, max: 99 },
 ];
 
+// Journey steps are pinned to the canonical placement (the free-placement
+// candidates are stripped): each later step's target — and the EO step's F/B
+// axis — is built on the canonical bottom-left block, so accepting a free
+// placement mid-journey would make the next step unreachable (a right-side
+// 2×2×3 can never satisfy the bottom-left 2×2×3+EO mask). The placement-aware
+// pass will lift this restriction.
+function pinned(s: StepDef, hold: string): StepDef {
+  return { ...s, candidateMasks: [s.canonicalMask], hold };
+}
+
 export const TRAINERS: TrainerDef[] = [
   // Course — graded block-building ladders (the founding objective).
   { id: 'course222', label: '2×2×2', category: 'Course', description: 'Graded 2×2×2 course — levels by optimal move count; clear by efficiency to unlock the next.', steps: [STEP_222], course: COURSE_222 },
@@ -220,7 +237,11 @@ export const TRAINERS: TrainerDef[] = [
   { id: 'b223', label: '2×2×3', category: 'Blocks', description: 'Build a 2×2×3 from a scramble — any route.', steps: [STEP_223] },
 
   // Journeys — full method openings, chained onto one scramble.
-  { id: 'petrus', label: 'Petrus', category: 'Journey', description: 'Build a 2×2×2, expand to a 2×2×3, then orient all edges keeping the block.', steps: [STEP_222, STEP_223, STEP_PETRUS_EO] },
+  { id: 'petrus', label: 'Petrus', category: 'Journey', description: 'Build a 2×2×2, expand to a 2×2×3, then orient all edges keeping the block. The journey builds on the down-front-left spot.', steps: [
+    pinned(STEP_222, 'Journey: build the 2×2×2 at down-front-left (white up, green front) — the next steps grow from that spot.'),
+    pinned(STEP_223, 'Journey: extend your block along the back into the bottom-left 2×2×3.'),
+    STEP_PETRUS_EO,
+  ] },
 ];
 
 export const CATEGORIES: Category[] = ['Course', 'EO', 'Blocks', 'Journey'];

@@ -23,6 +23,7 @@ export type Key =
   | 'eo-axis-mode'
   | 'eo-last-axis'
   | 'block-eo-method'
+  | 'cube-view'
   | 'history'
   | 'course'
   | 'last-trainer'

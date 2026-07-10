@@ -674,6 +674,88 @@ html[data-theme='dark'] .tab.active { box-shadow: inset 0 -2px 0 var(--accent); 
 .sticker.R { background: #e23b3b; }
 .sticker.L { background: #ff8a1e; }
 
+/* ── Cube 3D (spinnable orbit view) ──────────────────────────────────────────
+   The alternative to the flat net. Geometry/transforms are ported from the
+   verified CSS-3D spike; the camera (yaw/pitch) is held in dom.ts module scope,
+   not here, because main.ts rebuilds this subtree on every move. Sticker colours
+   come from the .sticker.<colour> rules above (reused, one source), so all four
+   themes restyle both views together — only placement lives below. The cube-wrap
+   becomes a container so the unit `--u` can size off the panel width (cqi): 11u
+   ≈ 90% of it, so the floating hint panels never push the page into a scroll. */
+.cube-wrap { container-type: inline-size; }
+.cube-3d-stage {
+  --u: 34px;                          /* fallback where container queries are absent */
+  --u: clamp(20px, 8.2cqi, 46px);
+  --c3-plastic: var(--stage-bg);      /* the cubie body — the darkest theme token */
+  --c3-groove: rgba(0, 0, 0, 0.55);
+  position: relative;
+  width: 100%;
+  height: calc(var(--u) * 11);
+  touch-action: none;                 /* let a touch-drag orbit without scrolling */
+  user-select: none; -webkit-user-select: none;
+  cursor: grab;
+  /* Soft floor vignette to ground the cube — theme-neutral, sits behind the scene. */
+  background: radial-gradient(120% 85% at 50% 44%, transparent 56%, rgba(0, 0, 0, 0.16) 150%);
+}
+.cube-3d-stage:active { cursor: grabbing; }
+.cube-3d-stage:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: var(--radius); }
+.cube-3d-scene {
+  position: absolute; inset: 0;
+  /* Far, flat projection (≥ 34u). A stronger perspective (smaller value) lets the
+     cube's own occlusion shadow swallow the nearest sticker of the back panel. */
+  perspective: calc(var(--u) * 34);
+}
+.cube-3d {
+  position: absolute; left: 50%; top: 50%;
+  width: 0; height: 0;
+  transform-style: preserve-3d;
+  will-change: transform;
+}
+.c3-cubie { position: absolute; width: 0; height: 0; transform-style: preserve-3d; }
+.c3-face, .c3-hint { position: absolute; backface-visibility: hidden; -webkit-backface-visibility: hidden; }
+.c3-face {
+  width: var(--u); height: var(--u);
+  left: calc(var(--u) / -2); top: calc(var(--u) / -2);
+  background: var(--c3-plastic);
+  border-radius: 12%;
+  box-shadow: inset 0 0 0 1px var(--c3-groove);
+}
+/* The sticker reuses .sticker (colour + bevel + theme corner radius); we add only
+   its placement inside the plastic tile, and the hint panel's size/opacity. */
+.cube-3d .c3-sticker { position: absolute; inset: 7.5%; }
+.cube-3d .c3-hint {
+  width: calc(var(--u) * 0.85); height: calc(var(--u) * 0.85);
+  left: calc(var(--u) * -0.425); top: calc(var(--u) * -0.425);
+  opacity: 0.95; pointer-events: none;
+}
+html[data-theme='borland'] .c3-face { border-radius: 0; } /* square plastic to match square stickers */
+/* Face placement: F is the identity; the others are rotations of it, each pushed
+   out half a unit to the cubie surface. */
+.f-F { transform: translateZ(calc(var(--u) / 2)); }
+.f-B { transform: rotateY(180deg) translateZ(calc(var(--u) / 2)); }
+.f-R { transform: rotateY(90deg)  translateZ(calc(var(--u) / 2)); }
+.f-L { transform: rotateY(-90deg) translateZ(calc(var(--u) / 2)); }
+.f-U { transform: rotateX(90deg)  translateZ(calc(var(--u) / 2)); }
+.f-D { transform: rotateX(-90deg) translateZ(calc(var(--u) / 2)); }
+/* Hint panels: the same face rotation, pushed out EXACTLY 4u (CrystalCube's
+   distance) and flipped 180° to face the far side. */
+.h-F { transform: translateZ(calc(var(--u) * 4)) rotateY(180deg); }
+.h-B { transform: rotateY(180deg) translateZ(calc(var(--u) * 4)) rotateY(180deg); }
+.h-R { transform: rotateY(90deg)  translateZ(calc(var(--u) * 4)) rotateY(180deg); }
+.h-L { transform: rotateY(-90deg) translateZ(calc(var(--u) * 4)) rotateY(180deg); }
+.h-U { transform: rotateX(90deg)  translateZ(calc(var(--u) * 4)) rotateY(180deg); }
+.h-D { transform: rotateX(-90deg) translateZ(calc(var(--u) * 4)) rotateY(180deg); }
+/* Highlight: the ring outline comes from the shared .sticker.hl rule; here we add
+   the 3D glow (and a gentle pulse, motion permitting) on both sticker and twin. */
+.cube-3d .sticker.hl {
+  box-shadow: 0 0 10px var(--accent), inset 0 0 0 max(2px, calc(var(--u) * 0.05)) var(--accent);
+  z-index: 2;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .cube-3d .sticker.hl { animation: c3-pulse 1.7s ease-in-out infinite; }
+  @keyframes c3-pulse { 50% { filter: brightness(1.28); } }
+}
+
 /* ── Journey chips ───────────────────────────────────────────────────────── */
 .chips { display: flex; gap: 10px; }
 .chip { flex: 1 1 0; min-width: 0; border: var(--chip-border); border-radius: var(--ctl-r); padding: 8px 12px; background: var(--chip-bg); }
