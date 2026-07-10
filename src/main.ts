@@ -27,6 +27,7 @@ import {
 } from './steps.ts';
 import { nextFocusPiece, targetPieceStates, type FocusPiece } from './pieces.ts';
 import { humanSolveFromState } from './human-solve.ts';
+import { activePlacement, canonicalIndexIn } from './placement.ts';
 import { eoHint, blockHint } from './hints.ts';
 import { sampleEoScramble } from './eo-scramble.ts';
 import { genEoSafeScramble } from './steps.ts';
@@ -60,6 +61,27 @@ function blockPiecesFor(mask: StepDef['canonicalMask']): number[][] {
   return CUBIES.filter((g) => g.length > 1 && g.some((i) => set.has(i)));
 }
 
+// --- placement-aware coaching target ---
+// Which of a block step's accepted placements the coaching aims at: the one the
+// user is actually building (threaded per-move through state.placementIdx with
+// hysteresis — see placement.ts), else the canonical. Completion acceptance
+// (solvedStepMask) is unchanged; this only points progress/ideal/hints/Learn at
+// the user's block instead of insisting on bottom-left. EO-family steps never
+// come through here — their targets are axis-aware, handled by their own paths.
+const canonicalIdxCache = new WeakMap<StepDef, number>();
+function canonicalIdxFor(s: StepDef): number {
+  let i = canonicalIdxCache.get(s);
+  if (i === undefined) {
+    i = canonicalIndexIn(s.candidateMasks, s.canonicalMask);
+    canonicalIdxCache.set(s, i);
+  }
+  return i;
+}
+function activeMask(s: StepDef): StepDef['canonicalMask'] {
+  if (s.kind !== 'block' || s.candidateMasks.length <= 1) return s.canonicalMask;
+  return s.candidateMasks[state.placementIdx ?? canonicalIdxFor(s)];
+}
+
 // Step progress as WHOLE pieces placed (+ edges oriented for EO) — meaningful,
 // unlike a raw facelet-colour match. Returns fraction, percent, and a caption.
 function progressInfo(cube: Cube3x3, s: StepDef): { frac: number; pct: number; caption: string } {
@@ -80,9 +102,10 @@ function progressInfo(cube: Cube3x3, s: StepDef): { frac: number; pct: number; c
     return { frac, pct: Math.round(frac * 100), caption: `${oriented}/12 edges oriented` };
   }
   const f = faceletString(cube);
-  const pieces = blockPiecesFor(s.canonicalMask);
+  const mask = activeMask(s); // follow the placement the user is building
+  const pieces = blockPiecesFor(mask);
   const placed = pieces.filter((g) => g.every((i) => f[i] === SOLVED_STR[i])).length;
-  if (s.canonicalMask.eoFaceletIndices) {
+  if (mask.eoFaceletIndices) {
     const oriented = orientedEdges(cube, s);
     if (pieces.length) {
       const frac = (placed + oriented) / (pieces.length + 12);
@@ -99,13 +122,15 @@ function progressInfo(cube: Cube3x3, s: StepDef): { frac: number; pct: number; c
 // now while we verify the labels). Blocks: interference (a built piece gets
 // disturbed) → buried (a needed piece sits in the D layer) → pieces apart →
 // nearly there. EO: by bad-edge count.
-function classifyCase(start: Cube3x3, s: StepDef, optimal: Move3x3[]): string {
+function classifyCase(start: Cube3x3, s: StepDef, optimal: Move3x3[], mask: StepDef['canonicalMask']): string {
   if (s.kind === 'eo') {
     const ax = eoStepAxis(s);
     const bad = ax ? axisBad(start, ax).count : start.EO.filter((g) => !g).length;
     return bad === 0 ? 'already oriented' : `${bad} bad edges`;
   }
-  const homes = blockPiecesFor(s.canonicalMask);
+  // The label describes the solve that actually happened, so it reads the mask
+  // that was scored (the placement completed), not the canonical one.
+  const homes = blockPiecesFor(mask);
   if (!homes.length) return '';
   const f0 = faceletString(start);
   const wasSolved = homes.map((g) => g.every((i) => f0[i] === SOLVED_STR[i]));
@@ -117,7 +142,7 @@ function classifyCase(start: Cube3x3, s: StepDef, optimal: Move3x3[]): string {
     homes.forEach((g, i) => { if (wasSolved[i] && !g.every((j) => f[j] === SOLVED_STR[j])) interference = true; });
   }
   if (interference) return 'keep the block';
-  const unsolved = targetPieceStates(start, s.canonicalMask).filter((p) => !p.solved);
+  const unsolved = targetPieceStates(start, mask).filter((p) => !p.solved);
   if (!unsolved.length) return 'already built';
   if (unsolved.some((p) => p.coord[1] === 0)) return 'buried piece';
   if (unsolved.length >= 2) return 'pieces apart';
@@ -167,6 +192,7 @@ interface State {
   stepStartCube: Cube3x3; // live cube state at the start of the current step (for state-based ideal/scoring)
   movesThisStep: Move3x3[];
   movesThisStepTs: number[]; // Date.now() per movesThisStep move (raw stream — pause/lookahead analysis)
+  placementIdx: number | null; // block steps: the candidate placement coaching aims at (hysteresis pick)
   stepDone: boolean[];
   eoAxis: SolveAxis; // free-EO: which side axis EO is solved against this scramble
   eoCommitted: boolean; // free-EO: axis decided for this scramble (vs awaiting an ask-prompt)
@@ -332,6 +358,7 @@ function startScramble(base: Cube3x3, baseHistory: Move3x3[], explicit?: Move3x3
     stepStartCube: base,
     movesThisStep: [],
     movesThisStepTs: [],
+    placementIdx: null,
     stepDone: t.steps.map(() => false),
     eoAxis: lastEoAxis(),
     eoCommitted: false,
@@ -392,6 +419,7 @@ function afterLearnMove() {
       state.stepStartCube = state.cube;
       state.movesThisStep = [];
       state.movesThisStepTs = [];
+      state.placementIdx = null;
     }
   }
 }
@@ -408,6 +436,7 @@ function afterChange() {
       state.stepStartCube = state.cube;
       state.movesThisStep = [];
       state.movesThisStepTs = [];
+      state.placementIdx = null;
       state.assist = null;
       state.solveStartMs = null; // timer starts on the first solve move
       state.solveStartLen = state.history.length;
@@ -424,8 +453,14 @@ function afterChange() {
       if (!isFreeEo(cs0)) state.status = `Scrambled! ${currentStep()?.label ?? ''} — find your solution.`;
     }
   } else {
-    // Flash when a piece is placed / edge oriented (within the same step).
     const s = currentStep();
+    // Placement-aware coaching: re-pick which accepted placement the user is
+    // building (hysteresis keeps it stable) BEFORE progress/flash/completion
+    // read it — everything downstream this move sees one consistent target.
+    if (s && s.kind === 'block' && s.candidateMasks.length > 1) {
+      state.placementIdx = activePlacement(state.cube, s.candidateMasks, state.placementIdx, canonicalIdxFor(s));
+    }
+    // Flash when a piece is placed / edge oriented (within the same step).
     if (s) {
       const key = `${state.trainerId}:${state.stepIndex}:${state.scrambleBaseLen}`;
       const u = placedUnits(state.cube, s);
@@ -500,20 +535,22 @@ function checkStepCompletion() {
     // (any valid 2×2×2 etc.), so a non-canonical block is judged against its own
     // optimal rather than the canonical one.
     const solvedMask = solvedStepMask(s) ?? s.canonicalMask;
-    const optimal = isBlockEo(s)
-      ? solveFromState(state.stepStartCube, blockEoTarget(state.blockEoOrient), s.solver) ?? []
+    const optimalArr = isBlockEo(s)
+      ? solveFromState(state.stepStartCube, blockEoTarget(state.blockEoOrient), s.solver)
       : isFreeEo(s)
-      ? solveFromState(state.stepStartCube, eoMaskForStep(s, state.eoAxis), s.solver) ?? []
-      : solveFromState(state.stepStartCube, solvedMask, s.solver) ?? [];
+      ? solveFromState(state.stepStartCube, eoMaskForStep(s, state.eoAxis), s.solver)
+      : solveFromState(state.stepStartCube, solvedMask, s.solver);
+    const optimal = optimalArr ?? [];
     const used = htmCount(state.movesThisStep);
-    const caseLabel = classifyCase(state.stepStartCube, s, optimal);
+    const caseLabel = classifyCase(state.stepStartCube, s, optimal, solvedMask);
     state.lastResult = {
       step: s.label,
       used,
-      optimal: optimal.length,
+      // A (rare) solver failure has no trustworthy optimal — null renders '?'.
+      optimal: optimalArr ? optimalArr.length : null,
       yourMoves: [...state.movesThisStep],
       idealMoves: optimal,
-      case: caseLabel,
+      case: optimalArr ? caseLabel : undefined,
     };
     // Free-EO: record both axes' optimal length + bad-edge count so the review can
     // show the axis trade-off ("you solved Blue in 9; Red was 7").
@@ -525,26 +562,30 @@ function checkStepCompletion() {
       };
     }
     // Log to the Stats history. Record solve time only for single-step trainers
-    // (EO / course / drills) — the journey timer isn't per-step meaningful.
+    // (EO / course / drills) — the journey timer isn't per-step meaningful. On a
+    // (rare) solver failure there is no trustworthy optimal, so the solve stays
+    // out of Stats and the course window rather than logging a lie.
     lastRecord = { history: false };
-    const single = steps().length === 1;
-    const ms = single && state.solveStartMs != null ? Date.now() - state.solveStartMs : undefined;
-    // Inter-move pauses (raw stream, 10ms grain) — the raw material for the
-    // hesitation / lookahead analysis; recorded from day one so history accrues.
-    const mts = state.movesThisStepTs;
-    const gaps = mts.length > 1 ? mts.slice(1).map((t, i) => Math.round((t - mts[i]) / 10) * 10) : undefined;
-    recordSolve({ step: stepShort(s), used, optimal: optimal.length, ts: Date.now(), ms, gaps });
-    lastRecord.history = true;
     state.stepDone[state.stepIndex] = true;
     state.assist = null;
     state.status = `${s.label} done!`;
-    // Course: log this solve toward the current level's consistency target.
-    const tr = trainer();
-    if (tr.course) {
-      lastRecord.trainerId = tr.id;
-      lastRecord.level = courseCurrent(tr.id);
-      const note = recordCourse(tr.id, tr.course.length, used - optimal.length);
-      if (note) state.status = note;
+    if (optimalArr) {
+      const single = steps().length === 1;
+      const ms = single && state.solveStartMs != null ? Date.now() - state.solveStartMs : undefined;
+      // Inter-move pauses (raw stream, 10ms grain) — the raw material for the
+      // hesitation / lookahead analysis; recorded from day one so history accrues.
+      const mts = state.movesThisStepTs;
+      const gaps = mts.length > 1 ? mts.slice(1).map((t, i) => Math.round((t - mts[i]) / 10) * 10) : undefined;
+      recordSolve({ step: stepShort(s), used, optimal: optimalArr.length, ts: Date.now(), ms, gaps });
+      lastRecord.history = true;
+      // Course: log this solve toward the current level's consistency target.
+      const tr = trainer();
+      if (tr.course) {
+        lastRecord.trainerId = tr.id;
+        lastRecord.level = courseCurrent(tr.id);
+        const note = recordCourse(tr.id, tr.course.length, used - optimalArr.length);
+        if (note) state.status = note;
+      }
     }
     if (state.stepIndex < steps().length - 1) {
       state.stepIndex += 1;
@@ -552,6 +593,7 @@ function checkStepCompletion() {
       state.stepStartCube = state.cube;
       state.movesThisStep = [];
       state.movesThisStepTs = [];
+      state.placementIdx = null;
     }
   }
 }
@@ -863,7 +905,7 @@ function beginLearnWalkthrough() {
   // Show the method route alongside the theoretical optimal so the efficiency
   // gap is visible without teaching the awkward (back/bottom-heavy) optimal.
   const opt = idealLen(state.stepStartCube, s);
-  const gap = ideal.length > opt ? ` (method route; theoretical best ${opt})` : '';
+  const gap = opt != null && ideal.length > opt ? ` (method route; theoretical best ${opt})` : '';
   state.status = `Learn by example: follow the ${ideal.length} highlighted moves for ${s.label}${gap}.`;
   render();
 }
@@ -935,8 +977,9 @@ function flashPieces() {
 // Count of placed block pieces (+ oriented edges for EO) — drives the flash.
 function placedUnits(cube: Cube3x3, s: StepDef): number {
   const f = faceletString(cube);
-  const placed = blockPiecesFor(s.canonicalMask).filter((g) => g.every((i) => f[i] === SOLVED_STR[i])).length;
-  const oriented = s.canonicalMask.eoFaceletIndices ? orientedEdges(cube, s) : 0;
+  const mask = activeMask(s);
+  const placed = blockPiecesFor(mask).filter((g) => g.every((i) => f[i] === SOLVED_STR[i])).length;
+  const oriented = mask.eoFaceletIndices ? orientedEdges(cube, s) : 0;
   return placed + oriented;
 }
 let lastUnits = 0;
@@ -1016,12 +1059,22 @@ function orientedEdges(cube: Cube3x3, s: StepDef): number {
 function idealRoute(start: Cube3x3, s: StepDef): Move3x3[] {
   if (isBlockEo(s)) return humanSolveFromState(start, blockEoTarget(state.blockEoOrient), s.solver) ?? [];
   if (isFreeEo(s)) return humanSolveFromState(start, eoMaskForStep(s, state.eoAxis), s.solver) ?? [];
-  return humanSolveFromState(start, s.canonicalMask, s.solver) ?? [];
+  return humanSolveFromState(start, activeMask(s), s.solver) ?? [];
 }
-function idealLen(start: Cube3x3, s: StepDef): number {
+// idealFromStart runs on every render and a deep 2×2×3 search costs ~130ms even
+// at pd5, so the block-step result is memoized by (step, placement, start state)
+// — one slot suffices, the key only changes on a new step or a placement switch.
+// null = the solver found nothing (rare budget exhaustion); renders as '?'.
+let idealMemo: { key: string; len: number | null } | null = null;
+function idealLen(start: Cube3x3, s: StepDef): number | null {
   if (isBlockEo(s)) return solveFromState(start, blockEoTarget(state.blockEoOrient), s.solver)?.length ?? 0;
   if (isFreeEo(s)) return eoAxisOptimalLen(start, s, state.eoAxis);
-  return solveFromState(start, s.canonicalMask, s.solver)?.length ?? 0;
+  const mask = activeMask(s);
+  const key = `${s.id}:${state.placementIdx ?? -1}:${start.encode()}`;
+  if (idealMemo?.key !== key) {
+    idealMemo = { key, len: solveFromState(start, mask, s.solver)?.length ?? null };
+  }
+  return idealMemo.len;
 }
 
 /** Commit (or provisionally set) the EO axis when a free-EO scramble completes. */
@@ -1089,7 +1142,7 @@ function assist(kind: 'nudge' | 'move' | 'ideal') {
   }
   const moves = continuation();
   if (moves.length === 0) { state.assist = null; state.status = 'Nothing to suggest from here.'; render(); return; }
-  const focus = kind !== 'ideal' && s.kind === 'block' ? nextFocusPiece(state.cube, s.canonicalMask, moves) : null;
+  const focus = kind !== 'ideal' && s.kind === 'block' ? nextFocusPiece(state.cube, activeMask(s), moves) : null;
   const effective = kind === 'nudge' && !focus ? 'move' : kind;
   state.assist = { kind: effective, moves, focus };
   state.status =
@@ -1260,7 +1313,7 @@ function buildCubePanel(s: StepDef | null): HTMLElement {
   let highlight: Set<number> | null = null;
   let note = '';
   if (state.assist) {
-    if (state.assist.kind === 'ideal') { highlight = new Set(s!.canonicalMask.solvedFaceletIndices); note = 'highlighted: the target facelets'; }
+    if (state.assist.kind === 'ideal') { highlight = new Set(activeMask(s!).solvedFaceletIndices); note = 'highlighted: the target facelets'; }
     else if (state.assist.kind === 'nudge' && s?.kind === 'eo') {
       // Bad-edge stickers are model-frame (computed without rotating the state),
       // so they go through the same rotateHighlight as every other highlight.

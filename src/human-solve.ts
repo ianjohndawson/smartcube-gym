@@ -4,31 +4,39 @@
 // blocks: empirically it's regrip-maximal and leans on back/bottom (D/B) moves a
 // learner can't see or turn. This module produces the trail Learn actually walks:
 //
-//   • 2×2×2  — the human-RANKED optimal. There are ~150+ equally-short optimal
-//     solutions; we pick the one with the fewest D/B moves (and face switches).
-//     Free win: same length as optimal, ~0 awkward moves.
+//   • 2×2×2 (any placement) — the human-RANKED optimal. There are ~150+ equally-
+//     short optimal solutions; we pick the one with the fewest D/B moves (and
+//     face switches). Free win: same length as optimal, ~0 awkward moves.
 //
-//   • 2×2×3 / 1×2×3 — BUILD-THEN-EXTEND. The optimal here is nearly forced and
-//     stays awkward, so we instead build a clean (ranked) milestone first — the
-//     2×2×2 for a 2×2×3, the 1×2×2 square for a 1×2×3 — then rank a short
-//     extension. This costs a few moves over optimal but teaches the method's
-//     actual structure (exactly Lars Petrus's Step 1 → Step 2). Scoring still
-//     uses the true optimal (engine-api), so the efficiency gap stays visible.
+//   • 2×2×3 / side 1×2×3 (any placement) — BUILD-THEN-EXTEND. The optimal here
+//     is nearly forced and stays awkward, so we instead build a clean (ranked)
+//     milestone first — a contained 2×2×2 for a 2×2×3, a contained 1×2×2 square
+//     for a 1×2×3 — then rank a short extension. This costs a few moves over
+//     optimal but teaches the method's actual structure (exactly Lars Petrus's
+//     Step 1 → Step 2). Scoring still uses the true optimal (engine-api), so
+//     the efficiency gap stays visible. Of the two possible milestones we take
+//     the one the cube is already closer to (placement-aware coaching can enter
+//     mid-build); tie → the front/top one, the classic route.
 //
-//   • Everything else (EO, EOLine, EOCross, non-standard block orientations) —
-//     plain optimal, unchanged. The EO trainer is untouched.
+//   • Everything else — plain optimal, unchanged. Masks carrying
+//     eoFaceletIndices are NEVER specialised: the block-keeping EO steps reuse a
+//     block's exact solvedFaceletIndices, and routing them through block
+//     pedagogy was a real bug (see scripts/human-solve-eo-check.ts). Middle-slab
+//     1×2×3s (centre layer, no corner anchor) also fall through.
+//
+// The family and its milestones are derived from the mask's own box geometry,
+// so this works for ANY placement — not just the canonical bottom-left the old
+// hand-written table covered. Guarded by scripts/human-solve-blocks-check.ts
+// (reaches the target + actually passes through a milestone) and
+// scripts/human-solve-eo-check.ts (EO masks stay byte-identical to optimal).
 //
 // Drop-in for solveFromState: same (cube, mask, cfg) signature, returns the
-// pedagogical trail or null (caller can fall back). Hops whose milestone is
-// already built are skipped, so mid-solve and pre-built-prereq drills walk only
-// the remaining work.
+// pedagogical trail or null (caller can fall back). A milestone that is already
+// built is skipped, so mid-solve and pre-built-prereq drills walk only the
+// remaining work.
 
-import {
-  blockMaskFromRanges,
-  MASK_123_LEFT,
-  MASK_222_DLF,
-  MASK_223_BOTTOM_LEFT,
-} from './blocks.ts';
+import { blockMaskFromRanges, NET_COORDS } from './blocks.ts';
+import { scorePlacement } from './placement.ts';
 import {
   applyMoves,
   isMaskSolvedState,
@@ -49,32 +57,54 @@ const RANK_COUNT = 96;
 // staged 2×2×3 (built on a comfortable 2×2×2) can avoid back/bottom moves at all.
 const SLACK = 2;
 
-// The 1×2×2 left square — the milestone built before a 1×2×3 first block.
-const SQUARE_1x2x2 = blockMaskFromRanges([0], [0, 1], [1, 2]);
+// Cubie coords that carry facelets — the core (1,1,1) doesn't — for validating
+// that a mask covers a FULL box below.
+const FACELET_COORDS = new Set(NET_COORDS.map((c) => c.join(',')));
 
-// Signature of a mask for the pedagogy tables below. MUST include the EO orbit:
-// the block-preserving EO masks (MASK_223_EO etc.) reuse a block's exact
-// solvedFaceletIndices array, so keying on placement alone collides them with the
-// pure block mask — routing an EO step through block build-then-extend pedagogy.
-// EO edges make the key distinct, so EO steps fall through to plain optimal (which
-// is what this module intends for EO — see the header).
-function sig(m: Cube3x3Mask): string {
-  return [...m.solvedFaceletIndices].sort((a, b) => a - b).join(',') +
-    '|' + [...(m.eoFaceletIndices ?? [])].sort((a, b) => a - b).join(',');
+// Per-axis sorted coordinate values of the box a mask covers.
+type BlockBox = [number[], number[], number[]];
+
+// Reconstruct the axis-aligned box a mask covers from its facelets' cubie
+// coords, or null when the mask isn't a plain, contiguous, full box (or carries
+// EO) — those must route to plain optimal.
+function boxOf(mask: Cube3x3Mask): BlockBox | null {
+  if (mask.eoFaceletIndices?.length) return null;
+  if (mask.solvedFaceletIndices.length === 0) return null;
+  const vals = [new Set<number>(), new Set<number>(), new Set<number>()];
+  const covered = new Set<string>();
+  for (const i of mask.solvedFaceletIndices) {
+    const c = NET_COORDS[i];
+    vals[0].add(c[0]);
+    vals[1].add(c[1]);
+    vals[2].add(c[2]);
+    covered.add(c.join(','));
+  }
+  const ax = vals.map((s) => [...s].sort((a, b) => a - b)) as BlockBox;
+  for (const a of ax) if (a[a.length - 1] - a[0] !== a.length - 1) return null; // contiguous only
+  let inBox = 0;
+  for (const x of ax[0]) for (const y of ax[1]) for (const z of ax[2]) {
+    if (FACELET_COORDS.has(`${x},${y},${z}`)) inBox++;
+  }
+  if (covered.size !== inBox) return null; // holes → not a full box
+  return ax;
 }
 
-// Optional milestone to build first (build-then-extend). Keyed by canonical mask.
-const VIA = new Map<string, Cube3x3Mask>([
-  [sig(MASK_223_BOTTOM_LEFT), MASK_222_DLF], // 2×2×3: build the 2×2×2 first
-  [sig(MASK_123_LEFT), SQUARE_1x2x2], //        1×2×3: build the 1×2×2 square first
-]);
-// Block masks we human-rank even single-stage (the free win). 2×2×2 + the via masks.
-const RANKED = new Set<string>([
-  sig(MASK_222_DLF),
-  sig(MASK_223_BOTTOM_LEFT),
-  sig(MASK_123_LEFT),
-  sig(SQUARE_1x2x2),
-]);
+// Family key: sorted axis sizes ('222', '223', '123', '122', …).
+function familyOf(box: BlockBox): string {
+  return box.map((a) => a.length).sort((a, b) => a - b).join('');
+}
+
+// The two candidate milestones of a long-axis box: the long axis restricted to
+// its higher pair first (front/top — the classic route), then the lower pair.
+// 2×2×3 → its two contained 2×2×2s; side 1×2×3 → its two 1×2×2 squares.
+function milestonesOf(box: BlockBox): [Cube3x3Mask, Cube3x3Mask] {
+  const long = box.findIndex((a) => a.length === 3);
+  const sub = (pair: number[]) => {
+    const r = box.map((a, i) => (i === long ? pair : a)) as BlockBox;
+    return blockMaskFromRanges(r[0], r[1], r[2]);
+  };
+  return [sub([1, 2]), sub([0, 1])];
+}
 
 // Comfort cost (lower = friendlier). D/B moves (hard to see/turn) dominate, so
 // a back/bottom-free route always wins even at +1/+2 length; among equally
@@ -121,19 +151,28 @@ export function humanSolveFromState(
   mask: Cube3x3Mask,
   cfg: StepSolverConfig,
 ): Move3x3[] | null {
-  const key = sig(mask);
+  const box = boxOf(mask);
+  if (!box) return solveFromState(cube, mask, cfg); // EO / irregular: plain optimal
+  const family = familyOf(box);
 
-  // Not a block mask we specialise (EO et al.) — plain optimal, unchanged.
-  if (!RANKED.has(key)) return solveFromState(cube, mask, cfg);
-
-  const via = VIA.get(key);
-  if (!via) {
-    // Single-stage: human-ranked optimal (the 2×2×2 free win).
+  // Single-stage ranked families: the 2×2×2 and the 1×2×2 square.
+  if (family === '222' || family === '122') {
     return rankedComfort(cube, mask, cfg) ?? solveFromState(cube, mask, cfg);
   }
+  if (family !== '223' && family !== '123') return solveFromState(cube, mask, cfg);
+  if (family === '123') {
+    // Middle-slab 1×2×3 (single axis in the centre layer): not a training
+    // target — no corner anchor, no meaningful milestone.
+    const one = box.find((a) => a.length === 1)![0];
+    if (one === 1) return solveFromState(cube, mask, cfg);
+  }
 
-  // Two-stage build-then-extend. Skip stage 1 if the milestone is already built
+  // Two-stage build-then-extend; skip stage 1 if a milestone is already built
   // (mid-solve, or a pre-built prereq drill).
+  const [front, back] = milestonesOf(box);
+  const sf = scorePlacement(cube, front);
+  const sb = scorePlacement(cube, back);
+  const via = sb.placed > sf.placed || (sb.placed === sf.placed && sb.matched > sf.matched) ? back : front;
   const stage1 = isMaskSolvedState(cube, via) ? [] : rankedComfort(cube, via, cfg);
   if (stage1 === null) return solveFromState(cube, mask, cfg); // milestone unsolvable → fall back
   const mid = applyMoves(cube, stage1);

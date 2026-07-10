@@ -861,6 +861,12 @@ html[data-theme='borland'] .statusbar { display: flex; flex-wrap: wrap; }
   box-shadow: var(--modal-shadow);
   padding: 22px 24px;
   display: flex; flex-direction: column; gap: 14px; position: relative;
+  /* The settings dialog outgrew short screens — scroll inside the dialog, and
+     don't let the wheel chain to the page behind it. */
+  max-height: calc(100vh - 48px);
+  max-height: calc(100dvh - 48px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 .modal .m-title { display: flex; align-items: center; justify-content: space-between; }
 .modal h3 { margin: 0; font-size: 1.05em; }
@@ -875,6 +881,8 @@ html[data-theme='borland'] .modal {
   border-right: 2px solid #555555; border-bottom: 2px solid #555555;
 }
 html[data-theme='borland'] .modal .glabel { color: #303030; }
+/* var(--muted) is Borland cyan — unreadable on the grey dialog; match glabel. */
+html[data-theme='borland'] .modal .hint { color: #303030; }
 
 /* ── Responsive: collapse to a single column on narrow screens ───────────── */
 @media (max-width: 900px) {
