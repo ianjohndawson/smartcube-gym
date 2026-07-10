@@ -29,6 +29,7 @@ import { nextFocusPiece, placementName, targetPieceStates, type FocusPiece } fro
 import { humanSolveFromState } from './human-solve.ts';
 import { activePlacement, canonicalIndexIn } from './placement.ts';
 import { classifyRoute, PATTERN_HOW, type PatternName } from './patterns.ts';
+import { seedsFor } from './cases.ts';
 import { eoHint, blockHint } from './hints.ts';
 import { sampleEoScramble } from './eo-scramble.ts';
 import { genEoSafeScramble } from './steps.ts';
@@ -39,6 +40,7 @@ import { el, btn, renderCubeNet, renderCube3D } from './dom.ts';
 import {
   loadHistory, recordSolve, computeStats,
   loadCourse, saveCourse, courseTrack, courseCurrent, setCourseCurrent, recordCourse,
+  courseIntro, bumpCourseIntro,
   COURSE_WINDOW, COURSE_TOLERANCE, COURSE_STAR_RATES,
 } from './stats.ts';
 import { axisBad, badEdgeStickers, eoAxisOptimalLen, eoMaskForStep, freeEoHint, isFreeEo } from './eo-axis.ts';
@@ -225,6 +227,7 @@ interface State {
   eoAxis: SolveAxis; // free-EO: which side axis EO is solved against this scramble
   eoCommitted: boolean; // free-EO: axis decided for this scramble (vs awaiting an ask-prompt)
   blockEoOrient: number; // 2×2×3+EO: rolled orientation (0..3) — the random long-side colour
+  courseSeedTag: PatternName | null; // this scramble is a seeded lesson example (not graded)
   assist: { kind: 'nudge' | 'move' | 'ideal'; moves: Move3x3[]; focus: FocusPiece | null; pattern: PatternName | null } | null;
   learn: { moves: Move3x3[]; baseLen: number } | null; // guided ideal replay
   lastResult: {
@@ -274,8 +277,33 @@ function makeScramble(base: Cube3x3, baseHistory: Move3x3[], stepsList: StepDef[
   const tr = trainerById(state?.trainerId ?? '');
   if (tr.course) {
     const band = tr.course[Math.min(courseCurrent(tr.id), tr.course.length - 1)];
+    // Technique lessons: practice whose TAUGHT route opens with one of the
+    // lesson's named patterns — the same classifier the hints and review use,
+    // so what the lesson promises is what the coaching will call it.
+    if (band.patterns) {
+      // Match when the taught route USES the technique anywhere (a route's
+      // first named event is almost always the pair-forming Simple join, so a
+      // first-event filter would starve every other lesson). Ranked over a
+      // small solution count — same route structure, ~10× cheaper per attempt.
+      const want = new Set<PatternName>(band.patterns);
+      const len = band.len ?? SCRAMBLE_LEN;
+      let last = genScramble(len);
+      for (let attempt = 0; attempt < 20; attempt++) {
+        const scr = genScramble(len);
+        last = scr;
+        const cube = applyMoves(base, scr);
+        if (first.candidateMasks.some((m) => isMaskSolvedState(cube, m))) continue;
+        const taught = humanSolveFromState(cube, first.canonicalMask, first.solver, 16);
+        if (!taught) continue;
+        const names = classifyRoute(cube, taught, first.canonicalMask).map((e) => e.name);
+        if (names.some((n) => n != null && want.has(n))) return scr;
+      }
+      return last; // nothing matched within budget — serve the last rather than stall
+    }
     const cfg = { ...first.solver, depthLimit: 16 };
-    const len = band.max >= 99 ? 16 : Math.min(16, band.max + 4);
+    const min = band.min ?? 1;
+    const max = band.max ?? 99;
+    const len = max >= 99 ? 16 : Math.min(16, max + 4);
     let last = genScramble(len);
     for (let attempt = 0; attempt < 25; attempt++) {
       const scr = genScramble(len);
@@ -285,7 +313,7 @@ function makeScramble(base: Cube3x3, baseHistory: Move3x3[], stepsList: StepDef[
       if (first.candidateMasks.some((m) => isMaskSolvedState(cube, m))) continue;
       const opt = (solveFromState(cube, first.canonicalMask, cfg) ?? []).length;
       const eff = opt === 0 ? 99 : opt; // 0 = deeper than the measure limit
-      if (eff >= band.min && eff <= band.max) return scr;
+      if (eff >= min && eff <= max) return scr;
     }
     return last;
   }
@@ -368,7 +396,23 @@ function startScramble(base: Cube3x3, baseHistory: Move3x3[], explicit?: Move3x3
   // Roll the 2×2×3+EO orientation (random long-side colour) for this scramble; reuse
   // the current one when reproducing an explicit setup (retry/undo keeps the case).
   const blockEoOrient = explicit ? (state?.blockEoOrient ?? 0) : isBlockEo(t.steps[0]) ? randomBlockEoOrient() : 0;
-  const moves = explicit ?? makeScramble(base, baseHistory, t.steps, blockEoOrient);
+  // Curated course lessons open with seeded examples. A seed scramble is a
+  // from-solved state, so it is only served when the tracked cube IS solved
+  // (lesson entry resets to solved); otherwise practice is generated and the
+  // example counter waits. Consumed on issue; retry/undo keeps the tag.
+  let courseSeedTag: PatternName | null = explicit ? (state?.courseSeedTag ?? null) : null;
+  let moves: Move3x3[] | null = explicit ?? null;
+  if (!moves && t.course && faceletString(base) === SOLVED_STR) {
+    const lvl = Math.min(courseCurrent(t.id), t.course.length - 1);
+    const seeds = seedsFor(t.id, lvl);
+    const intro = courseIntro(t.id, lvl);
+    if (intro < seeds.length) {
+      moves = parseMoves(seeds[intro].scramble);
+      courseSeedTag = seeds[intro].tag;
+      bumpCourseIntro(t.id, lvl);
+    }
+  }
+  moves ??= makeScramble(base, baseHistory, t.steps, blockEoOrient);
   return {
     category: t.category,
     trainerId: t.id,
@@ -401,12 +445,15 @@ function startScramble(base: Cube3x3, baseHistory: Move3x3[], explicit?: Move3x3
     eoAxis: lastEoAxis(),
     eoCommitted: false,
     blockEoOrient,
+    courseSeedTag,
     assist: null,
     learn: null,
     lastResult: state?.lastResult ?? null,
     connected: state?.connected ?? false,
     battery: state?.battery ?? null,
-    status: 'Apply the scramble to your cube. The cube view follows along.',
+    status: courseSeedTag && !explicit
+      ? `Lesson example — ${courseSeedTag}. Apply the scramble, then find it (or Show ideal → walk it through).`
+      : 'Apply the scramble to your cube. The cube view follows along.',
     showSettings: false,
     showStats: state?.showStats ?? false,
     showPicker: state?.showPicker ?? false,
@@ -654,12 +701,16 @@ function checkStepCompletion() {
       recordSolve({ step: stepShort(s), used, optimal: optimalArr.length, ts: Date.now(), ms, gaps, insp: state.lastResult.insp });
       lastRecord.history = true;
       // Course: log this solve toward the current level's consistency target.
+      // Seeded lesson examples are demonstrations — they never count toward
+      // (or against) the level's clean-rate.
       const tr = trainer();
-      if (tr.course) {
+      if (tr.course && state.courseSeedTag == null) {
         lastRecord.trainerId = tr.id;
         lastRecord.level = courseCurrent(tr.id);
         const note = recordCourse(tr.id, tr.course.length, used - optimalArr.length);
         if (note) state.status = note;
+      } else if (tr.course && state.courseSeedTag != null) {
+        state.status = `Example done — that was a ${state.courseSeedTag}. Next for more of the lesson.`;
       }
     }
     if (state.stepIndex < steps().length - 1) {
@@ -1461,6 +1512,16 @@ function buildCoursePanel(): HTMLElement {
     chips.appendChild(c);
   });
   p.appendChild(chips);
+  // Seeded lessons: show example progress; the next example needs a solved
+  // cube (lesson entry resets to one), practice reps generate in between.
+  const seeds = seedsFor(tr.id, cur);
+  const intro = Math.min(courseIntro(tr.id, cur), seeds.length);
+  if (seeds.length) {
+    p.appendChild(el('div', 'meter-cap',
+      intro < seeds.length
+        ? `examples ${intro}/${seeds.length} shown — next example serves on a solved cube (Reset Cube or re-enter the lesson)`
+        : `examples ${seeds.length}/${seeds.length} shown — practice until clean`));
+  }
   const recent = track.levels[cur]?.recent ?? [];
   const clean = recent.filter((w) => w <= COURSE_TOLERANCE).length;
   p.appendChild(el('div', 'meter-cap',

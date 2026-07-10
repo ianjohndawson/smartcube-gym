@@ -123,8 +123,8 @@ function comfortCost(sol: Move3x3[]): number {
 /** Most comfortable solution within (optimal + SLACK) moves, or null if none.
  *  Bounding to the band keeps the length cost small while letting us trade a
  *  couple of moves to eliminate back/bottom turns. */
-function rankedComfort(cube: Cube3x3, mask: Cube3x3Mask, cfg: StepSolverConfig): Move3x3[] | null {
-  const sols = solveFromStateMulti(cube, mask, cfg, RANK_COUNT);
+function rankedComfort(cube: Cube3x3, mask: Cube3x3Mask, cfg: StepSolverConfig, rankCount: number): Move3x3[] | null {
+  const sols = solveFromStateMulti(cube, mask, cfg, rankCount);
   if (sols.length === 0) return null;
   let minLen = Infinity;
   for (const s of sols) if (s.length < minLen) minLen = s.length;
@@ -150,6 +150,10 @@ export function humanSolveFromState(
   cube: Cube3x3,
   mask: Cube3x3Mask,
   cfg: StepSolverConfig,
+  // How many optimal-band solutions to rank comfort over. The default gives the
+  // teaching surfaces the best route; bulk callers (case generation samples
+  // dozens of scrambles) pass a small count — same route structure, ~10× cheaper.
+  rankCount = RANK_COUNT,
 ): Move3x3[] | null {
   const box = boxOf(mask);
   if (!box) return solveFromState(cube, mask, cfg); // EO / irregular: plain optimal
@@ -157,7 +161,7 @@ export function humanSolveFromState(
 
   // Single-stage ranked families: the 2×2×2 and the 1×2×2 square.
   if (family === '222' || family === '122') {
-    return rankedComfort(cube, mask, cfg) ?? solveFromState(cube, mask, cfg);
+    return rankedComfort(cube, mask, cfg, rankCount) ?? solveFromState(cube, mask, cfg);
   }
   if (family !== '223' && family !== '123') return solveFromState(cube, mask, cfg);
   if (family === '123') {
@@ -173,10 +177,10 @@ export function humanSolveFromState(
   const sf = scorePlacement(cube, front);
   const sb = scorePlacement(cube, back);
   const via = sb.placed > sf.placed || (sb.placed === sf.placed && sb.matched > sf.matched) ? back : front;
-  const stage1 = isMaskSolvedState(cube, via) ? [] : rankedComfort(cube, via, cfg);
+  const stage1 = isMaskSolvedState(cube, via) ? [] : rankedComfort(cube, via, cfg, rankCount);
   if (stage1 === null) return solveFromState(cube, mask, cfg); // milestone unsolvable → fall back
   const mid = applyMoves(cube, stage1);
-  const stage2 = rankedComfort(mid, mask, cfg);
+  const stage2 = rankedComfort(mid, mask, cfg, rankCount);
   if (stage2 === null) return solveFromState(cube, mask, cfg);
 
   const trail = [...stage1, ...stage2];

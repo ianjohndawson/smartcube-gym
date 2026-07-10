@@ -11,6 +11,7 @@ import {
   MASK_223_BOTTOM_LEFT,
 } from './blocks.ts';
 import { blockEoPrereq, blockEoTarget } from './block-eo.ts';
+import type { PatternName } from './patterns.ts';
 import { MOVESETS, type Cube3x3Mask, type Move3x3, type StepSolverConfig } from './engine-api.ts';
 import { MASKS } from './engine/puzzles/cube3x3/index.ts';
 
@@ -18,11 +19,20 @@ export type Category = 'Course' | 'EO' | 'Blocks' | 'Journey';
 export type BlockFamily = '222' | '223' | '123';
 export type StepKind = 'block' | 'eo';
 
-/** A graded course level: scrambles whose optimal solution to the block is in [min,max] HTM. */
+/** A graded course level. Two kinds of case filter:
+ *  - band: scrambles whose optimal solution to the block is in [min,max] HTM;
+ *  - lesson: scrambles whose TAUGHT route uses one of the named Lars Petrus
+ *    `patterns` (the curated-course technique lessons; see src/cases.ts for
+ *    each lesson's seeded opening examples). */
 export interface CourseBand {
   label: string;
-  min: number;
-  max: number;
+  min?: number;
+  max?: number;
+  patterns?: PatternName[];
+  /** Scramble length for pattern lessons. The named shapes are NEAR-COMPLETION
+   *  situations (Lars's own cases are 1–4 moves), so technique drills use short
+   *  scrambles — a 5-move case sits ≤5 from the block, from any base. */
+  len?: number;
 }
 
 export interface StepDef {
@@ -186,11 +196,15 @@ const STEP_123_RIGHT_DRILL: StepDef = {
 };
 
 // --- course ladders (difficulty by optimal HTM to build the block) ---
+// The 2×2×2 course is the curated technique curriculum: lessons keyed to the
+// Lars Petrus pattern vocabulary (each opens with seeded examples from
+// src/cases.ts, then generates same-technique practice). The final level is
+// ungated full scrambles, graded exactly like the old course.
 const COURSE_222: CourseBand[] = [
-  { label: 'L1 · easy', min: 1, max: 4 },
-  { label: 'L2', min: 5, max: 6 },
-  { label: 'L3', min: 7, max: 8 },
-  { label: 'L4 · full', min: 9, max: 99 },
+  { label: 'L1 · Simple joins', patterns: ['Simple join'], len: 10 },
+  { label: 'L2 · Double joins & Swings', patterns: ['Double join', 'Swing'], len: 5 },
+  { label: 'L3 · Roundabouts & rescues', patterns: ['Roundabout', 'Pillar', 'Broken corner', 'Double swing', 'Parallel roundabout'], len: 6 },
+  { label: 'L4 · full', min: 1, max: 99 },
 ];
 const COURSE_223: CourseBand[] = [
   { label: 'L1 · easy', min: 1, max: 7 },

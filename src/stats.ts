@@ -45,7 +45,9 @@ export function computeStats() {
 export const COURSE_WINDOW = 12;
 export const COURSE_TOLERANCE = 2; // a solve is "clean" if it's within +2 of optimal
 export const COURSE_STAR_RATES = [0.70, 0.85, 1.0]; // clean-rate for 1★ / 2★ / 3★
-export interface CourseLevel { recent: number[]; stars: number; }
+// intro: how many of the level's seeded example cases have been served (the
+// curated lesson opener); grading starts after the examples run out.
+export interface CourseLevel { recent: number[]; stars: number; intro?: number; }
 export interface CourseTrack { unlocked: number; current: number; levels: Record<number, CourseLevel>; }
 export type CourseProg = Record<string, CourseTrack>;
 
@@ -64,6 +66,19 @@ export function setCourseCurrent(id: string, level: number) {
   const p = loadCourse();
   const t = p[id] ?? { unlocked: 0, current: 0, levels: {} };
   t.current = level;
+  p[id] = t;
+  saveCourse(p);
+}
+/** Seeded-example progress for a level: how many examples have been served. */
+export function courseIntro(id: string, level: number): number {
+  return courseTrack(id).levels[level]?.intro ?? 0;
+}
+export function bumpCourseIntro(id: string, level: number) {
+  const p = loadCourse();
+  const t = p[id] ?? { unlocked: 0, current: 0, levels: {} };
+  const lv = t.levels[level] ?? { recent: [], stars: 0 };
+  lv.intro = (lv.intro ?? 0) + 1;
+  t.levels[level] = lv;
   p[id] = t;
   saveCourse(p);
 }
