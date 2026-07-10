@@ -28,6 +28,7 @@ import {
 import { nextFocusPiece, placementName, targetPieceStates, type FocusPiece } from './pieces.ts';
 import { humanSolveFromState } from './human-solve.ts';
 import { activePlacement, canonicalIndexIn } from './placement.ts';
+import { classifyRoute, PATTERN_HOW, type PatternName } from './patterns.ts';
 import { eoHint, blockHint } from './hints.ts';
 import { sampleEoScramble } from './eo-scramble.ts';
 import { genEoSafeScramble } from './steps.ts';
@@ -224,7 +225,7 @@ interface State {
   eoAxis: SolveAxis; // free-EO: which side axis EO is solved against this scramble
   eoCommitted: boolean; // free-EO: axis decided for this scramble (vs awaiting an ask-prompt)
   blockEoOrient: number; // 2×2×3+EO: rolled orientation (0..3) — the random long-side colour
-  assist: { kind: 'nudge' | 'move' | 'ideal'; moves: Move3x3[]; focus: FocusPiece | null } | null;
+  assist: { kind: 'nudge' | 'move' | 'ideal'; moves: Move3x3[]; focus: FocusPiece | null; pattern: PatternName | null } | null;
   learn: { moves: Move3x3[]; baseLen: number } | null; // guided ideal replay
   lastResult: {
     step: string; used: number; optimal: number | null; yourMoves: Move3x3[]; idealMoves: Move3x3[]; case?: string;
@@ -232,6 +233,8 @@ interface State {
     /** Planning verdict: the cheapest placement vs the one actually built. */
     rank?: { bestName: string; bestLen: number; yoursName: string; yoursLen: number; yoursBest: boolean };
     insp?: number; // ms spent inspecting before the first solve move
+    /** Named Petrus patterns detected in the ideal route and the user's solve. */
+    patterns?: { ideal: PatternName[]; yours: PatternName[] };
   } | null;
   connected: boolean;
   battery: number | null;
@@ -624,6 +627,14 @@ function checkStepCompletion() {
     // of the solve phase only — later journey steps flow straight on).
     if (state.stepIndex === 0 && state.solveReadyMs != null && state.solveStartMs != null) {
       state.lastResult.insp = Math.max(0, state.solveStartMs - state.solveReadyMs);
+    }
+    // Named-pattern tags: what the TAUGHT route (the one Learn walks) uses,
+    // and what the user's own HTM-simplified solve actually did.
+    if (s.kind === 'block' && optimalArr) {
+      const taught = humanSolveFromState(state.stepStartCube, solvedMask, s.solver) ?? optimalArr;
+      const names = (rt: Move3x3[]) =>
+        classifyRoute(state.stepStartCube, rt, solvedMask).map((e) => e.name).filter((x): x is PatternName => x != null);
+      state.lastResult.patterns = { ideal: names(taught), yours: names(simplifyMoves(state.movesThisStep)) };
     }
     // Log to the Stats history. Record solve time only for single-step trainers
     // (EO / course / drills) — the journey timer isn't per-step meaningful. On a
@@ -1200,7 +1211,7 @@ function assist(kind: 'nudge' | 'move' | 'ideal') {
   if (kind === 'nudge' && s.kind === 'eo') {
     const ax = eoStepAxis(s);
     const bad = ax ? axisBad(state.cube, ax).count : state.cube.EO.filter((g) => !g).length;
-    state.assist = { kind: 'nudge', moves: [], focus: null };
+    state.assist = { kind: 'nudge', moves: [], focus: null, pattern: null };
     state.status = `${bad} bad edges highlighted — work out how to orient them.`;
     render();
     return;
@@ -1208,8 +1219,13 @@ function assist(kind: 'nudge' | 'move' | 'ideal') {
   const moves = continuation();
   if (moves.length === 0) { state.assist = null; state.status = 'Nothing to suggest from here.'; render(); return; }
   const focus = kind !== 'ideal' && s.kind === 'block' ? nextFocusPiece(state.cube, activeMask(s), moves) : null;
+  // Name the pattern the taught route is about to use (its first segment) — the
+  // Lars Petrus vocabulary the coaching teaches.
+  const pattern = s.kind === 'block'
+    ? classifyRoute(state.cube, moves, activeMask(s)).find((e) => e.name)?.name ?? null
+    : null;
   const effective = kind === 'nudge' && !focus ? 'move' : kind;
-  state.assist = { kind: effective, moves, focus };
+  state.assist = { kind: effective, moves, focus, pattern };
   state.status =
     effective === 'nudge' ? `Hint: focus on the ${focus?.description ?? 'highlighted piece'} — pair and insert it.`
     : effective === 'move' ? `Next move: ${moves[0]}`
@@ -1555,7 +1571,11 @@ function buildCoachBody(s: StepDef | null): HTMLElement {
     // Rule-based recognition + technique (no exact moves — that's Next move / Show ideal).
     const ax = eoStepAxis(s);
     const h = s.kind === 'eo' ? (ax ? freeEoHint(axisBad(state.cube, ax).count) : eoHint(state.cube)) : blockHint(a.focus, true);
-    if (h.name) coachLine(c, 'pattern', 'c-good', h.name);
+    // A recognised Lars Petrus pattern outranks the generic size-based label.
+    if (a.pattern) {
+      coachLine(c, 'pattern', 'c-good', a.pattern);
+      coachLine(c, '', 'c-coach', PATTERN_HOW[a.pattern]);
+    } else if (h.name) coachLine(c, 'pattern', 'c-good', h.name);
     for (const ln of h.lines) coachLine(c, '', 'c-coach', ln);
   } else if (a.kind === 'move') {
     coachLine(c, 'hint', 'c-hint', `next ▸ ${disp([a.moves[0]])[0]}`);
@@ -1588,6 +1608,10 @@ function buildReviewPane(right: HTMLElement) {
         : `placements: cheapest was the ${r.rank.bestName} (${r.rank.bestLen}) — you built the ${r.rank.yoursName} (${r.rank.yoursLen})`));
     }
     if (r.insp != null) right.appendChild(el('div', 'meter-cap', `inspection ${(r.insp / 1000).toFixed(1)}s`));
+    if (r.patterns && (r.patterns.ideal.length || r.patterns.yours.length)) {
+      const fmt = (xs: string[]) => (xs.length ? xs.join(' · ') : '—');
+      right.appendChild(el('div', 'meter-cap', `patterns — ideal: ${fmt(r.patterns.ideal)} · yours: ${fmt(r.patterns.yours)}`));
+    }
     const cmp = el('div', 'coach');
     cmp.textContent =
       `your solution (${r.used}): ${yours.join(' ') || '—'}\n` +
