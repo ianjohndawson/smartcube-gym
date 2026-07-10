@@ -25,7 +25,7 @@ import {
   type Category,
   type StepDef,
 } from './steps.ts';
-import { nextFocusPiece, targetPieceStates, type FocusPiece } from './pieces.ts';
+import { nextFocusPiece, placementName, targetPieceStates, type FocusPiece } from './pieces.ts';
 import { humanSolveFromState } from './human-solve.ts';
 import { activePlacement, canonicalIndexIn } from './placement.ts';
 import { eoHint, blockHint } from './hints.ts';
@@ -80,6 +80,31 @@ function canonicalIdxFor(s: StepDef): number {
 function activeMask(s: StepDef): StepDef['canonicalMask'] {
   if (s.kind !== 'block' || s.candidateMasks.length <= 1) return s.canonicalMask;
   return s.candidateMasks[state.placementIdx ?? canonicalIdxFor(s)];
+}
+
+// Tap-to-aim (2×2×2 family): tapping any sticker of a CORNER cubie names one
+// octant uniquely, so the coaching can aim there and stop second-guessing the
+// user (pinned until the step ends). Edges/centres belong to several octants —
+// prompt for a corner instead. The tapped index arrives in the display frame;
+// block steps only ever show the x2 phase-flip, which is self-inverse, so the
+// same rotation maps it back to the model frame.
+function pinPlacementAt(viewIdx: number, s: StepDef) {
+  const modelIdx = solveFrame() ? [...rotateHighlight(new Set([viewIdx]), solveRotation())][0] : viewIdx;
+  const group = CUBIES.find((g) => g.includes(modelIdx));
+  if (!group || group.length !== 3) {
+    state.status = 'Tap a corner piece to aim your 2×2×2 there.';
+    render();
+    return;
+  }
+  const idx = s.candidateMasks.findIndex((m) => {
+    const set = new Set(m.solvedFaceletIndices);
+    return group.every((j) => set.has(j));
+  });
+  if (idx < 0) return;
+  state.placementIdx = idx;
+  state.placementPinned = true;
+  state.status = `Aiming at the ${placementName(s.candidateMasks[idx])} block — coaching follows it.`;
+  render();
 }
 
 // Step progress as WHOLE pieces placed (+ edges oriented for EO) — meaningful,
@@ -193,13 +218,21 @@ interface State {
   movesThisStep: Move3x3[];
   movesThisStepTs: number[]; // Date.now() per movesThisStep move (raw stream — pause/lookahead analysis)
   placementIdx: number | null; // block steps: the candidate placement coaching aims at (hysteresis pick)
+  placementPinned: boolean; // user tapped a corner to aim — the pick stops second-guessing them
+  solveReadyMs: number | null; // when the scramble completed — inspection runs until the first move
   stepDone: boolean[];
   eoAxis: SolveAxis; // free-EO: which side axis EO is solved against this scramble
   eoCommitted: boolean; // free-EO: axis decided for this scramble (vs awaiting an ask-prompt)
   blockEoOrient: number; // 2×2×3+EO: rolled orientation (0..3) — the random long-side colour
   assist: { kind: 'nudge' | 'move' | 'ideal'; moves: Move3x3[]; focus: FocusPiece | null } | null;
   learn: { moves: Move3x3[]; baseLen: number } | null; // guided ideal replay
-  lastResult: { step: string; used: number; optimal: number | null; yourMoves: Move3x3[]; idealMoves: Move3x3[]; case?: string; eo?: { gb: { len: number; bad: number }; ro: { len: number; bad: number } } } | null;
+  lastResult: {
+    step: string; used: number; optimal: number | null; yourMoves: Move3x3[]; idealMoves: Move3x3[]; case?: string;
+    eo?: { gb: { len: number; bad: number }; ro: { len: number; bad: number } };
+    /** Planning verdict: the cheapest placement vs the one actually built. */
+    rank?: { bestName: string; bestLen: number; yoursName: string; yoursLen: number; yoursBest: boolean };
+    insp?: number; // ms spent inspecting before the first solve move
+  } | null;
   connected: boolean;
   battery: number | null;
   status: string;
@@ -359,6 +392,8 @@ function startScramble(base: Cube3x3, baseHistory: Move3x3[], explicit?: Move3x3
     movesThisStep: [],
     movesThisStepTs: [],
     placementIdx: null,
+    placementPinned: false,
+    solveReadyMs: null,
     stepDone: t.steps.map(() => false),
     eoAxis: lastEoAxis(),
     eoCommitted: false,
@@ -420,6 +455,7 @@ function afterLearnMove() {
       state.movesThisStep = [];
       state.movesThisStepTs = [];
       state.placementIdx = null;
+      state.placementPinned = false;
     }
   }
 }
@@ -437,8 +473,10 @@ function afterChange() {
       state.movesThisStep = [];
       state.movesThisStepTs = [];
       state.placementIdx = null;
+      state.placementPinned = false;
       state.assist = null;
       state.solveStartMs = null; // timer starts on the first solve move
+      state.solveReadyMs = Date.now(); // inspection clock: scramble done → first move
       state.solveStartLen = state.history.length;
       state.finishedMs = null;
       // Free-EO: decide (or prompt for) the side axis now that the scramble is set.
@@ -457,7 +495,7 @@ function afterChange() {
     // Placement-aware coaching: re-pick which accepted placement the user is
     // building (hysteresis keeps it stable) BEFORE progress/flash/completion
     // read it — everything downstream this move sees one consistent target.
-    if (s && s.kind === 'block' && s.candidateMasks.length > 1) {
+    if (s && s.kind === 'block' && s.candidateMasks.length > 1 && !state.placementPinned) {
       state.placementIdx = activePlacement(state.cube, s.candidateMasks, state.placementIdx, canonicalIdxFor(s));
     }
     // Flash when a piece is placed / edge oriented (within the same step).
@@ -561,6 +599,32 @@ function checkStepCompletion() {
         ro: { len: eoAxisOptimalLen(start, s, 'ro'), bad: axisBad(start, 'ro').count },
       };
     }
+    // Planning verdict: rank every accepted placement from the step's start and
+    // compare against the one actually built. 222/123 candidate optima are
+    // ms-cheap at pd4; 223 is skipped until the solver runs off the main thread
+    // (each of its 12 placements would build a ~1.6s pruning table).
+    if (optimalArr && s.kind === 'block' && s.candidateMasks.length > 1 && (s.family === '222' || s.family === '123')) {
+      let bestLen = Infinity;
+      let bestIdx = -1;
+      for (let i = 0; i < s.candidateMasks.length; i++) {
+        const l = solveFromState(state.stepStartCube, s.candidateMasks[i], s.solver)?.length;
+        if (l != null && l < bestLen) { bestLen = l; bestIdx = i; }
+      }
+      if (bestIdx >= 0) {
+        state.lastResult.rank = {
+          bestName: placementName(s.candidateMasks[bestIdx]),
+          bestLen,
+          yoursName: placementName(solvedMask),
+          yoursLen: optimalArr.length,
+          yoursBest: optimalArr.length <= bestLen,
+        };
+      }
+    }
+    // Inspection: how long you looked before the first solve move (first step
+    // of the solve phase only — later journey steps flow straight on).
+    if (state.stepIndex === 0 && state.solveReadyMs != null && state.solveStartMs != null) {
+      state.lastResult.insp = Math.max(0, state.solveStartMs - state.solveReadyMs);
+    }
     // Log to the Stats history. Record solve time only for single-step trainers
     // (EO / course / drills) — the journey timer isn't per-step meaningful. On a
     // (rare) solver failure there is no trustworthy optimal, so the solve stays
@@ -576,7 +640,7 @@ function checkStepCompletion() {
       // hesitation / lookahead analysis; recorded from day one so history accrues.
       const mts = state.movesThisStepTs;
       const gaps = mts.length > 1 ? mts.slice(1).map((t, i) => Math.round((t - mts[i]) / 10) * 10) : undefined;
-      recordSolve({ step: stepShort(s), used, optimal: optimalArr.length, ts: Date.now(), ms, gaps });
+      recordSolve({ step: stepShort(s), used, optimal: optimalArr.length, ts: Date.now(), ms, gaps, insp: state.lastResult.insp });
       lastRecord.history = true;
       // Course: log this solve toward the current level's consistency target.
       const tr = trainer();
@@ -594,6 +658,7 @@ function checkStepCompletion() {
       state.movesThisStep = [];
       state.movesThisStepTs = [];
       state.placementIdx = null;
+      state.placementPinned = false;
     }
   }
 }
@@ -1310,6 +1375,16 @@ function buildCubePanel(s: StepDef | null): HTMLElement {
   const p = el('div', 'panel grow');
   p.appendChild(el('div', 'panel-hd', 'Cube view'));
   const wrap = el('div', 'cube-wrap');
+  // Tap-to-aim: on the free 2×2×2 steps, tapping a corner pins the coaching to
+  // that octant (pinPlacementAt). Armed only mid-solve, either view.
+  const aimable = state.mode === 'solve' && !state.learn && !!s && s.kind === 'block' && s.family === '222' && s.candidateMasks.length > 1;
+  if (aimable) {
+    wrap.classList.add('pickable');
+    wrap.addEventListener('click', (e) => {
+      const t = (e.target as HTMLElement).closest('[data-facelet-index]') as HTMLElement | null;
+      if (t?.dataset.faceletIndex) pinPlacementAt(Number(t.dataset.faceletIndex), s!);
+    });
+  }
   let highlight: Set<number> | null = null;
   let note = '';
   if (state.assist) {
@@ -1341,7 +1416,8 @@ function buildCubePanel(s: StepDef | null): HTMLElement {
   const holdNote = s?.hold
     ? s.hold
     : `${solveFrame() ? `hold ${orientLabel(solveRotation())}` : 'hold white-up / green-front'}${s ? ` · ${s.label} target` : ''}`;
-  p.appendChild(el('div', 'meter-cap', note || holdNote));
+  const aimNote = aimable ? ' · tap a corner to aim your block there' : '';
+  p.appendChild(el('div', 'meter-cap', note || holdNote + aimNote));
   return p;
 }
 
@@ -1505,6 +1581,13 @@ function buildReviewPane(right: HTMLElement) {
     const extra = r.optimal != null ? r.used - r.optimal : 0;
     const verdict = r.optimal == null ? '' : extra <= 0 ? '🏆 optimal!' : extra <= 2 ? '👍 very efficient' : extra <= 5 ? 'good — room to tighten' : 'lots of room to improve';
     if (r.case) right.appendChild(el('div', 'meter-cap', `case: ${r.case}`));
+    // Planning verdict + inspection — the "did you read the scramble well" lines.
+    if (r.rank) {
+      right.appendChild(el('div', 'meter-cap', r.rank.yoursBest
+        ? `placements: you built the cheapest — ${r.rank.yoursName} (${r.rank.yoursLen})`
+        : `placements: cheapest was the ${r.rank.bestName} (${r.rank.bestLen}) — you built the ${r.rank.yoursName} (${r.rank.yoursLen})`));
+    }
+    if (r.insp != null) right.appendChild(el('div', 'meter-cap', `inspection ${(r.insp / 1000).toFixed(1)}s`));
     const cmp = el('div', 'coach');
     cmp.textContent =
       `your solution (${r.used}): ${yours.join(' ') || '—'}\n` +

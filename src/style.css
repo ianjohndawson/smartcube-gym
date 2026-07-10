@@ -729,6 +729,8 @@ html[data-theme='dark'] .tab.active { box-shadow: inset 0 -2px 0 var(--accent); 
   opacity: 0.95; pointer-events: none;
 }
 html[data-theme='borland'] .c3-face { border-radius: 0; } /* square plastic to match square stickers */
+/* Tap-to-aim armed (2×2×2 steps): stickers advertise that they're tappable. */
+.cube-wrap.pickable [data-facelet-index] { cursor: pointer; }
 /* Face placement: F is the identity; the others are rotations of it, each pushed
    out half a unit to the cubie surface. */
 .f-F { transform: translateZ(calc(var(--u) / 2)); }

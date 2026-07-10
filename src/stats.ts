@@ -6,8 +6,9 @@ import * as store from './storage.ts';
 
 // --- stats persistence ---
 // gaps: ms between consecutive solve moves (raw move stream, 10ms grain) — the
-// raw material for the hesitation / lookahead analysis. Recorded per solve.
-export interface HistRec { step: string; used: number; optimal: number; ts: number; ms?: number; gaps?: number[]; }
+// raw material for the hesitation / lookahead analysis. insp: ms spent looking
+// at the scrambled cube before the first solve move (inspection). Per solve.
+export interface HistRec { step: string; used: number; optimal: number; ts: number; ms?: number; gaps?: number[]; insp?: number; }
 export function loadHistory(): HistRec[] {
   return store.getJSON<HistRec[]>('history', []);
 }

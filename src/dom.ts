@@ -32,6 +32,7 @@ export function renderCubeNet(f: string, highlight: Set<number> | null = null, b
     const isBlank = blank?.has(i);
     const dim = !isBlank && highlight && !highlight.has(i) ? ' dim' : '';
     const sticker = el('div', isBlank ? 'sticker blank' : `sticker ${f[i]}${dim}`);
+    sticker.dataset.faceletIndex = String(i); // tap input, same as the 3D view
     sticker.style.gridRow = `${row + 1}`;
     sticker.style.gridColumn = `${col + 1}`;
     net.appendChild(sticker);
@@ -140,6 +141,7 @@ export function renderCube3D(f: string, highlight: Set<number> | null = null, bl
   // keys. Inertia and the highlight pulse are skipped under reduced-motion.
   const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
   let drag: { x: number; y: number } | null = null;
+  let dragMoved = 0;
   let vYaw = 0;
   let vPitch = 0;
   function inertia() {
@@ -154,6 +156,7 @@ export function renderCube3D(f: string, highlight: Set<number> | null = null, bl
   }
   stage.addEventListener('pointerdown', (e) => {
     drag = { x: e.clientX, y: e.clientY };
+    dragMoved = 0;
     vYaw = vPitch = 0;
     stage.setPointerCapture(e.pointerId);
   });
@@ -161,6 +164,7 @@ export function renderCube3D(f: string, highlight: Set<number> | null = null, bl
     if (!drag) return;
     const dx = e.clientX - drag.x;
     const dy = e.clientY - drag.y;
+    dragMoved += Math.abs(dx) + Math.abs(dy);
     drag.x = e.clientX;
     drag.y = e.clientY;
     cube3dYaw += dx * 0.45;
@@ -175,6 +179,9 @@ export function renderCube3D(f: string, highlight: Set<number> | null = null, bl
     if (!reduced) inertia();
   });
   stage.addEventListener('pointercancel', () => { drag = null; });
+  // A drag that ends on a sticker would otherwise fire a click — swallow it so
+  // tap-to-aim (main.ts) only ever sees deliberate taps.
+  stage.addEventListener('click', (e) => { if (dragMoved > 6) e.stopPropagation(); }, true);
   stage.addEventListener('keydown', (e) => {
     const step = 9;
     if (e.key === 'ArrowLeft') cube3dYaw -= step;

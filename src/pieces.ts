@@ -107,6 +107,38 @@ export function nextFocusPiece(state: Cube3x3, mask: Cube3x3Mask, optimalMoves: 
   return { current: locate(startArr, p.colors) ?? p.home, home: p.home, description: describe(p.colors), movesToPlace: optimalMoves.length };
 }
 
+// Face letter at an extreme axis value, per axis (x: L/R, y: D/U, z: B/F).
+const AXIS_FACE: Record<number, Record<number, string>> = {
+  0: { 0: 'L', 2: 'R' },
+  1: { 0: 'D', 2: 'U' },
+  2: { 0: 'B', 2: 'F' },
+};
+
+/** Short human name for a block placement mask. A 2×2×2 is named by its anchor
+ * corner's colours ("white-green-red corner"); slabs are named by their extreme
+ * faces with the thin (anchor) face first — so the L-anchored lower 1×2×3 is
+ * "orange–yellow" while the D-anchored left one is "yellow–orange". */
+export function placementName(mask: Cube3x3Mask): string {
+  const vals: [Set<number>, Set<number>, Set<number>] = [new Set(), new Set(), new Set()];
+  for (const i of mask.solvedFaceletIndices) {
+    const c = NET_COORDS[i];
+    vals[0].add(c[0]);
+    vals[1].add(c[1]);
+    vals[2].add(c[2]);
+  }
+  const ax = vals.map((s) => [...s].sort((a, b) => a - b));
+  if (ax.every((a) => a.length === 2)) {
+    // 2×2×2: the octant's anchor corner (its all-extreme coordinate).
+    const corner = ax.map((a) => (a.includes(0) ? 0 : 2)).join(',');
+    const group = CORNER_GROUPS.find((g) => NET_COORDS[g[0]].join(',') === corner);
+    if (group) return describe(group.map((i) => SOLVED_FACELET_CUBE[i]));
+  }
+  const anchors = ax.map((a, axis) => (a.length === 1 ? AXIS_FACE[axis][a[0]] : null));
+  const extremes = ax.map((a, axis) => (a.length === 2 ? AXIS_FACE[axis][a.includes(0) ? 0 : 2] : null));
+  const faces = [...anchors, ...extremes].filter((f): f is string => f != null);
+  return faces.map((f) => COLOR_NAME[f] ?? f).join('–');
+}
+
 /** Each target piece's current cubie coordinate (x,y,z; y: 0=D,1=mid,2=U) + whether solved. */
 export function targetPieceStates(state: Cube3x3, mask: Cube3x3Mask): { coord: readonly [number, number, number]; solved: boolean }[] {
   const arr = state.stateData;
