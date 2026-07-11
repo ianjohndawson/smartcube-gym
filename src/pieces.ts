@@ -139,6 +139,51 @@ export function placementName(mask: Cube3x3Mask): string {
   return faces.map((f) => COLOR_NAME[f] ?? f).join('–');
 }
 
+/** The first TWO pieces a route places, for the lookahead drill: you plan the
+ *  join of `first` while predicting where `second` will be once it's done. */
+export function nextTwoFocusPieces(
+  state: Cube3x3,
+  mask: Cube3x3Mask,
+  moves: Move3x3[],
+): { first: FocusPiece; second: FocusPiece } | null {
+  const startArr = state.stateData;
+  const unsolved = targetPieces(mask).filter((p) => !pieceSolved(startArr, p.home));
+  if (unsolved.length < 2) return null; // nothing beyond the next join — no lookahead
+  const found: FocusPiece[] = [];
+  const seen = new Set<TargetPiece>();
+  let cur = state;
+  for (let k = 0; k < moves.length && found.length < 2; k++) {
+    cur = applyMove(cur, moves[k]);
+    const arr = cur.stateData;
+    for (const p of unsolved) {
+      if (seen.has(p) || !pieceSolved(arr, p.home)) continue;
+      seen.add(p);
+      found.push({
+        current: locate(startArr, p.colors) ?? p.home,
+        home: p.home,
+        description: describe(p.colors),
+        movesToPlace: k + 1,
+      });
+      if (found.length === 2) break;
+    }
+  }
+  return found.length === 2 ? { first: found[0], second: found[1] } : null;
+}
+
+/** Where the piece with these home facelets currently sits (its slot's facelet
+ *  indices) — the truth the lookahead answer is checked against. */
+export function locatePieceNow(state: Cube3x3, home: number[]): number[] {
+  return locate(state.stateData, home.map((i) => SOLVED_FACELET_CUBE[i])) ?? home;
+}
+
+/** Human name for a SLOT (not a piece): the face colours it touches, e.g.
+ *  "white-green-red corner spot". */
+export function slotName(group: number[]): string {
+  const faces = group.map((i) => (i < 9 ? 'U' : i >= 45 ? 'D' : ['L', 'L', 'L', 'F', 'F', 'F', 'R', 'R', 'R', 'B', 'B', 'B'][(i - 9) % 12]));
+  const names = faces.map((f) => COLOR_NAME[f] ?? f).join('-');
+  return `${names} ${group.length === 3 ? 'corner' : group.length === 2 ? 'edge' : 'centre'} spot`;
+}
+
 /** Each target piece's current cubie coordinate (x,y,z; y: 0=D,1=mid,2=U) + whether solved. */
 export function targetPieceStates(state: Cube3x3, mask: Cube3x3Mask): { coord: readonly [number, number, number]; solved: boolean }[] {
   const arr = state.stateData;

@@ -25,7 +25,7 @@ import {
   type Category,
   type StepDef,
 } from './steps.ts';
-import { nextFocusPiece, placementName, targetPieceStates, type FocusPiece } from './pieces.ts';
+import { locatePieceNow, nextFocusPiece, nextTwoFocusPieces, placementName, slotName, targetPieceStates, type FocusPiece } from './pieces.ts';
 import { humanSolveFromState } from './human-solve.ts';
 import { activePlacement, canonicalIndexIn } from './placement.ts';
 import { classifyRoute, PATTERN_HOW, type PatternName } from './patterns.ts';
@@ -41,6 +41,7 @@ import {
   loadHistory, recordSolve, computeStats,
   loadCourse, saveCourse, courseTrack, courseCurrent, setCourseCurrent, recordCourse,
   courseIntro, bumpCourseIntro,
+  loadLookahead, recordLookahead,
   COURSE_WINDOW, COURSE_TOLERANCE, COURSE_STAR_RATES,
 } from './stats.ts';
 import { axisBad, badEdgeStickers, eoAxisOptimalLen, eoMaskForStep, freeEoHint, isFreeEo } from './eo-axis.ts';
@@ -179,6 +180,8 @@ function classifyCase(start: Cube3x3, s: StepDef, optimal: Move3x3[], mask: Step
 
 // Corner facelets as a set, for the "EO keeps no block" corner-blank test.
 const CORNER_SET = new Set(CORNER_FACELETS);
+// Every facelet — blanks the whole view for the lookahead drill's eyes-closed phase.
+const ALL_FACELETS = new Set(Array.from({ length: 54 }, (_, i) => i));
 import {
   orientLabel,
   rotateHighlight,
@@ -229,6 +232,10 @@ interface State {
   blockEoOrient: number; // 2×2×3+EO: rolled orientation (0..3) — the random long-side colour
   courseSeedTag: PatternName | null; // this scramble is a seeded lesson example (not graded)
   assist: { kind: 'nudge' | 'move' | 'ideal'; moves: Move3x3[]; focus: FocusPiece | null; pattern: PatternName | null } | null;
+  /** Lookahead rep: plan the join while predicting z; view is blanked until the
+   *  answer tap. z is the second piece the taught route places. */
+  predict: { z: FocusPiece; joinDesc: string } | null;
+  predictResult: { stickers: number[] } | null; // transient reveal highlight (cleared on next move)
   learn: { moves: Move3x3[]; baseLen: number } | null; // guided ideal replay
   lastResult: {
     step: string; used: number; optimal: number | null; yourMoves: Move3x3[]; idealMoves: Move3x3[]; case?: string;
@@ -447,6 +454,8 @@ function startScramble(base: Cube3x3, baseHistory: Move3x3[], explicit?: Move3x3
     blockEoOrient,
     courseSeedTag,
     assist: null,
+    predict: null,
+    predictResult: null,
     learn: null,
     lastResult: state?.lastResult ?? null,
     connected: state?.connected ?? false,
@@ -511,6 +520,7 @@ function afterLearnMove() {
 }
 
 function afterChange() {
+  state.predictResult = null; // the answer-reveal highlight lives until the next turn
   if (state.mode === 'scramble') {
     // Track the furthest on-track scramble position (monotonic across off-track
     // excursions): used for green progress and off-track red, recovery-friendly.
@@ -690,6 +700,7 @@ function checkStepCompletion() {
     lastRecord = { history: false };
     state.stepDone[state.stepIndex] = true;
     state.assist = null;
+    state.predict = null; // a completed step makes the rep stale
     state.status = `${s.label} done!`;
     if (optimalArr) {
       const single = steps().length === 1;
@@ -1255,6 +1266,46 @@ function idealFromStart(): number | null {
   return idealLen(state.stepStartCube, s);
 }
 
+// --- lookahead drill (eyes-closed predict-z) ---
+// Plan the next join while predicting where the piece AFTER it ends up: the
+// view blanks, you execute on the real cube, then tap the spot you believe z
+// reached. The tracked state is the referee — no honour system needed.
+function startPredict() {
+  const s = currentStep();
+  if (!s || s.kind !== 'block' || state.mode !== 'solve') return;
+  const route = continuation();
+  const two = route.length ? nextTwoFocusPieces(state.cube, activeMask(s), route) : null;
+  if (!two) { state.status = 'Nothing to look ahead to — fewer than two pieces left.'; render(); return; }
+  state.assist = null;
+  state.predict = { z: two.second, joinDesc: two.first.description };
+  state.status = `Lookahead: place the ${two.first.description} while predicting the ${two.second.description}. Execute, then tap where it ended up — the view is blanked.`;
+  render();
+}
+function cancelPredict() {
+  state.predict = null;
+  state.status = 'Lookahead cancelled.';
+  render();
+}
+function answerPredict(viewIdx: number) {
+  const p = state.predict;
+  if (!p) return;
+  const modelIdx = solveFrame() ? [...rotateHighlight(new Set([viewIdx]), solveRotation())][0] : viewIdx;
+  const tapped = CUBIES.find((g) => g.includes(modelIdx));
+  if (!tapped) return;
+  const actual = locatePieceNow(state.cube, p.z.home);
+  // Slot identity by coordinate — tapped groups and locate() results come from
+  // different arrays, so reference equality would never hold.
+  const ok = NET_COORDS[tapped[0]].join(',') === NET_COORDS[actual[0]].join(',');
+  const la = recordLookahead(ok);
+  const rate = la.recent.length ? Math.round((100 * la.recent.filter(Boolean).length) / la.recent.length) : 0;
+  state.predict = null;
+  state.predictResult = { stickers: actual };
+  state.status = ok
+    ? `✓ Right — the ${p.z.description} is at the ${slotName(actual)}. (${rate}% over last ${la.recent.length})`
+    : `✗ The ${p.z.description} is at the ${slotName(actual)}, not the ${slotName(tapped)}. (${rate}% over last ${la.recent.length})`;
+  render();
+}
+
 function assist(kind: 'nudge' | 'move' | 'ideal') {
   const s = currentStep();
   if (!s) return;
@@ -1364,6 +1415,9 @@ function buildTopBar(): HTMLElement {
   if (state.showStats) { statsBtn.style.borderColor = 'var(--accent)'; statsBtn.style.fontWeight = '600'; statsBtn.style.color = 'var(--accent)'; }
   statsBtn.title = state.showStats ? 'Close stats' : 'Show stats';
   top.appendChild(statsBtn);
+  const help = iconBtn('?', () => window.open('https://github.com/ianjohndawson/smartcube-gym/blob/main/MANUAL.md', '_blank'));
+  help.title = 'User manual';
+  top.appendChild(help);
   top.appendChild(iconBtn('⚙', () => { state.showSettings = true; render(); }));
   return top;
 }
@@ -1442,14 +1496,17 @@ function buildCubePanel(s: StepDef | null): HTMLElement {
   const p = el('div', 'panel grow');
   p.appendChild(el('div', 'panel-hd', 'Cube view'));
   const wrap = el('div', 'cube-wrap');
-  // Tap-to-aim: on the free 2×2×2 steps, tapping a corner pins the coaching to
-  // that octant (pinPlacementAt). Armed only mid-solve, either view.
-  const aimable = state.mode === 'solve' && !state.learn && !!s && s.kind === 'block' && s.family === '222' && s.candidateMasks.length > 1;
-  if (aimable) {
+  // Sticker taps serve two flows: answering a lookahead rep (priority), and
+  // tap-to-aim on the free 2×2×2 steps (pinPlacementAt). Armed mid-solve, either view.
+  const predicting = !!state.predict;
+  const aimable = !predicting && state.mode === 'solve' && !state.learn && !!s && s.kind === 'block' && s.family === '222' && s.candidateMasks.length > 1;
+  if (aimable || predicting) {
     wrap.classList.add('pickable');
     wrap.addEventListener('click', (e) => {
       const t = (e.target as HTMLElement).closest('[data-facelet-index]') as HTMLElement | null;
-      if (t?.dataset.faceletIndex) pinPlacementAt(Number(t.dataset.faceletIndex), s!);
+      if (!t?.dataset.faceletIndex) return;
+      if (predicting) answerPredict(Number(t.dataset.faceletIndex));
+      else pinPlacementAt(Number(t.dataset.faceletIndex), s!);
     });
   }
   let highlight: Set<number> | null = null;
@@ -1465,13 +1522,16 @@ function buildCubePanel(s: StepDef | null): HTMLElement {
     }
     else if (state.assist.focus) { highlight = new Set(state.assist.focus.current); note = `highlighted: the ${state.assist.focus.description}`; }
   }
+  // Lookahead answer reveal: show where the piece actually is (model frame).
+  if (state.predictResult) { highlight = new Set(state.predictResult.stickers); note = 'highlighted: where it actually is'; }
   if (solveFrame() && highlight) highlight = rotateHighlight(highlight, solveRotation());
   // Blank the corners for any EO step that keeps no block — corner state is
   // irrelevant to edge orientation, so it's hidden for Full EO, EOLine and
   // EOCross alike. A block-preserving EO step (Petrus / the eo123·eo223 drills)
   // has corner facelets in its target, so its corners stay visible.
   const pureEo = s?.kind === 'eo' && !s.canonicalMask.solvedFaceletIndices.some((i) => CORNER_SET.has(i));
-  const blank = pureEo ? new Set(CORNER_FACELETS) : null;
+  // Lookahead rep: the whole view blanks — you're predicting, not reading.
+  const blank = state.predict ? ALL_FACELETS : pureEo ? new Set(CORNER_FACELETS) : null;
   const facelets = solveFrame() ? rotatedFacelets(state.cube, solveRotation()) : faceletString(state.cube);
   // Same facelets/highlight/blank feed either view; the toggle only picks the shape.
   wrap.appendChild(cubeView === '3d' ? renderCube3D(facelets, highlight, blank) : renderCubeNet(facelets, highlight, blank));
@@ -1483,7 +1543,9 @@ function buildCubePanel(s: StepDef | null): HTMLElement {
   const holdNote = s?.hold
     ? s.hold
     : `${solveFrame() ? `hold ${orientLabel(solveRotation())}` : 'hold white-up / green-front'}${s ? ` · ${s.label} target` : ''}`;
-  const aimNote = aimable ? ' · tap a corner to aim your block there' : '';
+  const aimNote = predicting
+    ? ' · lookahead: execute, then tap where the piece ended up'
+    : aimable ? ' · tap a corner to aim your block there' : '';
   p.appendChild(el('div', 'meter-cap', note || holdNote + aimNote));
   return p;
 }
@@ -1579,6 +1641,11 @@ function buildActions(s: StepDef | null): HTMLElement {
   actions.appendChild(btn('Hint', () => assist('nudge'), 'btn default', !solving));
   actions.appendChild(btn('Next move', () => assist('move'), 'btn', !solving));
   actions.appendChild(btn('Show ideal', () => assist('ideal'), 'btn', !solving));
+  // Lookahead rep (block steps): predict where the next-but-one piece lands.
+  if (solving && s!.kind === 'block' && !state.predict && !state.learn) {
+    actions.appendChild(btn('Lookahead', startPredict, 'btn'));
+  }
+  if (state.predict) actions.appendChild(btn('Cancel lookahead', cancelPredict, 'btn ghost'));
   // Once the ideal is revealed (assist === 'ideal'), offer to try it: "Walk it
   // through" hands the cube back to the step start, then guides the moves. Only
   // surfaced while solving and only when there's actually a solution shown.
@@ -1807,6 +1874,15 @@ function buildStatsBody(): HTMLElement {
 
   // Course progress — stars climbed per track (always shown).
   wrap.appendChild(buildCourseStats());
+
+  // Lookahead drill accuracy (predict-z reps).
+  const la = loadLookahead();
+  if (la.attempts) {
+    const sect = el('div', 'stat-sect');
+    const rate = la.recent.length ? Math.round((100 * la.recent.filter(Boolean).length) / la.recent.length) : 0;
+    sect.appendChild(el('div', 'sh', `lookahead · ${la.correct}/${la.attempts} all-time · ${rate}% over last ${la.recent.length}`));
+    wrap.appendChild(sect);
+  }
 
   if (!st.solves) {
     wrap.appendChild(el('div', 'blurb', 'No solves logged yet. Finish a step to start tracking efficiency.'));
@@ -2057,8 +2133,12 @@ const savedTrainer = store.getRaw('last-trainer');
 state = freshTrainer(trainerById(savedTrainer ?? 'course222').id);
 render();
 
-// Hidden test hook (Manual Moves panel was removed from the UI).
-(window as unknown as { gym: unknown }).gym = { apply: (s: string) => handleManualMoves(s) };
+// Hidden test hook (Manual Moves panel was removed from the UI). predictTarget
+// exposes the live lookahead answer so the e2e checks can tap the right spot.
+(window as unknown as { gym: unknown }).gym = {
+  apply: (s: string) => handleManualMoves(s),
+  predictTarget: () => (state.predict ? locatePieceNow(state.cube, state.predict.z.home) : null),
+};
 
 // Tick the live timer (timed mode) without a full re-render.
 setInterval(() => {

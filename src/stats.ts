@@ -36,6 +36,21 @@ export function computeStats() {
   return { solves, avgOverIdeal, optimalPct, bestStreak: best, last12: extras.slice(-12), byStep, bestMs, avgMs, lastTimes };
 }
 
+// --- lookahead drill tally ---
+// One record per prediction rep: was the tapped slot where the piece really was?
+export interface LookaheadStats { attempts: number; correct: number; recent: number[]; }
+export function loadLookahead(): LookaheadStats {
+  return store.getJSON<LookaheadStats>('lookahead', { attempts: 0, correct: 0, recent: [] });
+}
+export function recordLookahead(ok: boolean): LookaheadStats {
+  const la = loadLookahead();
+  la.attempts += 1;
+  if (ok) la.correct += 1;
+  la.recent = [...la.recent, ok ? 1 : 0].slice(-20);
+  store.setJSON('lookahead', la);
+  return la;
+}
+
 // --- course progress ---
 // Levels are cleared by CONSISTENCY, not a single average: over the last
 // COURSE_WINDOW solves, what fraction were "clean" (move-waste = used − optimal

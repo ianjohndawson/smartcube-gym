@@ -35,6 +35,51 @@ change.
 
 ---
 
+## Done (2026-07) — the block-building arc
+
+Five commits (`2632a10..`): placement-aware coaching, 3D view, planning,
+pattern vocabulary, curated course, lookahead drill. Eleven harnesses in
+`npm run check`. Highlights:
+
+- **Placement-aware core** (`src/placement.ts` + main wiring): coaching follows
+  the placement the user is building (whole-piece hysteresis pick); completion
+  acceptance unchanged. Journey pinned to canonical until journeys get their pass.
+- **Solver finding:** the vendored IDDFS caps at 1e6 visited nodes; pd-4 tables
+  made deep 2×2×3 searches return NULL on 11% of real scrambles (and burn up to
+  5s). 223 configs now pd5. `idealLen` memoized; null optimal renders '?' and
+  skips Stats/course.
+- **3D cube view** (`renderCube3D`, CSS-3D, zero deps): CrystalCube-style hint
+  panels (4u, flat ≥34u perspective — stronger perspective occludes the back
+  panel), highlight rings mirrored to hints, camera survives re-renders.
+  Settings › Cube view (3D default / flat net), all categories.
+- **Planning:** review ranks placements ("cheapest was X (4) — you built Y (6)";
+  222/123; 223 needs a worker), tap-a-corner pins the coaching (222), inspection
+  time recorded (HistRec.insp) + per-move gaps (HistRec.gaps) since P0.
+- **Pattern vocabulary** (`src/patterns.ts`): the 8 Lars Petrus block patterns as
+  route-event classification; all 21 cases from the source page classify as
+  themselves and only themselves (`scripts/patterns-check.ts`). Hints name the
+  pattern; review tags ideal + yours.
+- **Curated course** (course222): lessons keyed to patterns with seeded examples
+  (`src/cases.ts`, excluded from grading) + generated same-technique practice.
+  Named shapes are near-completion situations → lessons use SHORT scrambles
+  (len 5–10). `humanSolveFromState` gained `rankCount` (generation passes 16:
+  22ms/attempt vs ~600ms at the teaching default 96).
+- **Lookahead drill:** mid-solve "Lookahead" on block steps — plan the join,
+  predict the next-but-one piece, view blanks, execute, tap where it ended up;
+  verified against tracked state; accuracy tally in Stats.
+
+### Follow-ups from the arc
+- 2×2×3 placement ranking + ranked human-solve in a Web Worker (its 12 pd5
+  tables are ~1.6s each); 1×2×3 tap-to-aim needs a two-tap picker.
+- Lookahead ladder: longer sequences, multi-piece, whole-block reconstruction;
+  hesitation map from the accrued `gaps` data.
+- Course L3 seeds are all Broken corner (re-harvest for variety); category+
+  trainer navigation double-resets and can burn two lesson examples.
+- Journeys deep-dive (placement-aware chains; vertical 2×2×3s need the U/D EO
+  axis — same build as the Roux LSE blocker below).
+
+---
+
 ## Remaining — TODO
 
 ### H2 step 5 — `view/` extraction (deferred; NOT a pure move)
@@ -77,7 +122,8 @@ pure move), so left as a deliberate follow-up.
   `blockEoAxis`); main.ts branches gated by `isBlockEo`. The Petrus **journey** EO step
   (`petrus-eo`) is deliberately left as-is (block-building + journeys are a separate
   deep-dive). Guarded by `scripts/block-eo-check.ts` in `npm run check`.
-- Curated worked-example cases (Petrus PDF); colour-neutral tier; ZZ/LEOR/APB journeys.
+- ZZ/LEOR/APB journeys (colour-neutral/"any placement" now largely covered by
+  the placement-aware core; curated cases shipped as the course222 lessons).
 
 ---
 

@@ -25,6 +25,7 @@ export type Key =
   | 'block-eo-method'
   | 'cube-view'
   | 'history'
+  | 'lookahead'
   | 'course'
   | 'last-trainer'
   | 'cube-mac'
