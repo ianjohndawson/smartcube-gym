@@ -13,6 +13,8 @@ SmartCube Gym is a browser-based training platform for intuitive Rubik's Cube me
 
 Connect a compatible smart cube and receive live, solver-driven feedback while you practise.
 
+**📖 [User manual](MANUAL.md)** — every option explained, and how to train with them to best effect (also behind the `?` button in the app).
+
 ---
 
 ## Why SmartCube Gym?
