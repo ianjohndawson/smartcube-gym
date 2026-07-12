@@ -18,7 +18,7 @@ let n = 0, fail = 0;
 
 // Block-preserving EO steps: humanSolve must equal plain optimal, and reach the mask.
 // (eo223 is now the unified 2×2×3+EO, whose canonicalMask carries the orient-0 EO orbit.)
-for (const id of ['eo123', 'eo223', 'petrus-eo']) {
+for (const id of ['eo123', 'eo223']) {
   const step = stepById(id);
   const mask = step.canonicalMask;
   for (let t = 0; t < 40; t++) {

@@ -43,7 +43,7 @@ pattern vocabulary, curated course, lookahead drill. Eleven harnesses in
 
 - **Placement-aware core** (`src/placement.ts` + main wiring): coaching follows
   the placement the user is building (whole-piece hysteresis pick); completion
-  acceptance unchanged. Journey pinned to canonical until journeys get their pass.
+  acceptance unchanged.
 - **Solver finding:** the vendored IDDFS caps at 1e6 visited nodes; pd-4 tables
   made deep 2×2×3 searches return NULL on 11% of real scrambles (and burn up to
   5s). 223 configs now pd5. `idealLen` memoized; null optimal renders '?' and
@@ -75,8 +75,6 @@ pattern vocabulary, curated course, lookahead drill. Eleven harnesses in
   hesitation map from the accrued `gaps` data.
 - Course L3 seeds are all Broken corner (re-harvest for variety); category+
   trainer navigation double-resets and can burn two lesson examples.
-- Journeys deep-dive (placement-aware chains; vertical 2×2×3s need the U/D EO
-  axis — same build as the Roux LSE blocker below).
 
 ---
 
@@ -119,11 +117,18 @@ pure move), so left as a deliberate follow-up.
   orientations (a random long-side colour); the app KNOWS the roll, so detection is one
   determined mask (`isBlockEoSolved`, colour-identified) — not "accept any". State:
   `state.blockEoOrient`; module `block-eo.ts` (`blockEoTarget`/`blockEoDisplayRots`/
-  `blockEoAxis`); main.ts branches gated by `isBlockEo`. The Petrus **journey** EO step
-  (`petrus-eo`) is deliberately left as-is (block-building + journeys are a separate
-  deep-dive). Guarded by `scripts/block-eo-check.ts` in `npm run check`.
-- ZZ/LEOR/APB journeys (colour-neutral/"any placement" now largely covered by
-  the placement-aware core; curated cases shipped as the course222 lessons).
+  `blockEoAxis`); main.ts branches gated by `isBlockEo`. Guarded by
+  `scripts/block-eo-check.ts` in `npm run check`.
+- **Journey category REMOVED (2026-07-12).** A complete method journey needs
+  the algorithmic last layer (CMLL/ZBLL/OCLL+PLL/…), which is explicitly out of
+  this app's mission (see CLAUDE.md — not an algorithm trainer) and already
+  well served elsewhere. The one distinguishing value it had — practising the
+  transition between steps without resetting — is real but better delivered
+  later as a feature ON Blocks/EO (chain into the next step without a reset)
+  than as a separate, permanently-incomplete category. Cut: the `petrus`
+  Journey trainer, the `Journey` category, `STEP_PETRUS_EO`/`MASK_223_EO`,
+  `buildJourneyPanel`, and the orphaned `scripts/petrus-eo-check.ts` probe
+  (a pre-registry exploration script, never wired into `npm run check`/CI).
 
 ---
 

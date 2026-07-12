@@ -64,7 +64,7 @@ track you along it.
   hint, which always shows a correct path from wherever you are). While solving,
   the scramble is hidden (it is the solution in reverse!).
 - **Cube view** — the live model (see below).
-- **Course / Journey panel** — level chips with stars and lock state, plus
+- **Course panel** — level chips with stars and lock state, plus
   example/grading progress for the current level.
 - **Right pane** — the action buttons, the step meter (moves used vs ideal, or
   the timer), and the output console where hints and solutions appear. After a
@@ -142,12 +142,6 @@ turn of F/B (for the standard axis) — the hint explains per case.
 - **2×2 → 2×2×3** — the scramble pre-builds a 2×2×2; extend it.
 - **1×2×3 L** — a first block against any face (Roux/LEOR).
 - **1×2×3 R (L solved)** — the Roux second block, left block pre-built.
-
-### Journey — method openings, chained
-
-- **Petrus** — 2×2×2 → 2×2×3 → EO keeping the block, on one scramble. For now
-  the journey pins the canonical spot (down-front-left, white up / green front)
-  — the hold note reminds you. The review covers the final step.
 
 ## Training modes
 

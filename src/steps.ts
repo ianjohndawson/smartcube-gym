@@ -15,7 +15,7 @@ import type { PatternName } from './patterns.ts';
 import { MOVESETS, type Cube3x3Mask, type Move3x3, type StepSolverConfig } from './engine-api.ts';
 import { MASKS } from './engine/puzzles/cube3x3/index.ts';
 
-export type Category = 'Course' | 'EO' | 'Blocks' | 'Journey';
+export type Category = 'Course' | 'EO' | 'Blocks';
 export type BlockFamily = '222' | '223' | '123';
 export type StepKind = 'block' | 'eo';
 
@@ -109,13 +109,6 @@ const U_LINE_GB = [1, 7, 13, 19]; // UF + UB — the blue (gb) bottom line on th
 const EOLINE_MASK: Cube3x3Mask = { solvedFaceletIndices: [...EO_CENTERS, ...U_LINE_GB], eoFaceletIndices: EO_FACELETS };
 const EOCROSS_MASK: Cube3x3Mask = { solvedFaceletIndices: [...EO_CENTERS, ...U_CROSS], eoFaceletIndices: EO_FACELETS };
 
-// Petrus EO: orient all edges while keeping the 2×2×3. Target = the 2×2×3 block
-// AND every edge oriented; the optimal solver may break the block mid-solution
-// but must restore it (that's exactly the real Petrus EO step).
-const MASK_223_EO: Cube3x3Mask = {
-  solvedFaceletIndices: MASK_223_BOTTOM_LEFT.solvedFaceletIndices,
-  eoFaceletIndices: EO_FACELETS,
-};
 const MASK_123_EO: Cube3x3Mask = {
   solvedFaceletIndices: MASK_123_LEFT.solvedFaceletIndices,
   eoFaceletIndices: EO_FACELETS,
@@ -149,13 +142,6 @@ const STEP_EOCROSS: StepDef = {
   hold: 'Yellow on top; orient on the F/B axis while building the bottom (white) cross (ZZ).',
   // Optimal EOCross from a real scramble tops out ~9 HTM; 12 is a safe ceiling.
   solver: { moveSet: BLOCK_MOVES, pruningDepth: 5, depthLimit: 12 },
-};
-const STEP_PETRUS_EO: StepDef = {
-  id: 'petrus-eo', label: 'EO (keep the block)', kind: 'eo',
-  blurb: 'Orient all 12 edges while keeping your 2×2×3 intact — the Petrus EO step.',
-  candidateMasks: [MASK_223_EO], canonicalMask: MASK_223_EO,
-  hold: 'Keep the 2×2×3 intact and orient edges on the F/B axis (Petrus holds the block at the back).',
-  solver: { moveSet: BLOCK_MOVES, pruningDepth: 5, depthLimit: 14 },
 };
 // Standalone drills: the scramble pre-builds the block (prereqMask), leaving only EO to do.
 // Unified 2×2×3 + EO (APB + Petrus). The oriented target is ONE canonical state — a
@@ -219,16 +205,6 @@ const COURSE_123: CourseBand[] = [
   { label: 'L4 · full', min: 11, max: 99 },
 ];
 
-// Journey steps are pinned to the canonical placement (the free-placement
-// candidates are stripped): each later step's target — and the EO step's F/B
-// axis — is built on the canonical bottom-left block, so accepting a free
-// placement mid-journey would make the next step unreachable (a right-side
-// 2×2×3 can never satisfy the bottom-left 2×2×3+EO mask). The placement-aware
-// pass will lift this restriction.
-function pinned(s: StepDef, hold: string): StepDef {
-  return { ...s, candidateMasks: [s.canonicalMask], hold };
-}
-
 export const TRAINERS: TrainerDef[] = [
   // Course — graded block-building ladders (the founding objective).
   { id: 'course222', label: '2×2×2', category: 'Course', description: 'Graded 2×2×2 course — levels by optimal move count; clear by efficiency to unlock the next.', steps: [STEP_222], course: COURSE_222 },
@@ -249,16 +225,9 @@ export const TRAINERS: TrainerDef[] = [
   { id: 'b222', label: '2×2', category: 'Blocks', description: 'Build a 2×2×2 corner block.', steps: [STEP_222] },
   { id: 'b223ext', label: '2×2 → 2×2×3', category: 'Blocks', description: 'Extend a finished 2×2×2 into a 2×2×3.', steps: [STEP_223_EXT] },
   { id: 'b223', label: '2×2×3', category: 'Blocks', description: 'Build a 2×2×3 from a scramble — any route.', steps: [STEP_223] },
-
-  // Journeys — full method openings, chained onto one scramble.
-  { id: 'petrus', label: 'Petrus', category: 'Journey', description: 'Build a 2×2×2, expand to a 2×2×3, then orient all edges keeping the block. The journey builds on the down-front-left spot.', steps: [
-    pinned(STEP_222, 'Journey: build the 2×2×2 at down-front-left (white up, green front) — the next steps grow from that spot.'),
-    pinned(STEP_223, 'Journey: extend your block along the back into the bottom-left 2×2×3.'),
-    STEP_PETRUS_EO,
-  ] },
 ];
 
-export const CATEGORIES: Category[] = ['Course', 'EO', 'Blocks', 'Journey'];
+export const CATEGORIES: Category[] = ['Course', 'EO', 'Blocks'];
 
 export function trainersIn(category: Category): TrainerDef[] {
   return TRAINERS.filter((t) => t.category === category);

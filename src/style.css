@@ -758,7 +758,7 @@ html[data-theme='borland'] .c3-face { border-radius: 0; } /* square plastic to m
   @keyframes c3-pulse { 50% { filter: brightness(1.28); } }
 }
 
-/* ── Journey chips ───────────────────────────────────────────────────────── */
+/* ── Chip lists (course levels, …) ───────────────────────────────────────── */
 .chips { display: flex; gap: 10px; }
 .chip { flex: 1 1 0; min-width: 0; border: var(--chip-border); border-radius: var(--ctl-r); padding: 8px 12px; background: var(--chip-bg); }
 .chip.active { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }

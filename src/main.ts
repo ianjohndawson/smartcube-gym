@@ -1369,7 +1369,6 @@ function render() {
   left.appendChild(buildScramblePanel());
   left.appendChild(buildCubePanel(s));
   if (trainer().course) left.appendChild(buildCoursePanel());
-  else if (steps().length > 1) left.appendChild(buildJourneyPanel());
   main.appendChild(left);
 
   const right = el('div', 'panel grow');
@@ -1444,7 +1443,7 @@ function buildStepBar(): HTMLElement {
 }
 function buildToolbar(): HTMLElement {
   const tb = el('div', 'toolbar');
-  // Category (EO / Block building / Journey)
+  // Category (Course / EO / Block building)
   const cs = el('div', 'seg');
   for (const c of CATEGORIES) cs.appendChild(segBtn(catLabel(c), () => selectCategory(c), state.category === c));
   tb.appendChild(cs);
@@ -1590,23 +1589,6 @@ function buildCoursePanel(): HTMLElement {
     recent.length
       ? `${clean}/${recent.length} clean (≤ +${COURSE_TOLERANCE}) · clear at ${Math.round(COURSE_STAR_RATES[0] * 100)}% over ${COURSE_WINDOW}`
       : `solve ${COURSE_WINDOW} here to be graded · "clean" = within +${COURSE_TOLERANCE} of optimal`));
-  return p;
-}
-
-function buildJourneyPanel(): HTMLElement {
-  const p = el('div', 'panel');
-  p.appendChild(el('div', 'panel-hd', 'Journey'));
-  const chips = el('div', 'chips');
-  const solving = state.mode === 'solve';
-  steps().forEach((st, i) => {
-    const isCur = solving && i === state.stepIndex;
-    const cls = state.stepDone[i] ? 'done' : isCur ? 'active' : '';
-    const c = el('div', `chip ${cls}`);
-    c.appendChild(el('div', 'nm', `${i + 1}. ${st.label}`));
-    c.appendChild(el('div', 'st', state.stepDone[i] ? '✓ done' : isCur ? '» in progress' : '· upcoming'));
-    chips.appendChild(c);
-  });
-  p.appendChild(chips);
   return p;
 }
 
