@@ -221,6 +221,10 @@ interface State {
   pendingLearn: boolean; // after this setup completes, start the ideal walkthrough
   history: Move3x3[]; // all moves from solved
   historyValid: boolean; // false after a hard resync (history unknown) — hints need it
+  /** Set when the pending setup provably passes THROUGH solved (the example
+   *  unwind): once it lands, the history is replaced by this equivalent
+   *  from-solved sequence, so it stops accumulating across the session. */
+  historyResetTo: Move3x3[] | null;
   stepStartHistory: Move3x3[];
   stepStartCube: Cube3x3; // live cube state at the start of the current step (for state-based ideal/scoring)
   movesThisStep: Move3x3[];
@@ -543,6 +547,7 @@ function startScramble(base: Cube3x3, baseHistory: Move3x3[], explicit?: Move3x3
     // History is trustworthy only if it actually reproduces the base from solved
     // (false after a resync that restarts from the cube's true state).
     historyValid: applyMoves(newSolved(), baseHistory).encode() === base.encode(),
+    historyResetTo: null,
     stepStartHistory: [...baseHistory],
     stepStartCube: base,
     movesThisStep: [],
@@ -639,6 +644,16 @@ function afterChange() {
     for (let k = 0; k < state.prefixEncodes.length; k++) if (state.prefixEncodes[k] === cur) state.scrambleReached = k;
     if (state.cube.encode() === state.target.encode()) {
       state.mode = 'solve';
+      // A setup that ran back through solved (the example unwind) leaves the
+      // cube at exactly `solved + seed`, so the long accumulated history can be
+      // replaced by that short equivalent. Done BEFORE the step/solve indices
+      // below are captured, so every downstream slice stays consistent — and it
+      // keeps the next unwind short instead of growing all session.
+      if (state.historyResetTo) {
+        state.history = [...state.historyResetTo];
+        state.historyResetTo = null;
+        state.historyValid = true;
+      }
       state.stepStartHistory = [...state.history];
       state.stepStartCube = state.cube;
       state.movesThisStep = [];
@@ -1526,6 +1541,58 @@ function startLessonSolve() {
   // independent / done: the generic "Scrambled!" status stands.
 }
 
+// Serve the next curated example ON DEMAND, from wherever the cube is.
+//
+// Seeds are from-SOLVED scrambles, so they can only be applied to a solved
+// cube. Left to the automatic path that means a learner sees roughly one
+// example per lesson: after the first practice rep the cube is no longer
+// solved, and once the guided gate is met the observe phase never returns.
+// A Foundations beginner usually cannot solve the cube back by hand, so the
+// examples would simply become unreachable — the opposite of inviting.
+//
+// The fix uses the app's own idiom (never teleport the model; hand back moves
+// the learner physically applies): ONE tracked setup = undo the history back
+// to solved, then the seed's scramble. The scramble panel guides it move by
+// move, self-healing, exactly like any other scramble.
+function examplesLeft(): number {
+  const def = activeLessonDef();
+  if (!def) return 0;
+  return Math.max(0, lessonSeedsFor(def.id).length - lessonProgFor(state.trainerId, def.id).observed);
+}
+// Longest setup worth handing a beginner; beyond it, ask for a reset instead.
+const MAX_EXAMPLE_SETUP = 40;
+function watchExample() {
+  const def = activeLessonDef();
+  if (!def) return;
+  const seeds = lessonSeedsFor(def.id);
+  const prog = lessonProgFor(state.trainerId, def.id);
+  const sc = seeds[prog.observed];
+  if (!sc) { state.status = 'You have seen every example for this lesson.'; render(); return; }
+  const seedMoves = parseMoves(sc.scramble);
+  const solvedNow = faceletString(state.cube) === SOLVED_STR;
+  if (!solvedNow && !state.historyValid) {
+    state.status = 'I have lost track of your cube. Solve it, then press “Reset Cube” to see the next example.';
+    render();
+    return;
+  }
+  // Undo everything back to solved, then apply the seed — as one sequence.
+  const setup = solvedNow ? seedMoves : simplifyMoves([...invertSeq(state.history), ...seedMoves]);
+  if (setup.length > MAX_EXAMPLE_SETUP) {
+    state.status = 'That would be a long way back. Solve your cube, then press “Reset Cube” for the next example.';
+    render();
+    return;
+  }
+  state = startScramble(state.cube, state.history, setup);
+  state.lessonRep = { example: true, consumed: false, note: sc.note ?? null };
+  // The setup ends at `solved + seed` either way, so once applied the history
+  // is exactly the seed — see afterChange.
+  state.historyResetTo = seedMoves;
+  state.status = solvedNow
+    ? `Example — ${sc.note ?? 'watch the ideal route'}. Apply the scramble first.`
+    : `Apply the ${setup.length} moves above: they return your cube to solved and set up the example.`;
+  render();
+}
+
 // Per-move contextual coaching. CHEAP GEOMETRY ONLY — piece diffs, the
 // pair-joined test and prereq intactness; never a solver call (a 2×2×3 solve
 // costs ~130ms and this runs on every turn). Intactness is TRACKED in every
@@ -1991,9 +2058,20 @@ function buildFoundationsPanel(): HTMLElement {
   if (prog.done && cur === defs.length - 1) {
     p.appendChild(el('div', 'meter-cap', 'Foundations complete 🏆 — continue in Course › 2×2×3 or the free Blocks drills.'));
   } else if (phase === 'observe') {
-    p.appendChild(el('div', 'meter-cap', 'Examples are demonstrations — watch or walk them through; nothing is graded. The next example needs a solved cube.'));
+    p.appendChild(el('div', 'meter-cap', 'Examples are demonstrations — watch one, or walk it through on your cube. Nothing here is graded.'));
   } else {
     p.appendChild(el('div', 'meter-cap', 'A rep counts once you finish without “Show ideal” — Hint and Next move are always fair game.'));
+  }
+  // Examples stay available in EVERY phase — skipping ahead never locks them
+  // away, and you don't need to be able to solve the cube to get back to one.
+  // Hidden while an unapplied example is already on the board.
+  const left = examplesLeft();
+  const exampleOnBoard = !!state.lessonRep?.example && !state.lessonRep.consumed;
+  if (left > 0 && !exampleOnBoard) {
+    const row = el('div', 'row');
+    row.style.marginTop = '10px';
+    row.appendChild(btn(`Watch an example (${left} left)`, watchExample, 'btn'));
+    p.appendChild(row);
   }
   return p;
 }
@@ -2143,6 +2221,9 @@ function buildLessonReview(right: HTMLElement, r: NonNullable<State['lastResult'
   row.style.marginTop = '14px';
   row.appendChild(btn('Learn the ideal', learnFromReview, 'btn default'));
   row.appendChild(btn('Try again', tryAgain, 'btn'));
+  // Chain straight into the next demonstration after an example — the moment
+  // it's most wanted, and when the way back to solved is shortest.
+  if (li.example && examplesLeft() > 0) row.appendChild(btn('Next example', watchExample, 'btn'));
   row.appendChild(btn('Next scramble', nextScramble, 'btn'));
   if (!li.example) row.appendChild(btn('Discard', discardLastSolve, 'btn ghost'));
   right.appendChild(row);
@@ -2643,6 +2724,10 @@ render();
     const piece = blockPiecesFor(s.canonicalMask).find((g) => g.length === want);
     return piece ? locatePieceNow(state.cube, piece) : null;
   },
+  // MODEL-frame moves. `apply` translates display→model whenever the step
+  // holds a rotated frame (the EO trainers), so feeding this straight back
+  // would double-translate there — pass the DISPLAYED solution text instead.
+  // Block steps hold no rotation by default, so round-tripping is safe.
   ideal: () => { const s = currentStep(); return s ? idealRoute(state.cube, s) : []; },
 };
 

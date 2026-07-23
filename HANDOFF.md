@@ -156,8 +156,20 @@ another pair is already riding; correct, if occasionally deadpan).
 - Track 3: 1×2×3 Foundations (Roux/LEOR) via the same LessonDef registry.
 - Phase 3 renames: position `course223` as the post-Foundations practice
   ladder; graduation cross-links.
-- Observe examples need a solved cube mid-session; consider an unwind-to-solved
-  helper for learners who can't yet solve the whole cube.
+- ~~Observe examples need a solved cube mid-session~~ FIXED 2026-07-23
+  (external review flagged the invitation nuance): **Watch an example** in the
+  Foundations panel (any phase, while unwatched examples remain) and **Next
+  example** in an example's review hand back ONE tracked setup = undo the
+  history back to solved, then the seed's scramble — the app's own
+  never-teleport idiom, so a learner who cannot yet solve the cube can always
+  reach a demonstration. Setups are bounded by `historyResetTo`: a setup that
+  provably runs through solved lets `afterChange` replace the accumulated
+  history with the seed (its exact from-solved equivalent) at the
+  scramble→solve flip, so unwinds stop growing across a session (measured:
+  2nd example 39 moves, 3rd 18 instead of ~55). Over `MAX_EXAMPLE_SETUP` (40)
+  it declines and advises a reset rather than handing over a silly sequence.
+  Examples remain OPTIONAL by design — banking guided successes still moves
+  you on (`derivePhase` puts met gates above unwatched examples).
 - Guided "pair made" narration only fires when the pair forms BEFORE the
   placing move (often simultaneous); narrating off the taught route's segments
   would catch more moments.

@@ -125,8 +125,13 @@ Pick with **Change** in the bar under the title: Category → Trainer → Mode.
   Lessons that pre-build a block outline it with a dashed ring: that is the
   part to protect. The review answers the beginner questions — did I build
   it, did my block survive, which pattern does the taught route use, and what
-  to spot next time. Finish all four lessons, then graduate to the graded
+  to spot next time. Finish all six lessons, then graduate to the graded
   2×2×3 course and the free Blocks drills.
+
+  Examples are always available: **Watch an example** in the Course panel hands
+  you a tracked sequence that returns your cube to solved and sets up the next
+  one, so you never have to be able to solve the cube to see a demonstration.
+  You can also skip them — banking guided successes moves you on regardless.
 
 The graded courses below unlock levels in order. Each level is graded on
 **consistency**, not one lucky solve: over your last 12 graded solves at the
