@@ -104,6 +104,19 @@ export const MASK_223_BOTTOM_LEFT = blockMaskFromRanges([0, 1], [0, 1], [0, 1, 2
 export const MASK_123_LEFT = blockMaskFromRanges([0], [0, 1], [0, 1, 2]); // L-side 1x2x3 (Roux left)
 export const MASK_123_RIGHT = blockMaskFromRanges([2], [0, 1], [0, 1, 2]); // R-side 1x2x3 (Roux right)
 
+// Foundations-course masks: the beginner ladder around MASK_222_DLF's anchor
+// corner (DLF — the orange-green-yellow corner). A *pair* is the corner plus
+// ONE adjacent edge (a 1×1×2 box, two movable pieces); a *2×2×1* is the corner
+// plus both of one face's edges on their centre (a 1×2×2 square — Lars Petrus's
+// smallest named block). Each pair sits inside two of the squares, each square
+// inside the 2×2×2 — the containment chain the course climbs.
+export const MASK_PAIR_DF = blockMaskFromRanges([0, 1], [0], [2]); // DLF corner + DF edge
+export const MASK_PAIR_DL = blockMaskFromRanges([0], [0], [1, 2]); // DLF corner + DL edge
+export const MASK_PAIR_FL = blockMaskFromRanges([0], [0, 1], [2]); // DLF corner + FL edge
+export const MASK_221_FRONT = blockMaskFromRanges([0, 1], [0, 1], [2]); // corner + DF + FL + F centre
+export const MASK_221_BOTTOM = blockMaskFromRanges([0, 1], [0], [1, 2]); // corner + DF + DL + D centre
+export const MASK_221_LEFT = blockMaskFromRanges([0], [0, 1], [1, 2]); // corner + DL + FL + L centre
+
 // The 24 corner facelets (3 per corner). Used to blank corners on the EO view.
 export const CORNER_FACELETS: number[] = (() => {
   const byCoord = new Map<string, number[]>();

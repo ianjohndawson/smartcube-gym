@@ -3,6 +3,7 @@
 // react to a discarded solve (status text, advancing the scramble) stay in main.
 
 import * as store from './storage.ts';
+import { applyRep, emptyLessonProg, popRep, type LessonDef, type LessonPhase, type LessonProg } from './lessons.ts';
 
 // --- stats persistence ---
 // gaps: ms between consecutive solve moves (raw move stream, 10ms grain) — the
@@ -49,6 +50,59 @@ export function recordLookahead(ok: boolean): LookaheadStats {
   la.recent = [...la.recent, ok ? 1 : 0].slice(-20);
   store.setJSON('lookahead', la);
   return la;
+}
+
+// --- Foundations lesson progress ---
+// The beginner course's per-lesson records, under their OWN key so the graded
+// `course` records stay byte-identical for existing users. All gate math lives
+// in lessons.ts (pure); this layer only loads, applies and saves.
+export interface FoundationsTrack { current: number; lessons: Record<string, LessonProg>; }
+export type FoundationsProg = Record<string, FoundationsTrack>;
+
+export function loadFoundations(): FoundationsProg {
+  return store.getJSON<FoundationsProg>('foundations', {});
+}
+export function saveFoundations(p: FoundationsProg) { store.setJSON('foundations', p); }
+export function foundationsTrack(trainerId: string): FoundationsTrack {
+  return loadFoundations()[trainerId] ?? { current: 0, lessons: {} };
+}
+export function lessonProgFor(trainerId: string, lessonId: string): LessonProg {
+  return foundationsTrack(trainerId).lessons[lessonId] ?? emptyLessonProg();
+}
+export function setFoundationsCurrent(trainerId: string, idx: number) {
+  const p = loadFoundations();
+  const t = p[trainerId] ?? { current: 0, lessons: {} };
+  t.current = idx;
+  p[trainerId] = t;
+  saveFoundations(p);
+}
+/** An observe example was actually applied (scramble completed) — consume it. */
+export function bumpLessonObserved(trainerId: string, lessonId: string) {
+  const p = loadFoundations();
+  const t = p[trainerId] ?? { current: 0, lessons: {} };
+  const lp = t.lessons[lessonId] ?? emptyLessonProg();
+  lp.observed += 1;
+  t.lessons[lessonId] = lp;
+  p[trainerId] = t;
+  saveFoundations(p);
+}
+/** Record one completed rep; returns the updated record (done may have flipped). */
+export function recordLessonRep(trainerId: string, def: LessonDef, phase: LessonPhase, success: boolean): LessonProg {
+  const p = loadFoundations();
+  const t = p[trainerId] ?? { current: 0, lessons: {} };
+  const lp = applyRep(def, t.lessons[def.id] ?? emptyLessonProg(), phase, success);
+  t.lessons[def.id] = lp;
+  p[trainerId] = t;
+  saveFoundations(p);
+  return lp;
+}
+/** Remove the most recent rep of a phase (the review's Discard). */
+export function popLessonRep(trainerId: string, def: LessonDef, phase: LessonPhase) {
+  const p = loadFoundations();
+  const lp = p[trainerId]?.lessons?.[def.id];
+  if (!lp) return;
+  p[trainerId].lessons[def.id] = popRep(def, lp, phase);
+  saveFoundations(p);
 }
 
 // --- course progress ---

@@ -87,18 +87,45 @@ Switch in **Settings → Cube view**. Everything works identically in both.
 
 On some trainers stickers are **tappable** (a pointer cursor appears): on the
 free 2×2×2 steps, tap any sticker of a corner to aim your block there; during a
-lookahead rep, tapping is how you answer.
+lookahead rep, tapping is how you answer; in a Foundations guided rep, tapping
+answers the find-the-piece prompts.
 
 ## Categories and trainers
 
 Pick with **Change** in the bar under the title: Category → Trainer → Mode.
 
-### Course — the graded curriculum
+### Course — the curriculum
 
-Levels unlock in order. Each level is graded on **consistency**, not one lucky
-solve: over your last 12 graded solves at the level, a solve is **clean** if it
-is within **+2 of optimal**; 70% clean earns ★ (and unlocks the next level),
-85% ★★, 100% ★★★. **Discard** in the review removes a botched rep.
+- **Foundations** — the taught beginner course, and the place to start if
+  block building is new. Four lessons build the 2×2×3 from its smallest unit,
+  all at one fixed corner (the orange-green-yellow one): **Make a pair →
+  Complete the 2×2×1 → Finish the 2×2×2 → Extend to a 2×2×3**. Each lesson
+  runs in phases:
+  - **watch** — curated examples with the route already shown; walk them
+    through with the guided replay. Never graded. The next example is served
+    when you arrive with a solved cube.
+  - **guided** — find-the-piece tap prompts ("tap the orange-green-yellow
+    corner"), then live coaching on every turn: pieces placed, the pair made
+    or split, your built block broken or recovered.
+  - **coached** — one what-to-look-for line at the start, then you lead.
+  - **independent** — no prompts.
+
+  You advance on **proficiency, not efficiency**: 2 guided successes unlock
+  coached, 3 coached unlock independent, and 3 of your latest 4 independent
+  reps complete the lesson (the next one unlocks). A rep counts as a success
+  when you finish **without "Show ideal"** — Hint and Next move are always
+  fair game, and move counts are tracked in Stats but never gate a lesson.
+  Lessons that pre-build a block outline it with a dashed ring: that is the
+  part to protect. The review answers the beginner questions — did I build
+  it, did my block survive, which pattern does the taught route use, and what
+  to spot next time. Finish all four lessons, then graduate to the graded
+  2×2×3 course and the free Blocks drills.
+
+The graded courses below unlock levels in order. Each level is graded on
+**consistency**, not one lucky solve: over your last 12 graded solves at the
+level, a solve is **clean** if it is within **+2 of optimal**; 70% clean earns
+★ (and unlocks the next level), 85% ★★, 100% ★★★. **Discard** in the review
+removes a botched rep.
 
 - **2×2×2 course** — the technique curriculum. Levels are *lessons* keyed to
   the pattern vocabulary (Simple joins → Double joins & Swings → Roundabouts &

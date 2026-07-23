@@ -25,11 +25,12 @@ import {
   type Category,
   type StepDef,
 } from './steps.ts';
-import { locatePieceNow, nextFocusPiece, nextTwoFocusPieces, placementName, slotName, targetPieceStates, type FocusPiece } from './pieces.ts';
+import { locatePieceNow, nextFocusPiece, nextTwoFocusPieces, pieceDescription, placementName, slotName, targetPieceStates, type FocusPiece } from './pieces.ts';
 import { humanSolveFromState } from './human-solve.ts';
-import { activePlacement, canonicalIndexIn } from './placement.ts';
-import { classifyRoute, PATTERN_HOW, type PatternName } from './patterns.ts';
-import { seedsFor } from './cases.ts';
+import { activePlacement, canonicalIndexIn, scorePlacement } from './placement.ts';
+import { classifyRoute, isPairJoined, PATTERN_HOW, type PatternName } from './patterns.ts';
+import { lessonSeedsFor, seedsFor } from './cases.ts';
+import { derivePhase, firstOpenLesson, lessonsFor, successCount, type LessonDef, type LessonPhase } from './lessons.ts';
 import { eoHint, blockHint } from './hints.ts';
 import { sampleEoScramble } from './eo-scramble.ts';
 import { genEoSafeScramble } from './steps.ts';
@@ -41,6 +42,7 @@ import {
   loadHistory, recordSolve, computeStats,
   loadCourse, saveCourse, courseTrack, courseCurrent, setCourseCurrent, recordCourse,
   courseIntro, bumpCourseIntro,
+  foundationsTrack, lessonProgFor, setFoundationsCurrent, bumpLessonObserved, recordLessonRep, popLessonRep,
   loadLookahead, recordLookahead,
   COURSE_WINDOW, COURSE_TOLERANCE, COURSE_STAR_RATES,
 } from './stats.ts';
@@ -231,11 +233,20 @@ interface State {
   eoCommitted: boolean; // free-EO: axis decided for this scramble (vs awaiting an ask-prompt)
   blockEoOrient: number; // 2×2×3+EO: rolled orientation (0..3) — the random long-side colour
   courseSeedTag: PatternName | null; // this scramble is a seeded lesson example (not graded)
+  /** Foundations rep context. example=true is an ungraded observe demonstration;
+   *  consumed flips when its scramble is applied (so retries can't re-burn it). */
+  lessonRep: { example: boolean; consumed: boolean; note: string | null } | null;
+  /** Most revealing help used this step: 0 none · 1 hint · 2 next move ·
+   *  3 ideal/walkthrough. A Foundations rep only counts as a success below 3. */
+  helpUsed: number;
+  brokeProtected: boolean; // the prereq block left its solved state at some point this step
+  protectedNow: boolean; // the prereq block is currently intact (transition detector)
+  identify: { stage: number } | null; // L1 tap-identification: 0 = find the corner, 1 = find an edge
   assist: { kind: 'nudge' | 'move' | 'ideal'; moves: Move3x3[]; focus: FocusPiece | null; pattern: PatternName | null } | null;
   /** Lookahead rep: plan the join while predicting z; view is blanked until the
    *  answer tap. z is the second piece the taught route places. */
   predict: { z: FocusPiece; joinDesc: string } | null;
-  predictResult: { stickers: number[] } | null; // transient reveal highlight (cleared on next move)
+  predictResult: { stickers: number[]; note?: string } | null; // transient reveal highlight (cleared on next move)
   learn: { moves: Move3x3[]; baseLen: number } | null; // guided ideal replay
   lastResult: {
     step: string; used: number; optimal: number | null; yourMoves: Move3x3[]; idealMoves: Move3x3[]; case?: string;
@@ -245,6 +256,8 @@ interface State {
     insp?: number; // ms spent inspecting before the first solve move
     /** Named Petrus patterns detected in the ideal route and the user's solve. */
     patterns?: { ideal: PatternName[]; yours: PatternName[] };
+    /** Foundations rep summary — drives the beginner review. */
+    lesson?: { example: boolean; success?: boolean; brokeProtected?: boolean; hadPrereq?: boolean; focusNext?: string };
   } | null;
   connected: boolean;
   battery: number | null;
@@ -262,8 +275,26 @@ const appEl = document.getElementById('app')!;
 function trainer() {
   return trainerById(state.trainerId);
 }
+// Foundations trainers resolve their ACTIVE LESSON's step (the TrainerDef's own
+// steps[] is only a fallback); everything downstream — progress, hints, Learn,
+// scramble generation, review — then works on the single resolved step.
+function activeLessonDefFor(trainerId: string): LessonDef | null {
+  const defs = lessonsFor(trainerId);
+  if (!defs) return null;
+  return defs[Math.min(foundationsTrack(trainerId).current, defs.length - 1)];
+}
+function activeLessonDef(): LessonDef | null {
+  return activeLessonDefFor(state.trainerId);
+}
+/** The active lesson's live phase (derived — never stored). Null off-lesson. */
+function lessonPhaseNow(): LessonPhase | null {
+  const def = activeLessonDef();
+  if (!def) return null;
+  return derivePhase(def, lessonProgFor(state.trainerId, def.id), lessonSeedsFor(def.id).length);
+}
 function steps(): StepDef[] {
-  return trainer().steps;
+  const def = activeLessonDef();
+  return def ? [def.step] : trainer().steps;
 }
 function currentStep(): StepDef | null {
   return steps()[state.stepIndex] ?? null;
@@ -277,7 +308,7 @@ function currentStep(): StepDef | null {
 const SCRAMBLE_LEN = 16;
 const EO_SCRAMBLE_LEN = SCRAMBLE_LEN;
 
-function makeScramble(base: Cube3x3, baseHistory: Move3x3[], stepsList: StepDef[], blockEoOrient = 0): Move3x3[] {
+function makeScramble(base: Cube3x3, baseHistory: Move3x3[], stepsList: StepDef[], blockEoOrient = 0, lessonGen?: { len?: number; maxOptimal?: number }): Move3x3[] {
   const first = stepsList[0];
   // Course: generate a scramble whose optimal solution to the block lands in the
   // current level's difficulty band. Shorter random scrambles for easier bands.
@@ -334,20 +365,33 @@ function makeScramble(base: Cube3x3, baseHistory: Move3x3[], stepsList: StepDef[
   // where this step's target is already complete (nothing to practise).
   if (first.prereqMask) {
     // 2×2×3+EO pre-builds the rolled orientation's block; its target is colour-identified
-    // (isBlockEoSolved), not the static canonical mask.
+    // (isBlockEoSolved), not the static canonical mask. Plain drills reject a case
+    // pre-solved in ANY accepted placement (completion accepts every candidate —
+    // e.g. either 2×2×1 square containing the pre-built pair).
     const beo = isBlockEo(first);
     const prereq = beo ? blockEoPrereq(blockEoOrient) : first.prereqMask;
-    const targetDone = (c: Cube3x3) => beo ? isBlockEoSolved(c, blockEoOrient) : isMaskSolvedState(c, first.canonicalMask);
+    const targetDone = (c: Cube3x3) => beo ? isBlockEoSolved(c, blockEoOrient) : first.candidateMasks.some((m) => isMaskSolvedState(c, m));
     const buildCfg = { ...first.solver, depthLimit: 16 };
+    // Foundations difficulty cap: try for a case within the lesson's optimal
+    // ceiling for half the budget, then accept any valid case — never stall.
+    let fallback: Move3x3[] | null = null;
     for (let attempt = 0; attempt < 20; attempt++) {
       const scr = genScramble(SCRAMBLE_LEN);
       const build = optimalToMask([...baseHistory, ...scr], prereq, buildCfg) ?? [];
-      const full = [...scr, ...build];
+      // The scr+build seam can leave a same-face pair (e.g. "R2 R2") — collapse
+      // it; state-preserving, so the prereq stays built.
+      const full = simplifyMoves([...scr, ...build]);
       const cube = applyMoves(base, full);
-      if (isMaskSolvedState(cube, prereq) && !targetDone(cube)) return full;
+      if (!isMaskSolvedState(cube, prereq) || targetDone(cube)) continue;
+      if (lessonGen?.maxOptimal != null && attempt < 10) {
+        const opt = solveFromState(cube, first.canonicalMask, first.solver)?.length ?? 99;
+        if (opt > lessonGen.maxOptimal) { fallback = full; continue; }
+      }
+      return full;
     }
+    if (fallback) return fallback;
     const scr = genScramble(SCRAMBLE_LEN);
-    return [...scr, ...(optimalToMask([...baseHistory, ...scr], prereq, buildCfg) ?? [])];
+    return simplifyMoves([...scr, ...(optimalToMask([...baseHistory, ...scr], prereq, buildCfg) ?? [])]);
   }
   if (first.kind === 'eo') {
     // Pad every EO scramble up to a uniform length with EO-PRESERVING moves (they
@@ -377,12 +421,20 @@ function makeScramble(base: Cube3x3, baseHistory: Move3x3[], stepsList: StepDef[
   // step in ANY accepted placement — completion accepts every candidate, so a
   // scramble that leaves some other 2×2×2 built would be a degenerate solve.
   // Checked state-based from the actual base, so it's right after a resync too.
+  // Foundations lessons may shorten the scramble and cap the optimal (small
+  // masks solve in ms at pd4, so the filter is cheap).
+  const len = lessonGen?.len ?? SCRAMBLE_LEN;
   for (let attempt = 0; attempt < 25; attempt++) {
-    const moves = genScramble(SCRAMBLE_LEN);
+    const moves = genScramble(len);
     const cube = applyMoves(base, moves);
-    if (!first.candidateMasks.some((m) => isMaskSolvedState(cube, m))) return moves;
+    if (first.candidateMasks.some((m) => isMaskSolvedState(cube, m))) continue;
+    if (lessonGen?.maxOptimal != null && attempt < 15) {
+      const opt = solveFromState(cube, first.canonicalMask, first.solver)?.length ?? 99;
+      if (opt > lessonGen.maxOptimal) continue;
+    }
+    return moves;
   }
-  return genScramble(SCRAMBLE_LEN);
+  return genScramble(len);
 }
 
 function computePrefixEncodes(base: Cube3x3, moves: Move3x3[]): string[] {
@@ -400,9 +452,12 @@ function computePrefixEncodes(base: Cube3x3, moves: Move3x3[]): string[] {
  *  the same case) instead of a fresh random scramble. */
 function startScramble(base: Cube3x3, baseHistory: Move3x3[], explicit?: Move3x3[]): State {
   const t = trainerById(state?.trainerId ?? 'petrus');
+  // Foundations trainers train their ACTIVE LESSON's step, not t.steps.
+  const lessonDef = activeLessonDefFor(t.id);
+  const stepsList = lessonDef ? [lessonDef.step] : t.steps;
   // Roll the 2×2×3+EO orientation (random long-side colour) for this scramble; reuse
   // the current one when reproducing an explicit setup (retry/undo keeps the case).
-  const blockEoOrient = explicit ? (state?.blockEoOrient ?? 0) : isBlockEo(t.steps[0]) ? randomBlockEoOrient() : 0;
+  const blockEoOrient = explicit ? (state?.blockEoOrient ?? 0) : isBlockEo(stepsList[0]) ? randomBlockEoOrient() : 0;
   // Curated course lessons open with seeded examples. A seed scramble is a
   // from-solved state, so it is only served when the tracked cube IS solved
   // (lesson entry resets to solved); otherwise practice is generated and the
@@ -415,11 +470,29 @@ function startScramble(base: Cube3x3, baseHistory: Move3x3[], explicit?: Move3x3
     const intro = courseIntro(t.id, lvl);
     if (intro < seeds.length) {
       moves = parseMoves(seeds[intro].scramble);
-      courseSeedTag = seeds[intro].tag;
+      courseSeedTag = seeds[intro].tag ?? null;
       bumpCourseIntro(t.id, lvl);
     }
   }
-  moves ??= makeScramble(base, baseHistory, t.steps, blockEoOrient);
+  // Foundations serving: in the observe phase (and from a solved base) the next
+  // curated example is issued — but NOT consumed here; it's consumed when the
+  // scramble is APPLIED (afterChange), so trainer/category navigation that
+  // re-issues scrambles can't burn examples. All other phases get generated
+  // practice through the lesson's difficulty filter.
+  let lessonRep: State['lessonRep'] = explicit ? (state?.lessonRep ?? null) : null;
+  if (!moves && lessonDef) {
+    const seeds = lessonSeedsFor(lessonDef.id);
+    const prog = lessonProgFor(t.id, lessonDef.id);
+    const phase = derivePhase(lessonDef, prog, seeds.length);
+    if (phase === 'observe' && faceletString(base) === SOLVED_STR && prog.observed < seeds.length) {
+      const sc = seeds[prog.observed];
+      moves = parseMoves(sc.scramble);
+      lessonRep = { example: true, consumed: false, note: sc.note ?? null };
+    } else {
+      lessonRep = { example: false, consumed: false, note: null };
+    }
+  }
+  moves ??= makeScramble(base, baseHistory, stepsList, blockEoOrient, lessonDef?.gen);
   return {
     category: t.category,
     trainerId: t.id,
@@ -448,11 +521,16 @@ function startScramble(base: Cube3x3, baseHistory: Move3x3[], explicit?: Move3x3
     placementIdx: null,
     placementPinned: false,
     solveReadyMs: null,
-    stepDone: t.steps.map(() => false),
+    stepDone: stepsList.map(() => false),
     eoAxis: lastEoAxis(),
     eoCommitted: false,
     blockEoOrient,
     courseSeedTag,
+    lessonRep,
+    helpUsed: 0,
+    brokeProtected: false,
+    protectedNow: true,
+    identify: null,
     assist: null,
     predict: null,
     predictResult: null,
@@ -460,7 +538,9 @@ function startScramble(base: Cube3x3, baseHistory: Move3x3[], explicit?: Move3x3
     lastResult: state?.lastResult ?? null,
     connected: state?.connected ?? false,
     battery: state?.battery ?? null,
-    status: courseSeedTag && !explicit
+    status: lessonRep?.example && !explicit
+      ? `Lesson example — ${lessonRep.note ?? 'watch how the ideal route does it'}. Apply the scramble first.`
+      : courseSeedTag && !explicit
       ? `Lesson example — ${courseSeedTag}. Apply the scramble, then find it (or Show ideal → walk it through).`
       : 'Apply the scramble to your cube. The cube view follows along.',
     showSettings: false,
@@ -495,6 +575,7 @@ function step(move: Move3x3) {
     state.movesThisStep.push(move);
     state.movesThisStepTs.push(Date.now());
     if (state.solveStartMs == null) state.solveStartMs = Date.now(); // start timer on first move
+    state.identify = null; // find-the-piece prompts are pre-solve scaffolding — first turn ends them
   }
   afterChange();
 }
@@ -549,6 +630,7 @@ function afterChange() {
         return;
       }
       if (!isFreeEo(cs0)) state.status = `Scrambled! ${currentStep()?.label ?? ''} — find your solution.`;
+      startLessonSolve(); // Foundations: consume the example / arm phase prompts (overrides status)
     }
   } else {
     const s = currentStep();
@@ -566,6 +648,7 @@ function afterChange() {
       lastFlashKey = key;
       lastUnits = u;
     }
+    if (s) lessonLiveCoach(s); // Foundations: per-move contextual coaching (no-op elsewhere)
     checkStepCompletion();
     if (state.stepDone.every(Boolean) && state.finishedMs == null && state.solveStartMs != null) {
       state.finishedMs = Date.now();
@@ -722,6 +805,9 @@ function checkStepCompletion() {
         if (note) state.status = note;
       } else if (tr.course && state.courseSeedTag != null) {
         state.status = `Example done — that was a ${state.courseSeedTag}. Next for more of the lesson.`;
+      } else if (lessonsFor(tr.id)) {
+        // Foundations: proficiency gates, not the graded-course window.
+        recordFoundationsRep(s, solvedMask, optimalArr);
       }
     }
     if (state.stepIndex < steps().length - 1) {
@@ -1010,6 +1096,7 @@ function enterLearn() {
   if (!s) return;
   const ideal = idealRoute(state.stepStartCube, s);
   if (ideal.length === 0) { state.status = 'Nothing to learn from here.'; render(); return; }
+  state.helpUsed = 3; // a walkthrough is the full route — the rep can't count as solo
   const back = simplifyMoves(invertSeq(state.movesThisStep));
   // Already at step start (nothing done this step yet) — go straight in.
   if (back.length === 0) { beginLearnWalkthrough(); return; }
@@ -1319,7 +1406,7 @@ function answerPredict(viewIdx: number) {
   const la = recordLookahead(ok);
   const rate = la.recent.length ? Math.round((100 * la.recent.filter(Boolean).length) / la.recent.length) : 0;
   state.predict = null;
-  state.predictResult = { stickers: actual };
+  state.predictResult = { stickers: actual, note: 'highlighted: where it actually is' };
   state.status = ok
     ? `✓ Right — the ${p.z.description} is at the ${slotName(actual)}. (${rate}% over last ${la.recent.length})`
     : `✗ The ${p.z.description} is at the ${slotName(actual)}, not the ${slotName(tapped)}. (${rate}% over last ${la.recent.length})`;
@@ -1348,11 +1435,187 @@ function assist(kind: 'nudge' | 'move' | 'ideal') {
     : null;
   const effective = kind === 'nudge' && !focus ? 'move' : kind;
   state.assist = { kind: effective, moves, focus, pattern };
+  state.helpUsed = Math.max(state.helpUsed, effective === 'nudge' ? 1 : effective === 'move' ? 2 : 3);
   state.status =
     effective === 'nudge' ? `Hint: focus on the ${focus?.description ?? 'highlighted piece'} — pair and insert it.`
     : effective === 'move' ? `Next move: ${moves[0]}`
     : 'Showing the ideal for this step — press “Walk it through” to try it guided.';
   render();
+}
+
+// --- Foundations coaching (the beginner course; lessons in src/lessons.ts) ---
+
+// Solve-start bookkeeping: consume the observe example the moment its scramble
+// is APPLIED (retries carry consumed=true, so nothing double-burns), reveal the
+// route for examples, and arm the phase's opening prompt.
+function startLessonSolve() {
+  const def = activeLessonDef();
+  const s = currentStep();
+  if (!def || !s) return;
+  if (state.lessonRep?.example) {
+    if (!state.lessonRep.consumed) {
+      state.lessonRep.consumed = true;
+      bumpLessonObserved(state.trainerId, def.id);
+    }
+    // Watching IS the lesson at this phase — show the route straight away.
+    assist('ideal');
+    state.status = `${state.lessonRep.note ?? 'Watch the ideal route.'} Press “Walk it through” to do it on your cube.`;
+    return;
+  }
+  const phase = lessonPhaseNow();
+  if (phase === 'guided' || phase === 'observe') {
+    if (def.identify) {
+      const corner = blockPiecesFor(s.canonicalMask).find((g) => g.length === 3);
+      if (corner) {
+        state.identify = { stage: 0 };
+        state.status = `First find your pieces: tap the ${pieceDescription(corner)} — any of its stickers.`;
+        return;
+      }
+    }
+    state.status = `Guided: ${def.outcome}`;
+  } else if (phase === 'coached') {
+    const f = nextFocusPiece(state.cube, activeMask(s), continuation());
+    state.status = f ? `Coached: look for the ${f.description} first.` : `Coached: ${def.outcome}`;
+  }
+  // independent / done: the generic "Scrambled!" status stands.
+}
+
+// Per-move contextual coaching. CHEAP GEOMETRY ONLY — piece diffs, the
+// pair-joined test and prereq intactness; never a solver call (a 2×2×3 solve
+// costs ~130ms and this runs on every turn). Intactness is TRACKED in every
+// phase (the review reports it) but narrated only while being taught.
+let lcKey = '';
+let lcPlacedKeys: string[] = [];
+let lcPairJoined = false;
+function lessonLiveCoach(s: StepDef) {
+  const def = activeLessonDef();
+  if (!def || state.learn || state.stepDone[state.stepIndex]) return;
+  let protectedMsg: string | null = null;
+  if (s.prereqMask) {
+    const sc = scorePlacement(state.cube, s.prereqMask);
+    const ok = sc.placed === sc.total;
+    if (!ok && state.protectedNow) {
+      state.brokeProtected = true;
+      protectedMsg = 'Careful — the built block broke. Rebuild it before adding more.';
+    } else if (ok && !state.protectedNow) {
+      protectedMsg = 'Good recovery — the block is back together.';
+    }
+    state.protectedNow = ok;
+  }
+  const mask = activeMask(s);
+  const pieces = blockPiecesFor(mask);
+  const f = faceletString(state.cube);
+  const placedNow = pieces.filter((g) => g.every((i) => f[i] === SOLVED_STR[i]));
+  const placedKeys = placedNow.map((g) => NET_COORDS[g[0]].join(','));
+  const corner = pieces.find((g) => g.length === 3) ?? null;
+  const edges = pieces.filter((g) => g.length === 2);
+  const joined = corner != null && edges.some((e) => isPairJoined(state.cube.stateData, corner, e));
+  const key = `${state.trainerId}:${state.stepIndex}:${state.scrambleBaseLen}`;
+  const sameRep = key === lcKey;
+  const prevPlaced = lcPlacedKeys;
+  const prevJoined = lcPairJoined;
+  lcKey = key;
+  lcPlacedKeys = placedKeys;
+  lcPairJoined = joined;
+  const phase = lessonPhaseNow();
+  const talkative = !state.lessonRep?.example && (phase === 'guided' || phase === 'observe' || phase === 'coached');
+  if (!talkative) return;
+  // The protect warning is NOT gated on the rep baseline — protectedNow starts
+  // true (the prereq arrives built), so a break on the very first move must
+  // still speak. Only the placed/joined narration needs a prior-move baseline.
+  if (protectedMsg) { state.status = protectedMsg; return; }
+  if (!sameRep || phase === 'coached') return; // coached gets its opening line only
+  const newly = placedNow.find((g) => !prevPlaced.includes(NET_COORDS[g[0]].join(',')));
+  const cornerPlaced = corner != null && placedNow.includes(corner);
+  if (newly) {
+    const left = pieces.length - placedNow.length;
+    if (left > 0) state.status = `Placed the ${pieceDescription(newly)} — ${left} piece${left === 1 ? '' : 's'} to go.`;
+  } else if (joined && !prevJoined && !cornerPlaced) {
+    state.status = 'Pair made — keep it together and take it home.';
+  } else if (!joined && prevJoined && !cornerPlaced) {
+    state.status = 'The pair split — bring the corner back to its edge.';
+  }
+}
+
+// L1 tap-identification: find the corner, then any matching edge. The tap
+// answer is checked against the tracked state (locatePieceNow) exactly like
+// the lookahead drill; a correct find rings the piece via predictResult.
+function answerIdentify(viewIdx: number) {
+  const iq = state.identify;
+  const s = currentStep();
+  if (!iq || !s) return;
+  const modelIdx = solveFrame() ? [...rotateHighlight(new Set([viewIdx]), solveRotation())][0] : viewIdx;
+  const tapped = CUBIES.find((g) => g.includes(modelIdx));
+  if (!tapped) return;
+  const corner = blockPiecesFor(s.canonicalMask).find((g) => g.length === 3);
+  if (!corner) { state.identify = null; return; }
+  const tappedKey = NET_COORDS[tapped[0]].join(',');
+  if (iq.stage === 0) {
+    const at = locatePieceNow(state.cube, corner);
+    if (NET_COORDS[at[0]].join(',') === tappedKey) {
+      state.identify = { stage: 1 };
+      state.predictResult = { stickers: at, note: 'highlighted: the corner you found' };
+      state.status = `That's it — the ${pieceDescription(corner)}. Now tap an edge that shares two of its colours.`;
+    } else {
+      state.status = `Not that one — look for the ${pieceDescription(corner)}: three stickers, exactly those colours.`;
+    }
+  } else {
+    // Any of the step's accepted pair edges counts as a find.
+    const edgeHomes: number[][] = [];
+    for (const m of s.candidateMasks) {
+      for (const g of blockPiecesFor(m)) if (g.length === 2 && !edgeHomes.some((h) => h[0] === g[0])) edgeHomes.push(g);
+    }
+    const hit = edgeHomes.find((h) => NET_COORDS[locatePieceNow(state.cube, h)[0]].join(',') === tappedKey);
+    if (hit) {
+      state.identify = null;
+      state.predictResult = { stickers: locatePieceNow(state.cube, hit), note: 'highlighted: the edge you found' };
+      state.status = `That's the ${pieceDescription(hit)} — corner and edge make your pair. Join them, then take them home.`;
+    } else {
+      state.status = 'Not quite — you want an edge showing two of the corner’s colours.';
+    }
+  }
+  render();
+}
+
+// Completion recording: proficiency gates, never efficiency. Success = the
+// target completed without the full route being revealed (helpUsed < 3);
+// Hint and Next move are allowed in every phase. Phase/lesson transitions
+// speak here; the lesson summary rides on lastResult for the beginner review.
+function recordFoundationsRep(s: StepDef, solvedMask: StepDef['canonicalMask'], optimalArr: Move3x3[]) {
+  const def = activeLessonDef();
+  if (!def || !state.lastResult) return;
+  const seeds = lessonSeedsFor(def.id);
+  // The "next visual decision" for the review: the first piece the route places.
+  const focusNext = nextFocusPiece(state.stepStartCube, solvedMask, optimalArr)?.description;
+  if (state.lessonRep?.example) {
+    state.lastResult.lesson = { example: true, hadPrereq: !!s.prereqMask, focusNext };
+    state.status = 'Example done — Next serves a case for you to try the same idea.';
+    return;
+  }
+  const progBefore = lessonProgFor(state.trainerId, def.id);
+  const phaseBefore = derivePhase(def, progBefore, seeds.length);
+  const recPhase: LessonPhase = phaseBefore === 'observe' ? 'guided' : phaseBefore;
+  const success = state.helpUsed < 3;
+  const prog = recordLessonRep(state.trainerId, def, recPhase, success);
+  lastRecord.lesson = { trainerId: state.trainerId, def, phase: recPhase };
+  state.lastResult.lesson = { example: false, success, brokeProtected: state.brokeProtected, hadPrereq: !!s.prereqMask, focusNext };
+  const phaseAfter = derivePhase(def, prog, seeds.length);
+  const defs = lessonsFor(state.trainerId)!;
+  const idx = defs.indexOf(def);
+  if (prog.done && !progBefore.done) {
+    if (idx + 1 < defs.length) {
+      setFoundationsCurrent(state.trainerId, idx + 1);
+      state.status = `Lesson complete! 🎉 Next lesson: ${defs[idx + 1].title}.`;
+    } else {
+      state.status = 'Foundations complete! 🏆 Continue in Course › 2×2×3 or the free Blocks drills.';
+    }
+  } else if (!success) {
+    state.status = 'Done — but the route was revealed, so this rep isn’t counted. The next one is yours.';
+  } else if (phaseAfter === 'coached' && phaseBefore !== 'coached') {
+    state.status = 'Guided done ✓ — coached practice unlocked: you lead, I’ll point before you start.';
+  } else if (phaseAfter === 'independent' && phaseBefore !== 'independent') {
+    state.status = `Coached done ✓ — independent practice: ${def.gates.indepNeed} of your latest ${def.gates.indepWindow} finish the lesson.`;
+  }
 }
 
 
@@ -1389,6 +1652,7 @@ function render() {
   left.appendChild(buildScramblePanel());
   left.appendChild(buildCubePanel(s));
   if (trainer().course) left.appendChild(buildCoursePanel());
+  else if (activeLessonDef()) left.appendChild(buildFoundationsPanel());
   main.appendChild(left);
 
   const right = el('div', 'panel grow');
@@ -1515,16 +1779,19 @@ function buildCubePanel(s: StepDef | null): HTMLElement {
   const p = el('div', 'panel grow');
   p.appendChild(el('div', 'panel-hd', 'Cube view'));
   const wrap = el('div', 'cube-wrap');
-  // Sticker taps serve two flows: answering a lookahead rep (priority), and
-  // tap-to-aim on the free 2×2×2 steps (pinPlacementAt). Armed mid-solve, either view.
+  // Sticker taps serve three flows: answering a lookahead rep (priority), the
+  // Foundations find-the-piece prompts, and tap-to-aim on the free 2×2×2 steps
+  // (pinPlacementAt). Armed mid-solve, either view.
   const predicting = !!state.predict;
-  const aimable = !predicting && state.mode === 'solve' && !state.learn && !!s && s.kind === 'block' && s.family === '222' && s.candidateMasks.length > 1;
-  if (aimable || predicting) {
+  const identifying = !predicting && !!state.identify && state.mode === 'solve' && !state.learn;
+  const aimable = !predicting && !identifying && state.mode === 'solve' && !state.learn && !!s && s.kind === 'block' && s.family === '222' && s.candidateMasks.length > 1;
+  if (aimable || predicting || identifying) {
     wrap.classList.add('pickable');
     wrap.addEventListener('click', (e) => {
       const t = (e.target as HTMLElement).closest('[data-facelet-index]') as HTMLElement | null;
       if (!t?.dataset.faceletIndex) return;
       if (predicting) answerPredict(Number(t.dataset.faceletIndex));
+      else if (identifying) answerIdentify(Number(t.dataset.faceletIndex));
       else pinPlacementAt(Number(t.dataset.faceletIndex), s!);
     });
   }
@@ -1541,9 +1808,20 @@ function buildCubePanel(s: StepDef | null): HTMLElement {
     }
     else if (state.assist.focus) { highlight = new Set(state.assist.focus.current); note = `highlighted: the ${state.assist.focus.description}`; }
   }
-  // Lookahead answer reveal: show where the piece actually is (model frame).
-  if (state.predictResult) { highlight = new Set(state.predictResult.stickers); note = 'highlighted: where it actually is'; }
+  // Lookahead answer / identify-find reveal: ring the piece (model frame).
+  if (state.predictResult) { highlight = new Set(state.predictResult.stickers); note = state.predictResult.note ?? 'highlighted: where it actually is'; }
   if (solveFrame() && highlight) highlight = rotateHighlight(highlight, solveRotation());
+  // Foundations: keep a muted persistent outline on the prerequisite block
+  // while it must be protected — dropped for independent reps (training wheels
+  // off) and while the whole view is blanked for a lookahead rep.
+  let keep: Set<number> | null = null;
+  if (s?.prereqMask && !state.predict && state.mode === 'solve' && activeLessonDef()) {
+    const phase = lessonPhaseNow();
+    if (phase === 'observe' || phase === 'guided' || phase === 'coached') {
+      keep = new Set(s.prereqMask.solvedFaceletIndices);
+      if (solveFrame()) keep = rotateHighlight(keep, solveRotation());
+    }
+  }
   // Blank the corners for any EO step that keeps no block — corner state is
   // irrelevant to edge orientation, so it's hidden for Full EO, EOLine and
   // EOCross alike. A block-preserving EO step (Petrus / the eo123·eo223 drills)
@@ -1552,8 +1830,8 @@ function buildCubePanel(s: StepDef | null): HTMLElement {
   // Lookahead rep: the whole view blanks — you're predicting, not reading.
   const blank = state.predict ? ALL_FACELETS : pureEo ? new Set(CORNER_FACELETS) : null;
   const facelets = solveFrame() ? rotatedFacelets(state.cube, solveRotation()) : faceletString(state.cube);
-  // Same facelets/highlight/blank feed either view; the toggle only picks the shape.
-  wrap.appendChild(cubeView === '3d' ? renderCube3D(facelets, highlight, blank) : renderCubeNet(facelets, highlight, blank));
+  // Same facelets/highlight/blank/keep feed either view; the toggle only picks the shape.
+  wrap.appendChild(cubeView === '3d' ? renderCube3D(facelets, highlight, blank, keep) : renderCubeNet(facelets, highlight, blank, keep));
   // Transient status toast over the cube (fades via CSS; see STATUS_FLASH_MS).
   if (state.status && Date.now() - statusShownAt < STATUS_FLASH_MS) {
     wrap.appendChild(el('div', 'cube-toast', state.status));
@@ -1612,6 +1890,66 @@ function buildCoursePanel(): HTMLElement {
   return p;
 }
 
+// --- Foundations panel (the lessons' home; replaces the Course bands panel) ---
+
+function phaseLabel(ph: LessonPhase): string {
+  return ph === 'observe' ? 'watching' : ph === 'guided' ? 'guided' : ph === 'coached' ? 'coached' : ph === 'independent' ? 'independent' : 'complete';
+}
+
+function selectLesson(idx: number) {
+  setFoundationsCurrent(state.trainerId, idx);
+  state = freshTrainer(state.trainerId); // fresh lesson case (from solved, like course levels)
+  render();
+}
+
+function buildFoundationsPanel(): HTMLElement {
+  const defs = lessonsFor(state.trainerId)!;
+  const track = foundationsTrack(state.trainerId);
+  const cur = Math.min(track.current, defs.length - 1);
+  const open = firstOpenLesson(defs, (d) => lessonProgFor(state.trainerId, d.id));
+  const def = defs[cur];
+  const prog = lessonProgFor(state.trainerId, def.id);
+  const seeds = lessonSeedsFor(def.id);
+  const phase = derivePhase(def, prog, seeds.length);
+  const p = el('div', 'panel');
+  p.appendChild(el('div', 'panel-hd', 'Foundations'));
+  // Lesson chips: complete ✓ · active · forward-locked (anything behind is revisitable).
+  const chips = el('div', 'chips');
+  defs.forEach((d, i) => {
+    const dp = lessonProgFor(state.trainerId, d.id);
+    const locked = i > open;
+    const c = el('div', `chip ${i === cur ? 'active' : dp.done ? 'done' : ''}`);
+    c.appendChild(el('div', 'nm', `L${i + 1} · ${d.title}`));
+    c.appendChild(el('div', 'st', locked ? '🔒 locked' : dp.done ? '✓ complete' : i === cur ? phaseLabel(phase) : 'open'));
+    if (!locked) { c.style.cursor = 'pointer'; c.addEventListener('click', () => selectLesson(i)); }
+    chips.appendChild(c);
+  });
+  p.appendChild(chips);
+  // The active lesson card: what, why, and the phase ladder with its counts.
+  p.appendChild(el('div', 'blurb', def.explain));
+  p.appendChild(el('div', 'meter-cap', `Goal: ${def.outcome}`));
+  p.appendChild(el('div', 'meter-cap', `Why this matters: ${def.why}`));
+  const g = successCount(prog.guided);
+  const co = successCount(prog.coached);
+  const iw = successCount(prog.indep.slice(-def.gates.indepWindow));
+  const seg = (label: string, active: boolean, done: boolean) => `${active ? '▶ ' : ''}${label}${done ? ' ✓' : ''}`;
+  const ladder = [
+    seg(`watch ${Math.min(prog.observed, seeds.length)}/${seeds.length}`, phase === 'observe', prog.observed >= seeds.length),
+    seg(`guided ${Math.min(g, def.gates.guided)}/${def.gates.guided}`, phase === 'guided', g >= def.gates.guided),
+    seg(`coached ${Math.min(co, def.gates.coached)}/${def.gates.coached}`, phase === 'coached', co >= def.gates.coached),
+    seg(`solo ${iw}/${def.gates.indepNeed} of latest ${def.gates.indepWindow}`, phase === 'independent', prog.done),
+  ].join('  ·  ');
+  p.appendChild(el('div', 'meter-cap', ladder));
+  if (prog.done && cur === defs.length - 1) {
+    p.appendChild(el('div', 'meter-cap', 'Foundations complete 🏆 — continue in Course › 2×2×3 or the free Blocks drills.'));
+  } else if (phase === 'observe') {
+    p.appendChild(el('div', 'meter-cap', 'Examples are demonstrations — watch or walk them through; nothing is graded. The next example needs a solved cube.'));
+  } else {
+    p.appendChild(el('div', 'meter-cap', 'A rep counts once you finish without “Show ideal” — Hint and Next move are always fair game.'));
+  }
+  return p;
+}
+
 // --- right pane: session (actions on top + meter + output console) ---
 
 function buildSessionPane(right: HTMLElement, s: StepDef | null, info: { frac: number; caption: string }) {
@@ -1644,7 +1982,8 @@ function buildActions(s: StepDef | null): HTMLElement {
   actions.appendChild(btn('Next move', () => assist('move'), 'btn', !solving));
   actions.appendChild(btn('Show ideal', () => assist('ideal'), 'btn', !solving));
   // Lookahead rep (block steps): predict where the next-but-one piece lands.
-  if (solving && s!.kind === 'block' && !state.predict && !state.learn) {
+  // Hidden on Foundations lessons — one skill at a time for beginners.
+  if (solving && s!.kind === 'block' && !state.predict && !state.learn && !activeLessonDef()) {
     actions.appendChild(btn('Lookahead', startPredict, 'btn'));
   }
   if (state.predict) actions.appendChild(btn('Cancel lookahead', cancelPredict, 'btn ghost'));
@@ -1721,9 +2060,51 @@ function buildCoachBody(s: StepDef | null): HTMLElement {
   return c;
 }
 
+// --- right pane: beginner (Foundations) review — the roadmap's four answers:
+// did I make it · what went well · the key pattern · what to notice next time.
+// Advanced signals (placement ranking, inspection) stay out of the way here.
+function buildLessonReview(right: HTMLElement, r: NonNullable<State['lastResult']>) {
+  const li = r.lesson!;
+  right.appendChild(el('div', 'solved-banner',
+    li.example ? '🎓 Example complete — that shape is what the lesson trains.'
+    : li.success ? '🎉 Built it yourself — this rep counts.'
+    : '✔ Built — but the route was revealed, so this rep isn’t counted.'));
+  right.appendChild(el('div', 'meter-cap', `You completed the ${r.step}.`));
+  if (li.hadPrereq) {
+    right.appendChild(el('div', 'meter-cap', li.brokeProtected
+      ? 'The built block broke along the way and you recovered it — next time look for a route that keeps it whole.'
+      : 'Your built block stayed intact the whole way — that is the core skill.'));
+  }
+  if (r.patterns?.yours.length) right.appendChild(el('div', 'meter-cap', `Your solve used: ${r.patterns.yours.join(' · ')}.`));
+  const kp = r.patterns?.ideal[0];
+  if (kp) right.appendChild(el('div', 'meter-cap', `The taught route is a ${kp} — ${PATTERN_HOW[kp]}`));
+  const yours = disp(simplifyMoves(r.yourMoves));
+  const cmp = el('div', 'coach');
+  cmp.textContent =
+    `your moves (${r.used}): ${yours.join(' ') || '—'}\n` +
+    `ideal (${r.optimal ?? '?'}):  ${disp(r.idealMoves).join(' ')}`;
+  right.appendChild(cmp);
+  if (!li.example && r.optimal != null) {
+    right.appendChild(el('div', 'meter-cap', r.used <= r.optimal
+      ? 'That was the shortest route. Superb.'
+      : li.focusNext
+      ? `Next time: spot the ${li.focusNext} before your first turn — it starts the shortest route.`
+      : `${r.used - r.optimal} extra move${r.used - r.optimal === 1 ? '' : 's'} — completely fine while learning.`));
+  }
+  const row = el('div', 'row');
+  row.style.marginTop = '14px';
+  row.appendChild(btn('Learn the ideal', learnFromReview, 'btn default'));
+  row.appendChild(btn('Try again', tryAgain, 'btn'));
+  row.appendChild(btn('Next scramble', nextScramble, 'btn'));
+  if (!li.example) row.appendChild(btn('Discard', discardLastSolve, 'btn ghost'));
+  right.appendChild(row);
+}
+
 // --- right pane: all-done review ---
 function buildReviewPane(right: HTMLElement) {
   right.appendChild(el('div', 'panel-hd', 'Solved'));
+  const rl = state.lastResult;
+  if (rl?.lesson && lessonsFor(state.trainerId)) { buildLessonReview(right, rl); return; }
   right.appendChild(el('div', 'solved-banner', '🎉 Solved! Here’s how you did.'));
   const r = state.lastResult;
   if (r) {
@@ -1811,6 +2192,25 @@ function buildCourseStats(): HTMLElement {
   sect.appendChild(el('div', 'sh', 'course progress · stars per level'));
   const prog = loadCourse();
   for (const t of trainersIn('Course')) {
+    // Foundations tracks have lessons, not graded bands: show lessons complete.
+    const defs = lessonsFor(t.id);
+    if (defs) {
+      const row = el('div', 'steprow');
+      row.appendChild(el('div', 'nm', t.label));
+      const cells = el('div', 'row');
+      cells.style.flex = '1';
+      cells.style.gap = '12px';
+      defs.forEach((d, i) => {
+        const cell = el('span', '', lessonProgFor(t.id, d.id).done ? '✓' : '·');
+        cell.title = `L${i + 1} · ${d.title}`;
+        cells.appendChild(cell);
+      });
+      row.appendChild(cells);
+      const doneN = defs.filter((d) => lessonProgFor(t.id, d.id).done).length;
+      row.appendChild(el('div', 'val', `${doneN}/${defs.length}`));
+      sect.appendChild(row);
+      continue;
+    }
     const bands = t.course!;
     const track = prog[t.id];
     const row = el('div', 'steprow');
@@ -1939,7 +2339,7 @@ function stepShort(s: StepDef): string {
 // Bookkeeping for the last completed solve, so it can be discarded ("didn't
 // count"). The history/course data layer lives in stats.ts; this controller
 // action also touches app state, so it stays here.
-let lastRecord: { history: boolean; trainerId?: string; level?: number } = { history: false };
+let lastRecord: { history: boolean; trainerId?: string; level?: number; lesson?: { trainerId: string; def: LessonDef; phase: LessonPhase } } = { history: false };
 // Remove the last recorded solve from Stats + the course window (a botched solve).
 function discardLastSolve() {
   if (lastRecord.history) {
@@ -1951,6 +2351,15 @@ function discardLastSolve() {
     const p = loadCourse();
     const lv = p[lastRecord.trainerId]?.levels?.[lastRecord.level];
     if (lv?.recent.length) { lv.recent.pop(); saveCourse(p); }
+  }
+  if (lastRecord.lesson) {
+    const { trainerId, def, phase } = lastRecord.lesson;
+    popLessonRep(trainerId, def, phase);
+    // If the discarded rep was the one that completed the lesson, step back to it.
+    if (!lessonProgFor(trainerId, def.id).done) {
+      const idx = lessonsFor(trainerId)?.indexOf(def) ?? -1;
+      if (idx >= 0 && foundationsTrack(trainerId).current > idx) setFoundationsCurrent(trainerId, idx);
+    }
   }
   lastRecord = { history: false };
   state.status = 'Solve discarded — not counted.';
@@ -2136,10 +2545,19 @@ state = freshTrainer(trainerById(savedTrainer ?? 'course222').id);
 render();
 
 // Hidden test hook (Manual Moves panel was removed from the UI). predictTarget
-// exposes the live lookahead answer so the e2e checks can tap the right spot.
+// exposes the live lookahead answer so the e2e checks can tap the right spot;
+// identifyTarget/ideal do the same for the Foundations find-prompts and routes.
 (window as unknown as { gym: unknown }).gym = {
   apply: (s: string) => handleManualMoves(s),
   predictTarget: () => (state.predict ? locatePieceNow(state.cube, state.predict.z.home) : null),
+  identifyTarget: () => {
+    const s = currentStep();
+    if (!state.identify || !s) return null;
+    const want = state.identify.stage === 0 ? 3 : 2;
+    const piece = blockPiecesFor(s.canonicalMask).find((g) => g.length === want);
+    return piece ? locatePieceNow(state.cube, piece) : null;
+  },
+  ideal: () => { const s = currentStep(); return s ? idealRoute(state.cube, s) : []; },
 };
 
 // Tick the live timer (timed mode) without a full re-render.

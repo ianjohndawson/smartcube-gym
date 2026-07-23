@@ -8,8 +8,13 @@ import {
   side123Masks,
   MASK_123_LEFT,
   MASK_123_RIGHT,
+  MASK_221_BOTTOM,
+  MASK_221_FRONT,
   MASK_222_DLF,
   MASK_223_BOTTOM_LEFT,
+  MASK_PAIR_DF,
+  MASK_PAIR_DL,
+  MASK_PAIR_FL,
 } from './blocks.ts';
 import { blockEoPrereq, blockEoTarget } from './block-eo.ts';
 import type { PatternName } from './patterns.ts';
@@ -175,8 +180,34 @@ const STEP_EO_123: StepDef = {
   solver: { moveSet: BLOCK_MOVES, pruningDepth: 5, depthLimit: 14 },
 };
 
+// --- Foundations ladder steps (the beginner course; lessons in src/lessons.ts) ---
+// All anchored at the canonical DLF corner. Deliberately no `family`: the
+// family key drives behaviour these small boxes don't want (planning verdicts,
+// tap-to-aim, stats grouping) — they read their solver config directly.
+const SOLVER_SMALL: StepSolverConfig = { moveSet: BLOCK_MOVES, pruningDepth: 4, depthLimit: 11 };
+export const STEP_PAIR: StepDef = {
+  id: 'pair', label: 'Pair', kind: 'block',
+  blurb: 'Join the orange-green-yellow corner with one of its edges and take the pair home.',
+  candidateMasks: [MASK_PAIR_DF, MASK_PAIR_DL, MASK_PAIR_FL], canonicalMask: MASK_PAIR_DF,
+  solver: SOLVER_SMALL,
+};
+export const STEP_221: StepDef = {
+  id: '221', label: '2×2×1', kind: 'block',
+  blurb: 'Grow the pair into a 2×2×1: the second edge joins it on their shared centre.',
+  candidateMasks: [MASK_221_FRONT, MASK_221_BOTTOM], canonicalMask: MASK_221_FRONT, prereqMask: MASK_PAIR_DF,
+  hold: 'Your corner–edge pair is already home; add the second edge without breaking it.',
+  solver: SOLVER_SMALL,
+};
+export const STEP_222_FROM_221: StepDef = {
+  id: '222f', label: '2×2×2', kind: 'block',
+  blurb: 'Place the last edge to complete the 2×2×2 corner block.',
+  candidateMasks: [MASK_222_DLF], canonicalMask: MASK_222_DLF, prereqMask: MASK_221_FRONT,
+  hold: 'Your 2×2×1 is already built; add the last edge to finish the 2×2×2.',
+  solver: SOLVER['222'],
+};
+
 // --- block-building drills ---
-const STEP_223_EXT: StepDef = {
+export const STEP_223_EXT: StepDef = {
   id: '223ext', label: '2×2 → 2×2×3', kind: 'block', family: '223',
   blurb: 'Extend a finished 2×2×2 into a 2×2×3 — solve the adjacent corner and two edges.',
   candidateMasks: [MASK_223_BOTTOM_LEFT], canonicalMask: MASK_223_BOTTOM_LEFT, prereqMask: MASK_222_DLF,
@@ -216,7 +247,11 @@ const COURSE_123: CourseBand[] = [
 ];
 
 export const TRAINERS: TrainerDef[] = [
-  // Course — graded block-building ladders (the founding objective).
+  // Course — the taught Foundations ladder first, then the graded courses.
+  // found223 has no `course` bands: its levels are LESSONS (src/lessons.ts),
+  // phase-gated on proficiency rather than graded on efficiency; steps[0] is a
+  // fallback — main.ts resolves the active lesson's step.
+  { id: 'found223', label: 'Foundations', category: 'Course', description: 'Blockbuilding Foundations — from your first pair to a 2×2×3, taught in phases: watch, guided, then on your own. Start here if blocks are new.', steps: [STEP_PAIR] },
   { id: 'course222', label: '2×2×2', category: 'Course', description: 'Graded 2×2×2 course — levels by optimal move count; clear by efficiency to unlock the next.', steps: [STEP_222], course: COURSE_222 },
   { id: 'course223', label: '2×2×3', category: 'Course', description: 'Graded 2×2×3 course — levels by optimal move count; clear by efficiency to unlock the next.', steps: [STEP_223], course: COURSE_223 },
   { id: 'course123', label: '1×2×3', category: 'Course', description: 'Graded 1×2×3 first-block course (Roux/LEOR) — levels by optimal move count.', steps: [STEP_123_LEFT], course: COURSE_123 },

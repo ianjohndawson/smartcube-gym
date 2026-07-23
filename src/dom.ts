@@ -22,7 +22,7 @@ export function btn(label: string, onClick: () => void, className = '', disabled
   return b;
 }
 
-export function renderCubeNet(f: string, highlight: Set<number> | null = null, blank: Set<number> | null = null): HTMLElement {
+export function renderCubeNet(f: string, highlight: Set<number> | null = null, blank: Set<number> | null = null, keep: Set<number> | null = null): HTMLElement {
   const net = el('div', 'cube-net');
   for (let i = 0; i < 54; i++) {
     let row: number, col: number;
@@ -31,7 +31,10 @@ export function renderCubeNet(f: string, highlight: Set<number> | null = null, b
     else { const j = i - 45; row = 6 + Math.floor(j / 3); col = 3 + (j % 3); }
     const isBlank = blank?.has(i);
     const dim = !isBlank && highlight && !highlight.has(i) ? ' dim' : '';
-    const sticker = el('div', isBlank ? 'sticker blank' : `sticker ${f[i]}${dim}`);
+    // `keep` is the muted protect-this outline (Foundations prereq block) —
+    // independent of the highlight ring and allowed to coexist with `dim`.
+    const kp = !isBlank && keep?.has(i) ? ' keep' : '';
+    const sticker = el('div', isBlank ? 'sticker blank' : `sticker ${f[i]}${dim}${kp}`);
     sticker.dataset.faceletIndex = String(i); // tap input, same as the 3D view
     sticker.style.gridRow = `${row + 1}`;
     sticker.style.gridColumn = `${col + 1}`;
@@ -92,7 +95,7 @@ const CUBE3D_PITCH_LIMIT = 45;
  *  rings/glows those sticker indices AND their floating hint-panel twins (so a
  *  bad-edge highlight is legible on a hidden face); `blank` renders those stickers
  *  as plain plastic (the pure-EO corner blanking). */
-export function renderCube3D(f: string, highlight: Set<number> | null = null, blank: Set<number> | null = null): HTMLElement {
+export function renderCube3D(f: string, highlight: Set<number> | null = null, blank: Set<number> | null = null, keep: Set<number> | null = null): HTMLElement {
   const stage = el('div', 'cube-3d-stage');
   stage.tabIndex = 0; // keyboard-focusable so arrow keys can spin it
   stage.setAttribute('role', 'img');
@@ -114,9 +117,11 @@ export function renderCube3D(f: string, highlight: Set<number> | null = null, bl
       if (i !== undefined) {
         const isBlank = blank?.has(i);
         const lit = !isBlank && !!highlight?.has(i);
+        const kp = !isBlank && !!keep?.has(i);
         // Reuse the net's colour classes: `sticker <colour>` (or `sticker blank`)
-        // for the fill/bevel, `hl` for the ring — all theme-aware in style.css.
-        const cls = isBlank ? 'sticker blank' : `sticker ${f[i]}`;
+        // for the fill/bevel, `hl` for the ring, `keep` for the muted protect
+        // outline — all theme-aware in style.css.
+        const cls = `${isBlank ? 'sticker blank' : `sticker ${f[i]}`}${kp ? ' keep' : ''}`;
         const sticker = el('div', `c3-sticker ${cls}${lit ? ' hl' : ''}`);
         sticker.dataset.faceletIndex = String(i); // for a future tap-to-name input
         faceEl.appendChild(sticker);

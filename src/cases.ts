@@ -11,7 +11,15 @@
 
 import type { PatternName } from './patterns.ts';
 
-export interface SeedCase { scramble: string; tag: PatternName; }
+export interface SeedCase {
+  scramble: string;
+  /** Primary named pattern of the taught route. Optional: some fine examples
+   *  have no corner event to name (e.g. an already-joined pair travelling
+   *  home). When present, the classifier must agree (lessons-check). */
+  tag?: PatternName;
+  /** One-line "what to watch" shown with a Foundations observe example. */
+  note?: string;
+}
 
 /** courseId → per-level seed lists (index-aligned with the course's levels). */
 export const COURSE_SEEDS: Record<string, SeedCase[][]> = {
@@ -37,4 +45,36 @@ export const COURSE_SEEDS: Record<string, SeedCase[][]> = {
 
 export function seedsFor(courseId: string, level: number): SeedCase[] {
   return COURSE_SEEDS[courseId]?.[level] ?? [];
+}
+
+/** Foundations observe examples, keyed by lesson id (src/lessons.ts). Same
+ *  harvest rules as COURSE_SEEDS — from-solved scrambles; for prereq lessons
+ *  the scramble ITSELF ends with the prerequisite block built (it is exactly
+ *  what makeScramble's prereq path emits, frozen). Tags verified by
+ *  scripts/lessons-check.ts. */
+export const LESSON_SEEDS: Record<string, SeedCase[]> = {
+  pair: [
+    { scramble: "L' D2 U' L' U L' F' R", note: 'The pair is already joined — watch it ride home as one piece.' },
+    { scramble: "D2 U2 F2 B2 L' R B2 F", tag: 'Simple join', note: 'One turn joins corner and edge; the next takes the pair home.' },
+    { scramble: "R' B U' R2 L' U' F' B'", tag: 'Roundabout', note: 'No pair yet — three turns manufacture one, then it drops in.' },
+  ],
+  square: [
+    { scramble: "L B2 D U' F R D2 B2 R U' D L' U2 F D' F", tag: 'Roundabout', note: 'The second edge is fetched and joined onto the pair’s centre.' },
+    { scramble: "D B F' R U D F2 U' F2 U D' B' U' R' D'", note: 'The pair steps aside, collects its second edge, and settles back.' },
+    { scramble: "R' F U2 F' R B' R' B R2 F D F' B2 L2", tag: 'Roundabout', note: 'Watch the edge arrive without the pair ever breaking.' },
+  ],
+  block222: [
+    { scramble: "L2 U2 D' R' B' D2 L2 B2 F' L F L U' L2 B' D' L2", tag: 'Roundabout', note: 'The square swings aside, the last edge slots in, the square swings back.' },
+    { scramble: "F' L' F B2 R2 B' F' L U2 R2 L2 B F B2 D2", tag: 'Roundabout', note: 'Same idea from the other side — out, catch the edge, back.' },
+    { scramble: "B2 U F2 R2 B U' L2 B2 D2 F2 U2 R2 U' F' U2 F'", tag: 'Roundabout', note: 'A setup turn first, then the swing out and back.' },
+  ],
+  ext223: [
+    { scramble: "F D R B2 R2 U2 D2 L' D L R' B2 R' F' B' U2 L2", tag: 'Double join', note: 'Everything is lined up — one turn locks the whole extension on.' },
+    { scramble: "B2 R2 L F R L U R2 U' F U F' R2 U' L' F' L'", tag: 'Swing', note: 'One setup turn, then the extension locks on in one.' },
+    { scramble: "U' R D2 R F2 L D' F' L D2 L D2 U' F' U L' F' D", tag: 'Pillar', note: 'The corner twists out of its slot, pairs up, and rejoins properly.' },
+  ],
+};
+
+export function lessonSeedsFor(lessonId: string): SeedCase[] {
+  return LESSON_SEEDS[lessonId] ?? [];
 }

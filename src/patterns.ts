@@ -104,6 +104,13 @@ function pairJoined(state: readonly string[], cornerHome: number[], edgeHome: nu
   return true;
 }
 
+/** Public pair-joined test for the live lesson coaching: are this corner and
+ *  edge currently joined as their solved rigid unit ANYWHERE on the cube?
+ *  Homes are facelet-index groups (a mask's cubies). */
+export function isPairJoined(state: readonly string[], cornerHome: number[], edgeHome: number[]): boolean {
+  return pairJoined(state, cornerHome, edgeHome);
+}
+
 const solvedPiece = (state: readonly string[], g: number[]) => g.every((i) => state[i] === SOLVED_FACELET_CUBE[i]);
 const slotOf = (state: readonly string[], pool: number[][], home: number[]) =>
   locate(state, pool, home.map((i) => SOLVED_FACELET_CUBE[i]));

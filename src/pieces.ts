@@ -80,6 +80,12 @@ function describe(colors: string[]): string {
   return `${names} ${colors.length === 3 ? 'corner' : 'edge'}`;
 }
 
+/** Human description of the piece whose HOME is these facelet indices
+ *  ("orange-green-yellow corner") — for coaching text about a mask's cubies. */
+export function pieceDescription(home: number[]): string {
+  return describe(home.map((i) => SOLVED_FACELET_CUBE[i]));
+}
+
 /**
  * The next piece the optimal solution places: simulate the solution and return
  * the first currently-unsolved target piece that becomes solved, with its

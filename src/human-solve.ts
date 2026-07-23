@@ -159,8 +159,9 @@ export function humanSolveFromState(
   if (!box) return solveFromState(cube, mask, cfg); // EO / irregular: plain optimal
   const family = familyOf(box);
 
-  // Single-stage ranked families: the 2×2×2 and the 1×2×2 square.
-  if (family === '222' || family === '122') {
+  // Single-stage ranked families: the 2×2×2, the 1×2×2 square and the 1×1×2
+  // corner–edge pair (the Foundations course's first two rungs).
+  if (family === '222' || family === '122' || family === '112') {
     return rankedComfort(cube, mask, cfg, rankCount) ?? solveFromState(cube, mask, cfg);
   }
   if (family !== '223' && family !== '123') return solveFromState(cube, mask, cfg);

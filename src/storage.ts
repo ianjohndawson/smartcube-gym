@@ -27,6 +27,7 @@ export type Key =
   | 'history'
   | 'lookahead'
   | 'course'
+  | 'foundations'
   | 'last-trainer'
   | 'cube-mac'
   | 'migrated.cube-mac';

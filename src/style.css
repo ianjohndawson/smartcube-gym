@@ -665,6 +665,11 @@ html[data-theme='dark'] .tab.active { box-shadow: inset 0 -2px 0 var(--accent); 
 .cube-net { display: grid; grid-template-columns: repeat(12, var(--s)); grid-template-rows: repeat(9, var(--s)); gap: 2px; width: max-content; }
 .sticker { border-radius: var(--sticker-r); border: 1px solid rgba(0,0,0,0.45); box-shadow: inset -2px -2px 0 rgba(0,0,0,0.16), inset 2px 2px 0 rgba(255,255,255,0.18); }
 .sticker.hl { outline: 2px solid var(--accent); outline-offset: -1px; z-index: 2; }
+/* Foundations "protect this" outline: muted, persistent, quieter than .hl —
+   marks the prerequisite block the learner must not break. Dashed so it never
+   reads as the focus ring; .hl on the same sticker wins visually (solid). */
+.sticker.keep { outline: 2px dashed var(--muted); outline-offset: -2px; z-index: 1; }
+.sticker.hl.keep { outline: 2px solid var(--accent); outline-offset: -1px; }
 .sticker.dim { opacity: 0.2; }
 .sticker.blank { background: #6b7280; border: 1px solid rgba(255,255,255,0.10); box-shadow: none; }
 .sticker.U { background: #f5f7fa; }

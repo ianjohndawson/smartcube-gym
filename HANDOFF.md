@@ -78,6 +78,61 @@ pattern vocabulary, curated course, lookahead drill. Eleven harnesses in
 
 ---
 
+## Done (2026-07-23) — Blockbuilding Foundations (the beginner course)
+
+The taught bottom-up curriculum from the Foundations roadmap (its phases 1+2,
+reordered to teach the whole ladder in one release):
+
+- **`found223` trainer** (Course category, listed first): four lessons at the
+  canonical DLF corner — pair (1×1×2) → 2×2×1 square (1×2×2) → 2×2×2 → 2×2×3
+  extension. Every rung is a plain box mask (`blocks.ts` `MASK_PAIR_*` /
+  `MASK_221_*`); `humanSolveFromState` teaches them via the single-stage ranked
+  branch (family `'112'` added).
+- **Lesson/phase engine** (`src/lessons.ts` — pure data + gate math; persisted
+  by stats.ts under the NEW `foundations` storage key, so graded `course`
+  records are untouched): observe → guided → coached → independent; gates
+  2 / 3 / 3-of-latest-4; success = target completed with helpUsed < 3
+  (ideal/walkthrough is 3); the phase is DERIVED from counts, never stored.
+- **Serving**: observe examples (`cases.ts` `LESSON_SEEDS`, tags verified by the
+  harness) are consumed when the scramble is APPLIED, not issued — immune to
+  the double-reset example burn that bites course222. Other phases generate
+  through the existing prereq path plus per-lesson difficulty caps
+  (`gen.maxOptimal`, attempt-capped so serving never stalls).
+- **Coaching**: L1 tap-identification (`answerIdentify`; `gym.identifyTarget`
+  e2e hook), per-move guided narration from cheap geometry ONLY — piece placed
+  (named), pair made/split (`patterns.isPairJoined`), prereq block
+  broken/recovered (`scorePlacement`) — coached opening line, and a dashed
+  `keep` outline on the prereq block (dom.ts renderers grew a 4th param;
+  `.sticker.keep`).
+- **Beginner review** (`buildLessonReview`): the roadmap's four answers;
+  planning-verdict/inspection lines hidden on lesson reps. Discard pops the
+  lesson rep and steps `current` back if it un-completes the lesson.
+- **Harness**: `scripts/lessons-check.ts` (gates, mask geometry + nesting,
+  seed servability + tag classification, '112' route sweep) in `npm run check`;
+  `scripts/harvest-lessons.ts` is the offline seed harvester (run by hand,
+  not in the chain).
+- **e2e-verified in the browser** (`gym.apply` + new `gym.identifyTarget` /
+  `gym.ideal` hooks): the full L1 ladder including a non-counting
+  ideal-assisted rep, L2–L4 serving, retry not re-burning examples, Discard
+  un-counting, and regression on course222 seeds / b223ext / Stats.
+
+### Foundations follow-ups (roadmap phases 3–5)
+- Recovery + placement-choice lessons (roadmap L0/L5 remnants): data-only
+  additions to `FOUNDATIONS_223` — recovery cases can reuse pattern-targeted
+  generation (Broken corner / Pillar).
+- Track 3: 1×2×3 Foundations (Roux/LEOR) via the same LessonDef registry.
+- Phase 3 renames: position `course223` as the post-Foundations practice
+  ladder; graduation cross-links.
+- Observe examples need a solved cube mid-session; consider an unwind-to-solved
+  helper for learners who can't yet solve the whole cube.
+- Guided "pair made" narration only fires when the pair forms BEFORE the
+  placing move (often simultaneous); narrating off the taught route's segments
+  would catch more moments.
+- First L4 generation pays the one-off ~2s pd5 table build on the main thread —
+  covered by the existing Web Worker follow-up above.
+
+---
+
 ## Remaining — TODO
 
 ### H2 step 5 — `view/` extraction (deferred; NOT a pure move)
