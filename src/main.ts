@@ -320,7 +320,7 @@ function currentStep(): StepDef | null {
 const SCRAMBLE_LEN = 16;
 const EO_SCRAMBLE_LEN = SCRAMBLE_LEN;
 
-function makeScramble(base: Cube3x3, baseHistory: Move3x3[], stepsList: StepDef[], blockEoOrient = 0, lessonGen?: { len?: number; maxOptimal?: number }): Move3x3[] {
+function makeScramble(base: Cube3x3, baseHistory: Move3x3[], stepsList: StepDef[], blockEoOrient = 0, lessonGen?: { len?: number; maxOptimal?: number; patterns?: PatternName[] }): Move3x3[] {
   const first = stepsList[0];
   // Course: generate a scramble whose optimal solution to the block lands in the
   // current level's difficulty band. Shorter random scrambles for easier bands.
@@ -436,17 +436,30 @@ function makeScramble(base: Cube3x3, baseHistory: Move3x3[], stepsList: StepDef[
   // Foundations lessons may shorten the scramble and cap the optimal (small
   // masks solve in ms at pd4, so the filter is cheap).
   const len = lessonGen?.len ?? SCRAMBLE_LEN;
+  // Recovery lesson: keep only scrambles whose TAUGHT route uses one of the
+  // named rescue techniques (Broken corner / Pillar) — the same anywhere-match
+  // and cheap rankCount the course222 pattern lessons use.
+  const wantPatterns = lessonGen?.patterns ? new Set<PatternName>(lessonGen.patterns) : null;
+  let lastBlock = genScramble(len);
   for (let attempt = 0; attempt < 25; attempt++) {
     const moves = genScramble(len);
+    lastBlock = moves;
     const cube = applyMoves(base, moves);
     if (first.candidateMasks.some((m) => isMaskSolvedState(cube, m))) continue;
+    if (wantPatterns) {
+      const taught = humanSolveFromState(cube, first.canonicalMask, first.solver, 16);
+      if (!taught) continue;
+      const names = classifyRoute(cube, taught, first.canonicalMask).map((e) => e.name);
+      if (!names.some((n) => n != null && wantPatterns.has(n))) continue;
+      return moves;
+    }
     if (lessonGen?.maxOptimal != null && attempt < 15) {
       const opt = solveFromState(cube, first.canonicalMask, first.solver)?.length ?? 99;
       if (opt > lessonGen.maxOptimal) continue;
     }
     return moves;
   }
-  return genScramble(len);
+  return lastBlock; // budget exhausted — serve the last valid scramble rather than stall
 }
 
 function computePrefixEncodes(base: Cube3x3, moves: Move3x3[]): string[] {

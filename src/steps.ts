@@ -205,6 +205,17 @@ export const STEP_222_FROM_221: StepDef = {
   hold: 'Your 2×2×1 is already built; add the last edge to finish the 2×2×2.',
   solver: SOLVER['222'],
 };
+// Recovery lesson: build the fixed-corner 2×2×2 from a SHORT scramble whose
+// taught route is a corner rescue (Broken corner / Pillar — the pattern filter
+// lives in main.ts's lesson-gen path). No prereq: the corner starts wrong (in
+// its slot misoriented, or stacked beside it), and fixing it IS the lesson.
+export const STEP_222_RECOVERY: StepDef = {
+  id: '222r', label: '2×2×2', kind: 'block',
+  blurb: 'A corner went in wrong — pop it out, pair it, and finish the 2×2×2.',
+  candidateMasks: [MASK_222_DLF], canonicalMask: MASK_222_DLF,
+  hold: 'Build the 2×2×2 at the orange-green-yellow corner — the tricky part is a corner that needs rescuing.',
+  solver: SOLVER['222'],
+};
 
 // --- block-building drills ---
 export const STEP_223_EXT: StepDef = {

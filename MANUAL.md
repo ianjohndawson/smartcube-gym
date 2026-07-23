@@ -97,10 +97,13 @@ Pick with **Change** in the bar under the title: Category → Trainer → Mode.
 ### Course — the curriculum
 
 - **Foundations** — the taught beginner course, and the place to start if
-  block building is new. Four lessons build the 2×2×3 from its smallest unit,
+  block building is new. Five lessons build the 2×2×3 from its smallest unit,
   all at one fixed corner (the orange-green-yellow one): **Make a pair →
-  Complete the 2×2×1 → Finish the 2×2×2 → Extend to a 2×2×3**. Each lesson
-  runs in phases:
+  Complete the 2×2×1 → Finish the 2×2×2 → Extend to a 2×2×3 → Fix a broken
+  corner**. The last teaches recovery — every case is a corner that went in
+  wrong (twisted in its slot, the *Broken corner*; or stacked beside it, the
+  *Pillar*), and the fix is always pop it out, pair it, put it back. Each
+  lesson runs in phases:
   - **watch** — curated examples with the route already shown; walk them
     through with the guided replay. Never graded. The next example is served
     when you arrive with a solved cube.

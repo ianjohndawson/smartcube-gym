@@ -11,7 +11,8 @@
 // efficiency; move counts are still logged to Stats but do not gate. This is
 // the deliberate opposite of the graded courses' clean-rate stars.
 
-import { type StepDef, STEP_221, STEP_222_FROM_221, STEP_223_EXT, STEP_PAIR } from './steps.ts';
+import { type StepDef, STEP_221, STEP_222_FROM_221, STEP_222_RECOVERY, STEP_223_EXT, STEP_PAIR } from './steps.ts';
+import type { PatternName } from './patterns.ts';
 
 export type LessonPhase = 'observe' | 'guided' | 'coached' | 'independent' | 'done';
 
@@ -36,8 +37,10 @@ export interface LessonDef {
   explain: string;
   /** The training target this lesson solves (mask/solver/prereq). */
   step: StepDef;
-  /** Generated-practice filter: scramble length / optimal-length ceiling. */
-  gen?: { len?: number; maxOptimal?: number };
+  /** Generated-practice filter. `patterns` keeps only scrambles whose taught
+   *  route uses one of the named techniques (the recovery lesson's engine —
+   *  see main.ts makeScramble); `len`/`maxOptimal` bound scramble difficulty. */
+  gen?: { len?: number; maxOptimal?: number; patterns?: PatternName[] };
   /** Guided reps open with tap-identification prompts (find the corner/edge). */
   identify?: boolean;
   gates: LessonGates;
@@ -165,6 +168,18 @@ export const FOUNDATIONS_223: LessonDef[] = [
       'Your 2×2×2 is built. The extension is a little block of its own — a corner and two edges. Pair them up and join them on against the 2×2×2, keeping it whole.',
     step: STEP_223_EXT,
     gen: { maxOptimal: 8 },
+    gates: GATES,
+  },
+  {
+    id: 'recover',
+    title: 'Fix a broken corner',
+    outcome: 'Rescue a corner that went in wrong and finish the 2×2×2.',
+    why: 'Blocks break — a corner drops in twisted, or stacks against its slot. Fixing it calmly is a real skill, not a failure.',
+    explain:
+      'Sometimes a corner sits in its place but turned the wrong way, or stacks up right next to it. Don’t fight it — pop it out, pair it with its edge, and put them in together. Two shapes cover almost every case: the Broken corner (twisted in its slot) and the Pillar (stacked beside it).',
+    step: STEP_222_RECOVERY,
+    // The pattern filter IS the lesson: every served case is a corner rescue.
+    gen: { len: 7, patterns: ['Broken corner', 'Pillar'] },
     gates: GATES,
   },
 ];

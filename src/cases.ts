@@ -77,6 +77,11 @@ export const LESSON_SEEDS: Record<string, SeedCase[]> = {
     { scramble: "B2 R2 L F R L U R2 U' F U F' R2 U' L' F' L'", tag: 'Swing', note: 'One setup turn, then the extension locks on in one.' },
     { scramble: "U' R D2 R F2 L D' F' L D2 L D2 U' F' U L' F' D", tag: 'Pillar', note: 'The corner twists out of its slot, pairs up, and rejoins properly.' },
   ],
+  recover: [
+    { scramble: "R B D B' F2 R D2", tag: 'Broken corner', note: 'The corner is in its slot but twisted — pop it out, catch its edge, drop it back in.' },
+    { scramble: "R' U2 F' D2 L' B2 R", tag: 'Pillar', note: 'The corner is stacked right beside its slot — twist it out to pair, then in it goes.' },
+    { scramble: "R2 B' D R F' B2 U'", tag: 'Broken corner', note: 'Another twisted-in-slot corner — same rescue: out, pair, back in.' },
+  ],
 };
 
 export function lessonSeedsFor(lessonId: string): SeedCase[] {

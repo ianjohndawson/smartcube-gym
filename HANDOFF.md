@@ -134,9 +134,16 @@ lives in the segment label (e.g. a Pillar's twist-out move reads "carry" when
 another pair is already riding; correct, if occasionally deadpan).
 
 ### Foundations follow-ups (roadmap phases 3–5)
-- Recovery + placement-choice lessons (roadmap L0/L5 remnants): data-only
-  additions to `FOUNDATIONS_223` — recovery cases can reuse pattern-targeted
-  generation (Broken corner / Pillar).
+- ~~Recovery lesson~~ SHIPPED 2026-07-23 as L5 "Fix a broken corner"
+  (`STEP_222_RECOVERY`, fixed-corner 2×2×2, no prereq). Every served case is a
+  corner rescue: `LessonDef.gen` gained `patterns?: PatternName[]`, and
+  makeScramble's lesson path keeps only scrambles whose taught route classifies
+  as one (Broken corner / Pillar), rankCount 16 like course222. Guarded by a
+  starvation sweep in lessons-check (≥8/80 at len 7) + the generic seed/tag/
+  annotation checks. e2e-verified: gate progression and every generated case
+  classifying as a rescue in hint/review/walkthrough.
+- Placement-choice lesson (roadmap L5 remnant): data-only, once free-placement
+  coaching is wanted in the course.
 - Track 3: 1×2×3 Foundations (Roux/LEOR) via the same LessonDef registry.
 - Phase 3 renames: position `course223` as the post-Foundations practice
   ladder; graduation cross-links.

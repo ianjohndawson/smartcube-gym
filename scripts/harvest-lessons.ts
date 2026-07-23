@@ -20,8 +20,8 @@ import { FOUNDATIONS_223, type LessonDef } from '../src/lessons.ts';
 const SOLVED = newSolved();
 
 // Per-lesson caps: observe examples must be WATCHABLE — short taught routes.
-const TAUGHT_CAP: Record<string, number> = { pair: 4, square: 5, block222: 4, ext223: 8 };
-const BASE_LEN: Record<string, number> = { pair: 8, square: 12, block222: 12, ext223: 12 };
+const TAUGHT_CAP: Record<string, number> = { pair: 4, square: 5, block222: 4, ext223: 8, recover: 5 };
+const BASE_LEN: Record<string, number> = { pair: 8, square: 12, block222: 12, ext223: 12, recover: 7 };
 const WANT = 8; // candidates to print per lesson
 
 // Collapse consecutive same-face turns (the scr+build seam can leave e.g.
@@ -65,6 +65,9 @@ function harvest(def: LessonDef) {
     const names = classifyRoute(cube, taught, step.canonicalMask)
       .map((e) => e.name)
       .filter((x): x is NonNullable<typeof x> => x != null);
+    // Pattern-gated lessons (recovery): only cases whose taught route uses a
+    // named technique the lesson trains — the app's own serving rule.
+    if (def.gen?.patterns && !names.some((nm) => def.gen!.patterns!.includes(nm))) continue;
     const opt = solveFromState(cube, step.canonicalMask, step.solver)?.length ?? -1;
     found++;
     console.log(`scramble: "${full.join(' ')}"`);

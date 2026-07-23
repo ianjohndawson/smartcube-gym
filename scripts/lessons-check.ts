@@ -166,6 +166,25 @@ for (const [courseId, levels] of Object.entries(COURSE_SEEDS)) {
   check(tried >= 20, 'pair sweep: enough non-degenerate scrambles');
 }
 
+// --- 5b. recovery lesson's pattern filter has material at its scramble length ---
+// The recovery lesson serves ONLY Broken corner / Pillar cases; if len-7
+// scrambles rarely produce them the lesson would stall on the fallback. Prove
+// the filter finds enough (mirrors makeScramble's generation exactly).
+{
+  const def = FOUNDATIONS_223.find((d) => d.id === 'recover')!;
+  const want = new Set(def.gen!.patterns!);
+  const len = def.gen!.len!;
+  let matched = 0;
+  for (let t = 0; t < 80; t++) {
+    const cube = applyMoves(SOLVED, genScramble(len));
+    if (def.step.candidateMasks.some((m) => isMaskSolvedState(cube, m))) continue;
+    const taught = humanSolveFromState(cube, def.step.canonicalMask, def.step.solver, 16);
+    if (!taught) continue;
+    if (classifyRoute(cube, taught, def.step.canonicalMask).some((e) => e.name && want.has(e.name))) matched++;
+  }
+  check(matched >= 8, `recovery filter finds rescue cases at len ${len} (${matched}/80)`);
+}
+
 // --- 6. walkthrough annotations: the grouped Learn pane's assumptions ---
 // classifyRoute's segments must PARTITION the taught route (every move sits in
 // exactly one group, in order), routeRoles must yield one role per move, and a
