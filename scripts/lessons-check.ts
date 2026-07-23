@@ -22,8 +22,8 @@ import {
 import {
   FOUNDATIONS_223, applyRep, derivePhase, emptyLessonProg, popRep, type LessonProg,
 } from '../src/lessons.ts';
-import { lessonSeedsFor } from '../src/cases.ts';
-import { genScramble } from '../src/steps.ts';
+import { COURSE_SEEDS, lessonSeedsFor } from '../src/cases.ts';
+import { genScramble, trainerById } from '../src/steps.ts';
 
 let n = 0, fail = 0;
 const check = (ok: boolean, msg: string) => { n++; if (!ok) { fail++; console.log(`MISMATCH: ${msg}`); } };
@@ -129,7 +129,28 @@ for (const def of FOUNDATIONS_223) {
   });
 }
 
-// --- 4. ranked human solve reaches the pair (family '112') ---
+// --- 4. graded-course seeds (COURSE_SEEDS) stay honest too ---
+// Same servability rules as the lesson seeds, and every stored tag must appear
+// in the classifier's reading of the taught route — the anywhere-rule the
+// course generator itself uses (steps.ts band.patterns).
+for (const [courseId, levels] of Object.entries(COURSE_SEEDS)) {
+  const step = trainerById(courseId).steps[0];
+  levels.forEach((seeds, lvl) => {
+    seeds.forEach((sc, k) => {
+      const who = `${courseId} L${lvl + 1} seed ${k}`;
+      const cube = applyMoves(SOLVED, parseMoves(sc.scramble));
+      check(!step.candidateMasks.some((m) => isMaskSolvedState(cube, m)), `${who}: target not pre-solved`);
+      const taught = humanSolveFromState(cube, step.canonicalMask, step.solver);
+      check(!!taught && taught.length > 0, `${who}: taught route exists`);
+      if (taught && sc.tag) {
+        const names = classifyRoute(cube, taught, step.canonicalMask).map((e) => e.name);
+        check(names.includes(sc.tag), `${who}: tag ${sc.tag} not in classified [${names.join(', ')}]`);
+      }
+    });
+  });
+}
+
+// --- 5. ranked human solve reaches the pair (family '112') ---
 {
   const def = FOUNDATIONS_223[0];
   let tried = 0;

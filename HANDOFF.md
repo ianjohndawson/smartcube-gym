@@ -73,8 +73,14 @@ pattern vocabulary, curated course, lookahead drill. Eleven harnesses in
   tables are ~1.6s each); 1×2×3 tap-to-aim needs a two-tap picker.
 - Lookahead ladder: longer sequences, multi-piece, whole-block reconstruction;
   hesitation map from the accrued `gaps` data.
-- Course L3 seeds are all Broken corner (re-harvest for variety); category+
-  trainer navigation double-resets and can burn two lesson examples.
+- ~~Course L3 seeds are all Broken corner; category+trainer navigation
+  double-resets and can burn two lesson examples.~~ BOTH FIXED 2026-07-23:
+  course examples now consume on scramble-APPLY (`courseSeedPending`, same rule
+  as Foundations — navigation/retry can't burn them), and the L3 seeds span
+  Roundabout / Broken corner / Pillar. `scripts/lessons-check.ts` now guards
+  COURSE_SEEDS tags against the TEACHING-default route — which caught and
+  fixed a mislabelled L2 seed (its rank-96 route had no named event; the old
+  harvest had verified the rank-16 route).
 
 ---
 

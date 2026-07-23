@@ -29,15 +29,19 @@ export const COURSE_SEEDS: Record<string, SeedCase[][]> = {
       { scramble: "R2 F R F' U2 R' F2 D' B2 R", tag: 'Simple join' },
       { scramble: "B R2 B' R U B2 L F2 D L", tag: 'Simple join' },
     ],
-    [ // L2 · Double joins & Swings
-      { scramble: "D R' B2 U2 R'", tag: 'Double join' },
+    [ // L2 · Double joins & Swings. Seed 0 re-harvested 2026-07-23: the old
+      // one's TEACHING-default route (rank 96 — what Show ideal walks) had no
+      // named event; tags are verified against that route by lessons-check.
+      { scramble: "B U' R F B'", tag: 'Double join' },
       { scramble: "R F2 L' F2 L'", tag: 'Double join' },
       { scramble: "D2 U' B' U' D'", tag: 'Swing' },
     ],
-    [ // L3 · Roundabouts & rescues
-      { scramble: "R U B2 D F' U", tag: 'Broken corner' },
-      { scramble: "R2 L2 U2 B D2 U'", tag: 'Broken corner' },
-      { scramble: "U' B F U' R' D", tag: 'Broken corner' },
+    [ // L3 · Roundabouts & rescues — one seed per rescue shape (variety
+      // re-harvest 2026-07-23; tags = the taught route's first named event,
+      // guarded by scripts/lessons-check.ts).
+      { scramble: "D' L2 F' L2 D2 U", tag: 'Roundabout' },
+      { scramble: "U L R2 F' L2 B'", tag: 'Broken corner' },
+      { scramble: "R D' L F L F'", tag: 'Pillar' },
     ],
     [], // L4 · full — no examples
   ],

@@ -233,6 +233,9 @@ interface State {
   eoCommitted: boolean; // free-EO: axis decided for this scramble (vs awaiting an ask-prompt)
   blockEoOrient: number; // 2×2×3+EO: rolled orientation (0..3) — the random long-side colour
   courseSeedTag: PatternName | null; // this scramble is a seeded lesson example (not graded)
+  /** Graded-course example issued but not yet applied — consumed (bumpCourseIntro)
+   *  when the scramble completes, so re-issuing scrambles can't burn examples. */
+  courseSeedPending: boolean;
   /** Foundations rep context. example=true is an ungraded observe demonstration;
    *  consumed flips when its scramble is applied (so retries can't re-burn it). */
   lessonRep: { example: boolean; consumed: boolean; note: string | null } | null;
@@ -461,8 +464,12 @@ function startScramble(base: Cube3x3, baseHistory: Move3x3[], explicit?: Move3x3
   // Curated course lessons open with seeded examples. A seed scramble is a
   // from-solved state, so it is only served when the tracked cube IS solved
   // (lesson entry resets to solved); otherwise practice is generated and the
-  // example counter waits. Consumed on issue; retry/undo keeps the tag.
+  // example counter waits. Consumed when the scramble is APPLIED (afterChange),
+  // not on issue — trainer/category navigation that re-issues scrambles can't
+  // burn examples (the same rule the Foundations lessons use). Retry/undo
+  // keeps the tag; only a fresh serve arms the pending-consume flag.
   let courseSeedTag: PatternName | null = explicit ? (state?.courseSeedTag ?? null) : null;
+  let courseSeedPending = false;
   let moves: Move3x3[] | null = explicit ?? null;
   if (!moves && t.course && faceletString(base) === SOLVED_STR) {
     const lvl = Math.min(courseCurrent(t.id), t.course.length - 1);
@@ -471,7 +478,7 @@ function startScramble(base: Cube3x3, baseHistory: Move3x3[], explicit?: Move3x3
     if (intro < seeds.length) {
       moves = parseMoves(seeds[intro].scramble);
       courseSeedTag = seeds[intro].tag ?? null;
-      bumpCourseIntro(t.id, lvl);
+      courseSeedPending = true;
     }
   }
   // Foundations serving: in the observe phase (and from a solved base) the next
@@ -526,6 +533,7 @@ function startScramble(base: Cube3x3, baseHistory: Move3x3[], explicit?: Move3x3
     eoCommitted: false,
     blockEoOrient,
     courseSeedTag,
+    courseSeedPending,
     lessonRep,
     helpUsed: 0,
     brokeProtected: false,
@@ -623,6 +631,12 @@ function afterChange() {
       // Free-EO: decide (or prompt for) the side axis now that the scramble is set.
       const cs0 = currentStep();
       if (cs0 && isFreeEo(cs0)) commitEoAxisOnScramble();
+      // Graded-course example applied — consume it now (see startScramble).
+      if (state.courseSeedPending) {
+        state.courseSeedPending = false;
+        const tr0 = trainer();
+        if (tr0.course) bumpCourseIntro(tr0.id, Math.min(courseCurrent(tr0.id), tr0.course.length - 1));
+      }
       if (state.pendingLearn) {
         state.pendingLearn = false;
         if (isFreeEo(cs0)) state.eoCommitted = true; // a learn walkthrough locks the (provisional) axis
@@ -1877,7 +1891,9 @@ function buildCoursePanel(): HTMLElement {
   const intro = Math.min(courseIntro(tr.id, cur), seeds.length);
   if (seeds.length) {
     p.appendChild(el('div', 'meter-cap',
-      intro < seeds.length
+      state.courseSeedPending
+        ? `example ${Math.min(intro + 1, seeds.length)}/${seeds.length} on the board — apply the scramble`
+        : intro < seeds.length
         ? `examples ${intro}/${seeds.length} shown — next needs a solved cube`
         : `examples ${seeds.length}/${seeds.length} shown — practice until clean`));
   }
