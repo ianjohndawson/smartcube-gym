@@ -859,6 +859,16 @@ html[data-theme='borland'] .statusbar { display: flex; flex-wrap: wrap; }
 .solved-banner { background: var(--chip-bg); border: 1px solid var(--ok); color: var(--ok); border-radius: var(--ctl-r); padding: 14px; font-weight: 600; text-align: center; }
 .movelist { font-family: var(--mono); font-size: 1.05em; display: flex; flex-wrap: wrap; gap: 4px 12px; }
 
+/* Annotated walkthrough: the taught route grouped by classified technique.
+   The live group (containing the next move) carries the accent; finished
+   groups recede. Labels reuse the muted caption voice. */
+.seg-route { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 12px; align-items: flex-start; }
+.seg-group { border: var(--chip-border); border-radius: var(--ctl-r); padding: 8px 10px 9px; }
+.seg-group.live { border-color: var(--accent); }
+.seg-group.done { opacity: 0.55; }
+.seg-label { color: var(--muted); font-size: 0.78em; text-transform: lowercase; letter-spacing: 0.04em; margin-bottom: 5px; }
+.seg-group.live .seg-label { color: var(--accent); }
+
 /* ── Modal ───────────────────────────────────────────────────────────────── */
 .modal-backdrop { position: fixed; inset: 0; background: var(--scrim); display: grid; place-items: center; z-index: 50; padding: 24px; }
 .modal {

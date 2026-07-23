@@ -193,7 +193,12 @@ The ladder, from least to most revealing:
    always uses the true optimal, so the gap stays honest.
 4. **Walk it through** — hands your cube back to the step start (with the
    return sequence tracked like a scramble), then guides the ideal move by
-   move: green done, blue next, red wrong turn. Walkthroughs aren't scored.
+   move: green done, blue next, red wrong turn. On block steps the route is
+   **annotated**: moves are grouped into boxes by the named technique they
+   perform (the live box is highlighted, with the pattern's one-line "how"
+   underneath), and the next-move caption says what the move is *doing* —
+   setup, the join, carrying the pair, or locking it in. This is where the
+   pattern vocabulary is taught, not just named. Walkthroughs aren't scored.
 5. **Retry** — back to the scrambled state (again, by physically undoing) for
    another attempt at the same case.
 

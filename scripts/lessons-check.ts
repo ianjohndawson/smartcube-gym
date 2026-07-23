@@ -14,7 +14,7 @@ import {
   applyMoves, isMaskSolvedState, newSolved, parseMoves, solveFromState, type Cube3x3Mask,
 } from '../src/engine-api.ts';
 import { humanSolveFromState } from '../src/human-solve.ts';
-import { classifyRoute } from '../src/patterns.ts';
+import { classifyRoute, routeRoles } from '../src/patterns.ts';
 import {
   MASK_221_BOTTOM, MASK_221_FRONT, MASK_221_LEFT, MASK_222_DLF, MASK_223_BOTTOM_LEFT,
   MASK_PAIR_DF, MASK_PAIR_DL, MASK_PAIR_FL, NET_COORDS,
@@ -164,6 +164,44 @@ for (const [courseId, levels] of Object.entries(COURSE_SEEDS)) {
     if (taught && opt) check(taught.length <= opt.length + 2, `pair sweep ${t}: ${taught.length} within optimal ${opt.length} + 2`);
   }
   check(tried >= 20, 'pair sweep: enough non-degenerate scrambles');
+}
+
+// --- 6. walkthrough annotations: the grouped Learn pane's assumptions ---
+// classifyRoute's segments must PARTITION the taught route (every move sits in
+// exactly one group, in order), routeRoles must yield one role per move, and a
+// route that completes the target must end on a placing move.
+{
+  const step = trainerById('course222').steps[0];
+  let tried = 0;
+  for (let t = 0; t < 60 && tried < 15; t++) {
+    const cube = applyMoves(SOLVED, genScramble(8));
+    if (step.candidateMasks.some((m) => isMaskSolvedState(cube, m))) continue;
+    const taught = humanSolveFromState(cube, step.canonicalMask, step.solver, 16);
+    if (!taught || taught.length === 0) continue;
+    tried++;
+    const seg = classifyRoute(cube, taught, step.canonicalMask);
+    let partition = seg.length > 0 && seg[0].from === 0 && seg[seg.length - 1].to === taught.length - 1;
+    for (let k = 1; k < seg.length; k++) if (seg[k].from !== seg[k - 1].to + 1) partition = false;
+    check(partition, `annotation sweep ${t}: segments partition the route`);
+    const roles = routeRoles(cube, taught, step.canonicalMask);
+    check(roles.length === taught.length, `annotation sweep ${t}: one role per move`);
+    check(roles[roles.length - 1] === 'place', `annotation sweep ${t}: the final move places`);
+  }
+  check(tried >= 10, 'annotation sweep: enough cases');
+  // The Foundations seeds get the same guarantee (their walkthroughs are the
+  // observe phase's whole value).
+  for (const def of FOUNDATIONS_223) {
+    lessonSeedsFor(def.id).forEach((sc, k) => {
+      const cube = applyMoves(SOLVED, parseMoves(sc.scramble));
+      const taught = humanSolveFromState(cube, def.step.canonicalMask, def.step.solver);
+      if (!taught) return; // reachability already checked in section 3
+      const seg = classifyRoute(cube, taught, def.step.canonicalMask);
+      let partition = seg.length > 0 && seg[0].from === 0 && seg[seg.length - 1].to === taught.length - 1;
+      for (let j = 1; j < seg.length; j++) if (seg[j].from !== seg[j - 1].to + 1) partition = false;
+      check(partition, `${def.id} seed ${k}: walkthrough segments partition`);
+      check(routeRoles(cube, taught, def.step.canonicalMask).length === taught.length, `${def.id} seed ${k}: roles align`);
+    });
+  }
 }
 
 console.log(`lessons: ${n} checks, mismatches ${fail}`);

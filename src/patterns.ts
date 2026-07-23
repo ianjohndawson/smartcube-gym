@@ -285,6 +285,43 @@ export function traceRoute(start: Cube3x3, route: Move3x3[], corners: number[][]
   return lines;
 }
 
+/** Per-move teaching roles for the annotated walkthrough: what each move of a
+ *  block route is DOING, derived from the same pair/piece geometry the
+ *  classifier uses. Roles, in the order a build usually visits them:
+ *    setup  nothing joined or placed yet — the move is lining pieces up;
+ *    join   a target corner–edge pair becomes a unit on this move;
+ *    carry  a joined-but-unplaced pair rides along toward home;
+ *    place  a target piece locks into the block (dominates a simultaneous
+ *           join — that one-move join-and-place IS the double join). */
+export type MoveRole = 'setup' | 'join' | 'carry' | 'place';
+export function routeRoles(start: Cube3x3, route: Move3x3[], mask: Cube3x3Mask): MoveRole[] {
+  const inMask = new Set(mask.solvedFaceletIndices);
+  const corners = CORNERS.filter((g) => g.some((i) => inMask.has(i)));
+  const edges = EDGES.filter((g) => g.some((i) => inMask.has(i)));
+  const pairs: { c: number[]; e: number[] }[] = [];
+  for (const c of corners) {
+    const cf = new Set(c.map(faceOf));
+    for (const e of edges) if (e.every((i) => cf.has(faceOf(i)))) pairs.push({ c, e });
+  }
+  const pieces = [...corners, ...edges];
+  const roles: MoveRole[] = [];
+  let cube = start;
+  let prev = cube.stateData;
+  let prevJoined = pairs.map((p) => pairJoined(prev, p.c, p.e));
+  for (const m of route) {
+    cube = applyMove(cube, m);
+    const st = cube.stateData;
+    const joined = pairs.map((p) => pairJoined(st, p.c, p.e));
+    const placedNow = pieces.some((g) => solvedPiece(st, g) && !solvedPiece(prev, g));
+    const joinedNow = joined.some((j, k) => j && !prevJoined[k]);
+    const carrying = pairs.some((p, k) => joined[k] && !(solvedPiece(st, p.c) && solvedPiece(st, p.e)));
+    roles.push(placedNow ? 'place' : joinedNow ? 'join' : carrying ? 'carry' : 'setup');
+    prev = st;
+    prevJoined = joined;
+  }
+  return roles;
+}
+
 /** One-line how-to per pattern, for the hint console. */
 export const PATTERN_HOW: Record<PatternName, string> = {
   'Simple join': 'The corner and edge are one turn from pairing — join them, then insert.',

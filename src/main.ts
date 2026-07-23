@@ -28,7 +28,7 @@ import {
 import { locatePieceNow, nextFocusPiece, nextTwoFocusPieces, pieceDescription, placementName, slotName, targetPieceStates, type FocusPiece } from './pieces.ts';
 import { humanSolveFromState } from './human-solve.ts';
 import { activePlacement, canonicalIndexIn, scorePlacement } from './placement.ts';
-import { classifyRoute, isPairJoined, PATTERN_HOW, type PatternName } from './patterns.ts';
+import { classifyRoute, isPairJoined, PATTERN_HOW, routeRoles, type MoveRole, type PatternName } from './patterns.ts';
 import { lessonSeedsFor, seedsFor } from './cases.ts';
 import { derivePhase, firstOpenLesson, lessonsFor, successCount, type LessonDef, type LessonPhase } from './lessons.ts';
 import { eoHint, blockHint } from './hints.ts';
@@ -250,7 +250,16 @@ interface State {
    *  answer tap. z is the second piece the taught route places. */
   predict: { z: FocusPiece; joinDesc: string } | null;
   predictResult: { stickers: number[]; note?: string } | null; // transient reveal highlight (cleared on next move)
-  learn: { moves: Move3x3[]; baseLen: number } | null; // guided ideal replay
+  /** Guided ideal replay. Block steps carry the walkthrough ANNOTATIONS:
+   *  `seg` = the taught route's classified pattern segments (the technique
+   *  each group of moves performs), `roles` = what each single move is doing
+   *  (setup/join/carry/place). Computed once at walkthrough start. */
+  learn: {
+    moves: Move3x3[];
+    baseLen: number;
+    seg?: { name: PatternName | null; from: number; to: number }[];
+    roles?: MoveRole[];
+  } | null;
   lastResult: {
     step: string; used: number; optimal: number | null; yourMoves: Move3x3[]; idealMoves: Move3x3[]; case?: string;
     eo?: { gb: { len: number; bad: number }; ro: { len: number; bad: number } };
@@ -1143,7 +1152,17 @@ function beginLearnWalkthrough() {
   state.movesThisStepTs = [];
   state.stepDone[state.stepIndex] = false;
   state.assist = null;
-  state.learn = { moves: ideal, baseLen: state.history.length };
+  // Annotate block walkthroughs: which technique each group of moves performs
+  // (the classifier's segments) and what each single move is doing. This is
+  // where the pattern vocabulary is actually TAUGHT, not just named.
+  let seg: NonNullable<State['learn']>['seg'];
+  let roles: MoveRole[] | undefined;
+  if (s.kind === 'block') {
+    const mask = activeMask(s);
+    seg = classifyRoute(state.stepStartCube, ideal, mask).map((e) => ({ name: e.name, from: e.from, to: e.to }));
+    roles = routeRoles(state.stepStartCube, ideal, mask);
+  }
+  state.learn = { moves: ideal, baseLen: state.history.length, seg, roles };
   // Show the method route alongside the theoretical optimal so the efficiency
   // gap is visible without teaching the awkward (back/bottom-heavy) optimal.
   const opt = idealLen(state.stepStartCube, s);
@@ -2180,21 +2199,59 @@ function buildReviewPane(right: HTMLElement) {
 }
 
 // --- right pane: learn-by-example walkthrough ---
+// Move roles spelled out for the caption — the walkthrough's running "why".
+const ROLE_PHRASE: Record<MoveRole, string> = {
+  setup: 'setup — line the pieces up',
+  join: 'the join — corner and edge become one unit',
+  carry: 'carry the joined pair toward home',
+  place: 'lock it into the block',
+};
 function buildLearnPane(right: HTMLElement, s: StepDef) {
   right.appendChild(el('div', 'panel-hd', `Learn — ${s.label}`));
-  right.appendChild(el('div', 'blurb', 'Follow the ideal move by move. Each turn goes green; a wrong turn shows red.'));
-  const { done, errorIndex } = progressOver(state.learn!.moves, state.history.slice(state.learn!.baseLen));
-  const shown = disp(state.learn!.moves);
-  const box = el('div', 'movelist');
-  box.style.marginTop = '12px';
-  shown.forEach((mv, i) => {
+  const learn = state.learn!;
+  const annotated = !!learn.seg?.length;
+  right.appendChild(el('div', 'blurb', annotated
+    ? 'Follow the route move by move — green done, red wrong turn. It is grouped by technique: each box is one named pattern doing one job.'
+    : 'Follow the ideal move by move. Each turn goes green; a wrong turn shows red.'));
+  const { done, errorIndex } = progressOver(learn.moves, state.history.slice(learn.baseLen));
+  const shown = disp(learn.moves);
+  const tok = (i: number) => {
     const cls = i < done ? 'tok done' : i === errorIndex ? 'tok error' : i === done ? 'tok next' : 'tok';
     const sp = el('span', cls);
-    sp.textContent = mv;
-    box.appendChild(sp);
-  });
-  right.appendChild(box);
-  if (done < shown.length) right.appendChild(el('div', 'meter-cap', `next move: ${shown[done]} (${done}/${shown.length})`));
+    sp.textContent = shown[i];
+    const role = learn.roles?.[i];
+    if (role) sp.title = role; // hover/long-press: the move's job
+    return sp;
+  };
+  if (annotated) {
+    const wrap = el('div', 'seg-route');
+    for (const g of learn.seg!) {
+      const grp = el('div', `seg-group${done > g.to ? ' done' : done >= g.from ? ' live' : ''}`);
+      grp.appendChild(el('div', 'seg-label', g.name ?? 'build'));
+      const line = el('div', 'movelist');
+      for (let i = g.from; i <= g.to; i++) line.appendChild(tok(i));
+      grp.appendChild(line);
+      wrap.appendChild(grp);
+    }
+    right.appendChild(wrap);
+  } else {
+    const box = el('div', 'movelist');
+    box.style.marginTop = '12px';
+    shown.forEach((_, i) => box.appendChild(tok(i)));
+    right.appendChild(box);
+  }
+  if (done < shown.length) {
+    const role = learn.roles?.[done];
+    right.appendChild(el('div', 'meter-cap',
+      `next move: ${shown[done]} (${done}/${shown.length})${role ? ` · ${ROLE_PHRASE[role]}` : ''}`));
+    // The current segment's one-liner — the why, delivered mid-execution.
+    const cur = learn.seg?.find((g) => done >= g.from && done <= g.to);
+    if (cur?.name) {
+      const c = el('div', 'coach');
+      c.textContent = `${cur.name} — ${PATTERN_HOW[cur.name]}`;
+      right.appendChild(c);
+    }
+  }
   const row = el('div', 'row');
   row.style.marginTop = '14px';
   row.appendChild(btn('Stop walkthrough', stopLearn, 'btn'));

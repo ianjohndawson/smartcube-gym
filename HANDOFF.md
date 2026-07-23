@@ -122,6 +122,17 @@ reordered to teach the whole ladder in one release):
   ideal-assisted rep, L2–L4 serving, retry not re-burning examples, Discard
   un-counting, and regression on course222 seeds / b223ext / Stats.
 
+### Annotated walkthrough (2026-07-23)
+The pattern vocabulary is now TAUGHT, not just named: block-step walkthroughs
+group the taught route's moves by classified technique (`state.learn.seg` from
+`classifyRoute` — the segments partition the route, guarded in lessons-check)
+with the live group highlighted and the pattern's PATTERN_HOW line shown
+mid-execution; each move carries a mechanical role from `patterns.routeRoles`
+(setup / join / carry / place) spoken in the next-move caption. EO walkthroughs
+keep the flat list. Roles are per-move geometric truth — the technique story
+lives in the segment label (e.g. a Pillar's twist-out move reads "carry" when
+another pair is already riding; correct, if occasionally deadpan).
+
 ### Foundations follow-ups (roadmap phases 3–5)
 - Recovery + placement-choice lessons (roadmap L0/L5 remnants): data-only
   additions to `FOUNDATIONS_223` — recovery cases can reuse pattern-targeted
