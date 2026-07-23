@@ -894,8 +894,11 @@ function handleFacelets(kociemba: string) {
   render();
 }
 function handleManualMoves(text: string) {
-  // In the solve frame the user types what they see (held frame); translate to model.
-  const toks = solveFrame() ? toModelMoves(parseMoves(text), solveRotation()) : parseMoves(text);
+  // In the solve frame the user types what they see (held frame); translate to
+  // model. Gated on notationFrame() (solve-only), NOT solveFrame() — during
+  // scramble the cube view may already be rotated (block-preserving EO), but
+  // the scramble text itself is always raw model notation.
+  const toks = notationFrame() ? toModelMoves(parseMoves(text), solveRotation()) : parseMoves(text);
   for (const tok of toks) step(tok);
   render();
 }
@@ -1235,22 +1238,39 @@ function commitEoAxisOnScramble() {
   }
 }
 
-/** The rotation list (model -> held frame) for the current solve display. Free-EO
- * always uses its chosen side axis (yellow-top); otherwise the legacy phase-flip. */
+/** The rotation list (model -> held frame) for the current solve display.
+ * Block-preserving EO (eo223, eo123) hold their frame in BOTH scramble AND
+ * solve — the pre-built block should look the same throughout (previously
+ * gated to solve-only, so the picture flipped the instant you finished
+ * scrambling; the pre-built block looked "wrong" — top-right-ish, white-top —
+ * right up until that point). Free-EO and the legacy blocks-category toggle
+ * keep the deliberate phase-flip: scramble stays canonical, only the solve
+ * phase honours the chosen hold. */
 function solveRotation(): RotationMove[] {
   const s = currentStep();
-  if (state.mode === 'solve') {
-    if (isBlockEo(s)) return blockEoDisplayRots(blockEoMethod, state.blockEoOrient);
-    if (isFreeEo(s)) return eoRot();
-  }
+  if (isBlockEo(s)) return blockEoDisplayRots(blockEoMethod, state.blockEoOrient);
+  if (s?.id === 'eo123') return ['x2'] as RotationMove[];
+  if (state.mode === 'solve' && isFreeEo(s)) return eoRot();
   return orientEnabled ? (['x2'] as RotationMove[]) : [];
 }
-/** True when a solve-phase held frame is active (rotate view + translate notation). */
+/** True when the CUBE VIEW should render rotated (picture + tap translation).
+ * Block-preserving EO (eo223, eo123) hold this in BOTH scramble and solve —
+ * see solveRotation() above. Everything else only in solve. */
 function solveFrame(): boolean {
+  const s = currentStep();
+  if (isBlockEo(s) || s?.id === 'eo123') return true; // always-on hold, any mode
+  return state.mode === 'solve' && solveRotation().length > 0;
+}
+/** True only during the SOLVE phase's held frame — gates NOTATION translation
+ * (typed/manual moves, hint/solution display text). The scramble's own
+ * move-list must NEVER be translated — it's always shown/typed in raw model
+ * notation (what the physical cube reports), regardless of whether the CUBE
+ * VIEW (solveFrame(), above) is already showing the held-frame picture. */
+function notationFrame(): boolean {
   return state.mode === 'solve' && solveRotation().length > 0;
 }
 function disp(moves: Move3x3[]): Move3x3[] {
-  return solveFrame() ? toDisplayMoves(moves, solveRotation()) : moves;
+  return notationFrame() ? toDisplayMoves(moves, solveRotation()) : moves;
 }
 
 function continuation(): Move3x3[] {
@@ -1580,7 +1600,7 @@ function buildCoursePanel(): HTMLElement {
   if (seeds.length) {
     p.appendChild(el('div', 'meter-cap',
       intro < seeds.length
-        ? `examples ${intro}/${seeds.length} shown — next example serves on a solved cube (Reset Cube or re-enter the lesson)`
+        ? `examples ${intro}/${seeds.length} shown — next needs a solved cube`
         : `examples ${seeds.length}/${seeds.length} shown — practice until clean`));
   }
   const recent = track.levels[cur]?.recent ?? [];

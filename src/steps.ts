@@ -4,6 +4,7 @@
 import {
   all222Masks,
   all223Masks,
+  blockMaskFromRanges,
   side123Masks,
   MASK_123_LEFT,
   MASK_123_RIGHT,
@@ -109,8 +110,17 @@ const U_LINE_GB = [1, 7, 13, 19]; // UF + UB — the blue (gb) bottom line on th
 const EOLINE_MASK: Cube3x3Mask = { solvedFaceletIndices: [...EO_CENTERS, ...U_LINE_GB], eoFaceletIndices: EO_FACELETS };
 const EOCROSS_MASK: Cube3x3Mask = { solvedFaceletIndices: [...EO_CENTERS, ...U_CROSS], eoFaceletIndices: EO_FACELETS };
 
+// eo123's OWN block placement — NOT MASK_123_LEFT (that one is shared with the
+// free Blocks-category drills — b123L/course123/b123R — which correctly hold
+// white-top and must stay untouched). This is the MIRROR-IMAGE 1×2×3: the same
+// left-face block, kept in the layers ADJACENT TO WHITE (y∈{1,2}) instead of
+// away from it (y∈{0,1}) — exactly how CANON_BLOCK (block-eo.ts) is built for
+// the 2×2×3 case. A whole-cube x2 view (always-on for this step; see main.ts's
+// solveRotation) then flips it to display yellow-top/white-bottom with the
+// block landing at the bottom-left — verified by scripts/eo-hold-check.ts.
+const MASK_123_EO_BLOCK = blockMaskFromRanges([0], [1, 2], [0, 1, 2]);
 const MASK_123_EO: Cube3x3Mask = {
-  solvedFaceletIndices: MASK_123_LEFT.solvedFaceletIndices,
+  solvedFaceletIndices: MASK_123_EO_BLOCK.solvedFaceletIndices,
   eoFaceletIndices: EO_FACELETS,
 };
 
@@ -160,8 +170,8 @@ const STEP_EO_223: StepDef = {
 const STEP_EO_123: StepDef = {
   id: 'eo123', label: '1×2×3', kind: 'eo',
   blurb: 'Starting from a finished 1×2×3 first block (Roux first block / LEOR start), orient all 12 edges without breaking it.',
-  candidateMasks: [MASK_123_EO], canonicalMask: MASK_123_EO, prereqMask: MASK_123_LEFT,
-  hold: 'Keep the 1×2×3 intact; orient edges on the F/B axis.',
+  candidateMasks: [MASK_123_EO], canonicalMask: MASK_123_EO, prereqMask: MASK_123_EO_BLOCK,
+  hold: 'Yellow on top, white on the bottom; keep the 1×2×3 intact and orient every edge.',
   solver: { moveSet: BLOCK_MOVES, pruningDepth: 5, depthLimit: 14 },
 };
 
@@ -188,8 +198,8 @@ const STEP_123_RIGHT_DRILL: StepDef = {
 // ungated full scrambles, graded exactly like the old course.
 const COURSE_222: CourseBand[] = [
   { label: 'L1 · Simple joins', patterns: ['Simple join'], len: 10 },
-  { label: 'L2 · Double joins & Swings', patterns: ['Double join', 'Swing'], len: 5 },
-  { label: 'L3 · Roundabouts & rescues', patterns: ['Roundabout', 'Pillar', 'Broken corner', 'Double swing', 'Parallel roundabout'], len: 6 },
+  { label: 'L2 · Joins & swings', patterns: ['Double join', 'Swing'], len: 5 },
+  { label: 'L3 · Roundabouts', patterns: ['Roundabout', 'Pillar', 'Broken corner', 'Double swing', 'Parallel roundabout'], len: 6 },
   { label: 'L4 · full', min: 1, max: 99 },
 ];
 const COURSE_223: CourseBand[] = [

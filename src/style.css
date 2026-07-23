@@ -897,9 +897,12 @@ html[data-theme='borland'] .modal .hint { color: #303030; }
   html[data-theme='borland'] { --s: 22px; }
 }
 /* Short viewports (e.g. iPad landscape): shrink the cube so the whole session
-   fits the height without scrolling. */
+   fits the height without scrolling. Covers both cube views: --s (flat net
+   sticker) and --u (3D cube unit — added here; it was missed when 3D became
+   the default view, which is why this stopped fitting on iPad). */
 @media (max-height: 860px) {
   :root, html[data-theme='dark'], html[data-theme='borland'], html[data-theme='matrix'] { --s: 24px; --panel-gap: 12px; }
+  .cube-3d-stage { --u: clamp(13px, 3.6cqi, 18px); }
   .main { padding: 12px; }
   /* Borland's big DOS font is the height hog — shrink it so the session fits too. */
   html[data-theme='borland'] { --fs: 17px; --scr-fs: 21px; --hd-fs: 17px; --panel-pad: 12px; }
