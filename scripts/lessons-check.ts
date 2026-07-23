@@ -119,7 +119,10 @@ for (const def of FOUNDATIONS_223) {
     if (def.step.prereqMask) check(isMaskSolvedState(cube, def.step.prereqMask), `${who}: prereq pre-built`);
     check(!def.step.candidateMasks.some((m) => isMaskSolvedState(cube, m)), `${who}: target not pre-solved`);
     const taught = humanSolveFromState(cube, def.step.canonicalMask, def.step.solver);
-    check(!!taught && taught.length > 0 && taught.length <= 8, `${who}: taught route exists and is watchable (≤8)`);
+    // Watchable ceiling: small rungs are 1–5 moves; the from-scratch 2×2×3
+    // capstone is a full build (milestone + extension), so it earns more room.
+    const watchCap = def.id === 'build223' ? 13 : 8;
+    check(!!taught && taught.length > 0 && taught.length <= watchCap, `${who}: taught route exists and is watchable (≤${watchCap})`);
     if (!taught) return;
     check(isMaskSolvedState(applyMoves(cube, taught), def.step.canonicalMask), `${who}: taught route reaches the target`);
     if (sc.tag) {

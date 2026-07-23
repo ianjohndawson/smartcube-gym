@@ -20,8 +20,8 @@ import { FOUNDATIONS_223, type LessonDef } from '../src/lessons.ts';
 const SOLVED = newSolved();
 
 // Per-lesson caps: observe examples must be WATCHABLE — short taught routes.
-const TAUGHT_CAP: Record<string, number> = { pair: 4, square: 5, block222: 4, ext223: 8, recover: 5 };
-const BASE_LEN: Record<string, number> = { pair: 8, square: 12, block222: 12, ext223: 12, recover: 7 };
+const TAUGHT_CAP: Record<string, number> = { pair: 4, square: 5, block222: 4, ext223: 8, recover: 5, build223: 12 };
+const BASE_LEN: Record<string, number> = { pair: 8, square: 12, block222: 12, ext223: 12, recover: 7, build223: 14 };
 const WANT = 8; // candidates to print per lesson
 
 // Collapse consecutive same-face turns (the scr+build seam can leave e.g.

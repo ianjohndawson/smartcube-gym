@@ -82,6 +82,13 @@ export const LESSON_SEEDS: Record<string, SeedCase[]> = {
     { scramble: "R' U2 F' D2 L' B2 R", tag: 'Pillar', note: 'The corner is stacked right beside its slot — twist it out to pair, then in it goes.' },
     { scramble: "R2 B' D R F' B2 U'", tag: 'Broken corner', note: 'Another twisted-in-slot corner — same rescue: out, pair, back in.' },
   ],
+  // Capstone: full 2×2×3 builds (no tag — a whole build spans several
+  // techniques; the walkthrough groups it into the 2×2×2 and the extension).
+  build223: [
+    { scramble: "R' D F2 B' U D' L2 R' U B2 D2 F' R D2", note: 'The whole plan in one — pair up, finish the 2×2×2, then extend it.' },
+    { scramble: "F2 B' D' B2 L' F2 L2 B' R U' B' R2 D2 L", note: 'Watch the milestones: a 2×2×2 forms first, then the extension locks on.' },
+    { scramble: "B' L2 D F' B2 L' D F U' F2 U L2 D2 L'", note: 'A bigger build — the walkthrough splits it into the block and its extension.' },
+  ],
 };
 
 export function lessonSeedsFor(lessonId: string): SeedCase[] {

@@ -216,6 +216,17 @@ export const STEP_222_RECOVERY: StepDef = {
   hold: 'Build the 2×2×2 at the orange-green-yellow corner — the tricky part is a corner that needs rescuing.',
   solver: SOLVER['222'],
 };
+// Capstone lesson: build a full 2×2×3 from a scramble with NO head start. The
+// fixed bottom-left placement (grows back from the DLF corner the ladder used);
+// humanSolveFromState builds the 2×2×2 milestone then extends, so the annotated
+// walkthrough shows the whole plan the learner has been assembling.
+export const STEP_223_BUILD: StepDef = {
+  id: '223b', label: '2×2×3', kind: 'block', family: '223',
+  blurb: 'Build a full 2×2×3 from a scramble — 2×2×1, then 2×2×2, then extend.',
+  candidateMasks: [MASK_223_BOTTOM_LEFT], canonicalMask: MASK_223_BOTTOM_LEFT,
+  hold: 'Build the 2×2×3 along the bottom-left, growing back from the orange-green-yellow corner — plan the whole thing.',
+  solver: SOLVER['223'],
+};
 
 // --- block-building drills ---
 export const STEP_223_EXT: StepDef = {

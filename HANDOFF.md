@@ -142,8 +142,17 @@ another pair is already riding; correct, if occasionally deadpan).
   starvation sweep in lessons-check (≥8/80 at len 7) + the generic seed/tag/
   annotation checks. e2e-verified: gate progression and every generated case
   classifying as a rescue in hint/review/walkthrough.
+- ~~Build-from-scratch capstone~~ SHIPPED 2026-07-23 as L6 "Build a 2×2×3 from
+  scratch" (`STEP_223_BUILD`, fixed bottom-left 2×2×3, no prereq, gen len 14 /
+  maxOptimal 11). The finale: a full build with no head start; the annotated
+  walkthrough splits it into the 2×2×2 milestone + extension (classifier
+  segments). Graduation message fires on completion. lessons-check relaxes the
+  observe watchable-cap to 13 for this lesson only; now 271 checks.
 - Placement-choice lesson (roadmap L5 remnant): data-only, once free-placement
   coaching is wanted in the course.
+- Capstone walkthrough segments show the classifier's names (or "build" when
+  unnamed); a milestone-aware label ("2×2×2" / "extension") would read cleaner
+  than a bare "build" for the two staged halves — small buildLearnPane tweak.
 - Track 3: 1×2×3 Foundations (Roux/LEOR) via the same LessonDef registry.
 - Phase 3 renames: position `course223` as the post-Foundations practice
   ladder; graduation cross-links.

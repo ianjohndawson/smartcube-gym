@@ -11,7 +11,7 @@
 // efficiency; move counts are still logged to Stats but do not gate. This is
 // the deliberate opposite of the graded courses' clean-rate stars.
 
-import { type StepDef, STEP_221, STEP_222_FROM_221, STEP_222_RECOVERY, STEP_223_EXT, STEP_PAIR } from './steps.ts';
+import { type StepDef, STEP_221, STEP_222_FROM_221, STEP_222_RECOVERY, STEP_223_BUILD, STEP_223_EXT, STEP_PAIR } from './steps.ts';
 import type { PatternName } from './patterns.ts';
 
 export type LessonPhase = 'observe' | 'guided' | 'coached' | 'independent' | 'done';
@@ -180,6 +180,19 @@ export const FOUNDATIONS_223: LessonDef[] = [
     step: STEP_222_RECOVERY,
     // The pattern filter IS the lesson: every served case is a corner rescue.
     gen: { len: 7, patterns: ['Broken corner', 'Pillar'] },
+    gates: GATES,
+  },
+  {
+    id: 'build223',
+    title: 'Build a 2×2×3 from scratch',
+    outcome: 'Plan and build a full 2×2×3 from one scramble — corner, block and extension, all yourself.',
+    why: 'This is the whole skill together: no head start, no fixed order — read the cube and build the block your Petrus / APB solve opens with.',
+    explain:
+      'Everything you have practised, in one go. There is no prebuilt start now: make a pair, grow it to a 2×2×2, then extend to a 2×2×3 — the milestones you already know, planned yourself from the scramble.',
+    step: STEP_223_BUILD,
+    // A gentle optimal cap keeps beginner cases fair; the scramble is otherwise
+    // a full build. (2×2×3 solves are pd5 ~130ms; the filter runs a few times.)
+    gen: { len: 14, maxOptimal: 11 },
     gates: GATES,
   },
 ];
