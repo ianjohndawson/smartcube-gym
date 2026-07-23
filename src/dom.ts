@@ -40,7 +40,12 @@ export function renderCubeNet(f: string, highlight: Set<number> | null = null, b
     sticker.style.gridColumn = `${col + 1}`;
     net.appendChild(sticker);
   }
-  return net;
+  // The net is centred in a "stage" — the same size-container the 3D view uses, so
+  // the sticker size derives from the box the panel has left rather than a fixed
+  // token (see .cube-net-stage in style.css).
+  const stage = el('div', 'cube-net-stage');
+  stage.appendChild(net);
+  return stage;
 }
 
 // ── 3D orbit cube ──────────────────────────────────────────────────────────

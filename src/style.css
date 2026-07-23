@@ -577,12 +577,16 @@ html[data-theme='borland'] .top-meta { display: none; }
    Change button that toggles the picker. */
 .stepbar {
   flex: 0 0 auto;
-  display: flex; align-items: center; gap: 14px;
+  /* Wraps because it carries the cube controls as well as the crumb — on a phone
+     that's more than one line's worth, and the alternative is a sideways scroll. */
+  display: flex; align-items: center; gap: 10px 14px; flex-wrap: wrap;
   padding: 12px 16px 0;
 }
 .crumb {
   display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap;
-  font-size: 1.5em; line-height: 1.1; letter-spacing: 0.4px;
+  /* Deliberately close to body size: it's a label for what you picked, not a
+     title, and every em it takes is an em off the cube view below. */
+  font-size: 1.15em; line-height: 1.1; letter-spacing: 0.4px;
 }
 .crumb-part { color: var(--text); font-weight: 600; }
 .crumb-sep { color: var(--muted); opacity: 0.6; }
@@ -635,6 +639,9 @@ html[data-theme='dark'] .tab.active { box-shadow: inset 0 -2px 0 var(--accent); 
 
 /* ── Scramble ────────────────────────────────────────────────────────────── */
 .scramble { font-family: var(--mono); font-size: var(--scr-fs); letter-spacing: var(--scr-ls); display: flex; flex-wrap: wrap; gap: 4px 13px; color: var(--text); }
+/* The strip carries no panel header, so it doesn't need the room Borland reserves
+   for one (its .panel-hd is absolutely positioned into the top border). */
+html[data-theme='borland'] .panel.scramble-strip { padding-top: var(--panel-pad); }
 .tok.done { color: var(--ok); }
 .tok.next { color: var(--accent); text-decoration: underline; }
 .tok.error { color: var(--danger); text-decoration: underline; font-weight: 700; }
@@ -644,7 +651,7 @@ html[data-theme='dark'] .tab.active { box-shadow: inset 0 -2px 0 var(--accent); 
 .accent2-fg { color: var(--accent-2); }
 
 /* ── Cube net ────────────────────────────────────────────────────────────── */
-.cube-wrap { position: relative; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; flex: 1 1 auto; }
+.cube-wrap { position: relative; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; flex: 1 1 auto; min-height: 200px; }
 
 /* Transient status toast over the cube view (Sync / Reset / connect feedback). */
 .cube-toast {
@@ -662,7 +669,31 @@ html[data-theme='dark'] .tab.active { box-shadow: inset 0 -2px 0 var(--accent); 
   82% { opacity: 1; transform: translate(-50%, 0); }
   100% { opacity: 0; transform: translate(-50%, -8px); }
 }
-.cube-net { display: grid; grid-template-columns: repeat(12, var(--s)); grid-template-rows: repeat(9, var(--s)); gap: 2px; width: max-content; }
+/* Either cube view sits in a "stage": the box the panel has left over once the
+   header and caption are laid out. The stage is a SIZE container, so each view
+   derives its unit from the space it actually got — in both axes, which is the
+   point: a wide, short panel has to be bounded by its height.
+   The stage is absolutely positioned to inset:0 rather than flexed, because a size
+   container only reports a block size (cqh) when its height is DEFINITE. Flexed,
+   its height would come from `min-height` whenever the column runs out of room to
+   stretch it — and min-height leaves the height indefinite, so cqh reads 0 and the
+   unit collapses to its clamp floor. Filling the wrap absolutely inherits the
+   wrap's used height either way. It also means the wrap, not the stage, carries the
+   floor: size containment leaves the stage with no intrinsic height to floor. */
+.cube-3d-stage, .cube-net-stage {
+  position: absolute; inset: 0;
+  container-type: size;
+}
+.cube-net-stage { display: grid; place-items: center; }
+.cube-net {
+  /* Sticker size fills the stage: 12 columns and 11 gaps across, 9 rows and 8
+     gaps down. Capped lower than the 3D view's unit — the net is already the
+     easier of the two to read, so past ~50px it just gets chunky. Where container
+     queries are unsupported the declaration drops out and the theme's :root --s
+     (a fixed 34px) is inherited instead. */
+  --s: clamp(14px, min((100cqw - 22px) / 12, (100cqh - 16px) / 9), 50px);
+  display: grid; grid-template-columns: repeat(12, var(--s)); grid-template-rows: repeat(9, var(--s)); gap: 2px; width: max-content;
+}
 .sticker { border-radius: var(--sticker-r); border: 1px solid rgba(0,0,0,0.45); box-shadow: inset -2px -2px 0 rgba(0,0,0,0.16), inset 2px 2px 0 rgba(255,255,255,0.18); }
 .sticker.hl { outline: 2px solid var(--accent); outline-offset: -1px; z-index: 2; }
 /* Foundations "protect this" outline: muted, persistent, quieter than .hl —
@@ -684,18 +715,11 @@ html[data-theme='dark'] .tab.active { box-shadow: inset 0 -2px 0 var(--accent); 
    verified CSS-3D spike; the camera (yaw/pitch) is held in dom.ts module scope,
    not here, because main.ts rebuilds this subtree on every move. Sticker colours
    come from the .sticker.<colour> rules above (reused, one source), so all four
-   themes restyle both views together — only placement lives below. The cube-wrap
-   becomes a container so the unit `--u` can size off the panel width (cqi): 11u
-   ≈ 90% of it, so the floating hint panels never push the page into a scroll. */
-.cube-wrap { container-type: inline-size; }
+   themes restyle both views together — only placement lives below. Sizing comes
+   from the shared stage rule above. */
 .cube-3d-stage {
-  --u: 34px;                          /* fallback where container queries are absent */
-  --u: clamp(20px, 8.2cqi, 46px);
   --c3-plastic: var(--stage-bg);      /* the cubie body — the darkest theme token */
   --c3-groove: rgba(0, 0, 0, 0.55);
-  position: relative;
-  width: 100%;
-  height: calc(var(--u) * 11);
   touch-action: none;                 /* let a touch-drag orbit without scrolling */
   user-select: none; -webkit-user-select: none;
   cursor: grab;
@@ -706,6 +730,14 @@ html[data-theme='dark'] .tab.active { box-shadow: inset 0 -2px 0 var(--accent); 
 .cube-3d-stage:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: var(--radius); }
 .cube-3d-scene {
   position: absolute; inset: 0;
+  /* The cube unit. 11u is the box the cube plus its floating hint panels sweep
+     through: measured across the whole reachable camera range the extent peaks at
+     10.71u, in both axes, so an 11u square clears every orientation with a hair
+     of margin. Take the smaller axis of the stage so a wide, short one is bounded
+     by its height. Declared on the scene, not the stage, because an element can't
+     query itself as a container — every descendant that reads --u resolves cqi/cqh
+     against the same stage, so the value is one number throughout. */
+  --u: clamp(14px, min(9.09cqi, 9.09cqh), 80px);
   /* Far, flat projection (≥ 34u). A stronger perspective (smaller value) lets the
      cube's own occlusion shadow swallow the nearest sticker of the back panel. */
   perspective: calc(var(--u) * 34);
@@ -745,7 +777,12 @@ html[data-theme='borland'] .c3-face { border-radius: 0; } /* square plastic to m
 .f-U { transform: rotateX(90deg)  translateZ(calc(var(--u) / 2)); }
 .f-D { transform: rotateX(-90deg) translateZ(calc(var(--u) / 2)); }
 /* Hint panels: the same face rotation, pushed out EXACTLY 4u (CrystalCube's
-   distance) and flipped 180° to face the far side. */
+   distance) and flipped 180° to face the far side.
+   4u is not a cosmetic gap and is not up for tuning: they were pushed out TO here
+   because closer in they occluded the back and side views — the one job the panels
+   exist to do. Pulling them in would buy the cube ~13% at 3.3u or ~20% at 3u (it's
+   their sweep, not the cube's 3u body, that sets the --u divisor above), which is
+   exactly the trade that keeps looking tempting and has already been rejected. */
 .h-F { transform: translateZ(calc(var(--u) * 4)) rotateY(180deg); }
 .h-B { transform: rotateY(180deg) translateZ(calc(var(--u) * 4)) rotateY(180deg); }
 .h-R { transform: rotateY(90deg)  translateZ(calc(var(--u) * 4)) rotateY(180deg); }
@@ -788,6 +825,8 @@ html[data-theme='borland'] .c3-face { border-radius: 0; } /* square plastic to m
 .c-good { color: var(--ok); }
 .c-coach { color: var(--console-fg); }
 .c-muted { color: var(--muted); }
+/* Divides the standing brief from the coaching output below it. */
+.crule { border-top: 1px solid var(--line); opacity: 0.5; margin: 0 0 12px; }
 
 /* ── Stats ───────────────────────────────────────────────────────────────── */
 .stats { flex: 1 1 auto; min-height: 0; overflow: auto; display: flex; flex-direction: column; gap: 16px; }
@@ -906,18 +945,20 @@ html[data-theme='borland'] .modal .hint { color: #303030; }
   .main { grid-template-columns: 1fr; }
   :root, html[data-theme='dark'] { --s: 30px; }
   html[data-theme='borland'] { --s: 30px; }
+  /* Stacked layout: the page scrolls, so the cube panel has no leftover height for
+     the wrap to stretch into. Give it a width-proportional square instead. */
+  .cube-wrap { min-height: min(86vw, 460px); }
 }
 @media (max-width: 420px) {
   :root, html[data-theme='dark'] { --s: 22px; }
   html[data-theme='borland'] { --s: 22px; }
 }
-/* Short viewports (e.g. iPad landscape): shrink the cube so the whole session
-   fits the height without scrolling. Covers both cube views: --s (flat net
-   sticker) and --u (3D cube unit — added here; it was missed when 3D became
-   the default view, which is why this stopped fitting on iPad). */
+/* Short viewports (e.g. iPad landscape): tighten the chrome so the whole session
+   fits the height without scrolling. Both cube views now shrink on their own —
+   their unit is derived from the stage box, which is whatever the panel has left
+   — so the only cube token here is the no-container-query fallback --s. */
 @media (max-height: 860px) {
   :root, html[data-theme='dark'], html[data-theme='borland'], html[data-theme='matrix'] { --s: 24px; --panel-gap: 12px; }
-  .cube-3d-stage { --u: clamp(13px, 3.6cqi, 18px); }
   .main { padding: 12px; }
   /* Borland's big DOS font is the height hog — shrink it so the session fits too. */
   html[data-theme='borland'] { --fs: 17px; --scr-fs: 21px; --hd-fs: 17px; --panel-pad: 12px; }

@@ -1762,7 +1762,8 @@ function render() {
 
   const main = el('div', 'main');
   const left = el('div', 'col');
-  left.appendChild(buildScramblePanel());
+  const strip = buildScrambleStrip();
+  if (strip) left.appendChild(strip);
   left.appendChild(buildCubePanel(s));
   if (trainer().course) left.appendChild(buildCoursePanel());
   else if (activeLessonDef()) left.appendChild(buildFoundationsPanel());
@@ -1777,6 +1778,13 @@ function render() {
   app.appendChild(main);
 
   appEl.replaceChildren(app);
+  // The standing brief sits above the coaching output. Once help has actually been
+  // asked for, pin the console to the bottom so a long lesson brief can't push the
+  // answer below the fold — press Hint, see the hint.
+  if (state.assist || state.predictResult) {
+    const con = appEl.querySelector('.console');
+    if (con) con.scrollTop = con.scrollHeight;
+  }
   if (state.showSettings) renderSettings();
 }
 
@@ -1821,8 +1829,11 @@ function buildTopBar(): HTMLElement {
 function catLabel(c: Category): string {
   return c === 'Blocks' ? 'Block building' : c === 'EO' ? 'Edge Orientation' : c;
 }
-// The current selection as one big sentence (Category · Trainer · Mode) with a
-// Change button that reveals the full picker — sits just below the top bar.
+// The current selection as one sentence (Category · Trainer · Mode) with a Change
+// button that reveals the full picker — sits just below the top bar. It also holds
+// the cube controls: they're wanted in every mode, so giving them a panel of their
+// own in the left column would cost the cube view height for the whole session,
+// whereas this bar has to exist anyway and had a screen's width of dead space.
 function buildStepBar(): HTMLElement {
   const bar = el('div', 'stepbar');
   const crumb = el('span', 'crumb');
@@ -1835,6 +1846,13 @@ function buildStepBar(): HTMLElement {
   crumb.title = 'Change what you are training';
   crumb.addEventListener('click', togglePicker);
   bar.appendChild(crumb);
+  bar.appendChild(el('div', 'spacer'));
+  // Only offered mid-solve: while you're still applying one, a fresh scramble is
+  // what "Reset Cube" plus the strip already gives you.
+  if (state.mode !== 'scramble') bar.appendChild(btn('Next scramble', nextScramble, 'btn'));
+  bar.appendChild(btn('Reset Cube', resetToSolved, 'btn'));
+  // Sync = read the cube's real state and correct the model (for BLE drift).
+  bar.appendChild(btn('Sync to Cube state', syncCube, 'btn'));
   bar.appendChild(btn(state.showPicker ? 'Close' : 'Change', togglePicker, 'btn'));
   return bar;
 }
@@ -1858,33 +1876,24 @@ function buildToolbar(): HTMLElement {
 }
 
 // --- left column panels ---
-function buildScramblePanel(): HTMLElement {
-  const p = el('div', 'panel');
-  p.appendChild(el('div', 'panel-hd', 'Scramble'));
-  const row = el('div', 'row');
-  row.style.marginTop = '10px';
-  if (state.mode === 'scramble') {
-    // Only show the scramble while applying it — once solving starts it's hidden
-    // (otherwise it's the optimal solution reversed; e.g. EO scramble = inverse).
-    p.appendChild(renderScramble());
-    const { offTrack } = scrambleStatus();
-    const rem = scrambleRemaining();
-    if (rem.length) {
-      const cap = el('div', 'meter-cap');
-      cap.innerHTML = `next <span class="accent-fg">${rem[0]}</span>${offTrack ? ' · corrects a wrong turn' : ''} · ${rem.length} to go · solving auto-starts when matched`;
-      p.appendChild(cap);
-    } else {
-      p.appendChild(el('div', 'meter-cap', 'Apply the scramble from your cube — solving auto-starts when matched.'));
-    }
-    row.appendChild(btn('Reset Cube', resetToSolved, 'btn'));
+// The scramble is live only while you're applying it — once solving starts it's
+// hidden (it would be the optimal solution reversed; e.g. an EO scramble is the
+// inverse). So rather than leave a panel standing empty for the rest of the rep,
+// the whole strip leaves the column and the cube view takes the height. Header-
+// less and button-less for the same reason: its buttons are in the step bar.
+function buildScrambleStrip(): HTMLElement | null {
+  if (state.mode !== 'scramble') return null;
+  const p = el('div', 'panel scramble-strip');
+  p.appendChild(renderScramble());
+  const { offTrack } = scrambleStatus();
+  const rem = scrambleRemaining();
+  const cap = el('div', 'meter-cap');
+  if (rem.length) {
+    cap.innerHTML = `next <span class="accent-fg">${rem[0]}</span>${offTrack ? ' · corrects a wrong turn' : ''} · ${rem.length} to go · solving auto-starts when matched`;
   } else {
-    p.appendChild(el('div', 'meter-cap', 'Scramble hidden while you solve — press “Next scramble” for a fresh one.'));
-    row.appendChild(btn('Next scramble', nextScramble, 'btn'));
-    row.appendChild(btn('Reset Cube', resetToSolved, 'btn'));
+    cap.textContent = 'Apply the scramble from your cube — solving auto-starts when matched.';
   }
-  // Sync = read the cube's real state and correct the model (for BLE drift).
-  row.appendChild(btn('Sync to Cube state', syncCube, 'btn'));
-  p.appendChild(row);
+  p.appendChild(cap);
   return p;
 }
 
@@ -1984,24 +1993,8 @@ function buildCoursePanel(): HTMLElement {
     chips.appendChild(c);
   });
   p.appendChild(chips);
-  // Seeded lessons: show example progress; the next example needs a solved
-  // cube (lesson entry resets to one), practice reps generate in between.
-  const seeds = seedsFor(tr.id, cur);
-  const intro = Math.min(courseIntro(tr.id, cur), seeds.length);
-  if (seeds.length) {
-    p.appendChild(el('div', 'meter-cap',
-      state.courseSeedPending
-        ? `example ${Math.min(intro + 1, seeds.length)}/${seeds.length} on the board — apply the scramble`
-        : intro < seeds.length
-        ? `examples ${intro}/${seeds.length} shown — next needs a solved cube`
-        : `examples ${seeds.length}/${seeds.length} shown — practice until clean`));
-  }
-  const recent = track.levels[cur]?.recent ?? [];
-  const clean = recent.filter((w) => w <= COURSE_TOLERANCE).length;
-  p.appendChild(el('div', 'meter-cap',
-    recent.length
-      ? `${clean}/${recent.length} clean (≤ +${COURSE_TOLERANCE}) · clear at ${Math.round(COURSE_STAR_RATES[0] * 100)}% over ${COURSE_WINDOW}`
-      : `solve ${COURSE_WINDOW} here to be graded · "clean" = within +${COURSE_TOLERANCE} of optimal`));
+  // Everything the panel used to say — example progress, the grading rule — now
+  // reads in the console (see buildBriefing). The panel is the chips you click.
   return p;
 }
 
@@ -2024,8 +2017,7 @@ function buildFoundationsPanel(): HTMLElement {
   const open = firstOpenLesson(defs, (d) => lessonProgFor(state.trainerId, d.id));
   const def = defs[cur];
   const prog = lessonProgFor(state.trainerId, def.id);
-  const seeds = lessonSeedsFor(def.id);
-  const phase = derivePhase(def, prog, seeds.length);
+  const phase = derivePhase(def, prog, lessonSeedsFor(def.id).length);
   const p = el('div', 'panel');
   p.appendChild(el('div', 'panel-hd', 'Foundations'));
   // Lesson chips: complete ✓ · active · forward-locked (anything behind is revisitable).
@@ -2040,28 +2032,8 @@ function buildFoundationsPanel(): HTMLElement {
     chips.appendChild(c);
   });
   p.appendChild(chips);
-  // The active lesson card: what, why, and the phase ladder with its counts.
-  p.appendChild(el('div', 'blurb', def.explain));
-  p.appendChild(el('div', 'meter-cap', `Goal: ${def.outcome}`));
-  p.appendChild(el('div', 'meter-cap', `Why this matters: ${def.why}`));
-  const g = successCount(prog.guided);
-  const co = successCount(prog.coached);
-  const iw = successCount(prog.indep.slice(-def.gates.indepWindow));
-  const seg = (label: string, active: boolean, done: boolean) => `${active ? '▶ ' : ''}${label}${done ? ' ✓' : ''}`;
-  const ladder = [
-    seg(`watch ${Math.min(prog.observed, seeds.length)}/${seeds.length}`, phase === 'observe', prog.observed >= seeds.length),
-    seg(`guided ${Math.min(g, def.gates.guided)}/${def.gates.guided}`, phase === 'guided', g >= def.gates.guided),
-    seg(`coached ${Math.min(co, def.gates.coached)}/${def.gates.coached}`, phase === 'coached', co >= def.gates.coached),
-    seg(`solo ${iw}/${def.gates.indepNeed} of latest ${def.gates.indepWindow}`, phase === 'independent', prog.done),
-  ].join('  ·  ');
-  p.appendChild(el('div', 'meter-cap', ladder));
-  if (prog.done && cur === defs.length - 1) {
-    p.appendChild(el('div', 'meter-cap', 'Foundations complete 🏆 — continue in Course › 2×2×3 or the free Blocks drills.'));
-  } else if (phase === 'observe') {
-    p.appendChild(el('div', 'meter-cap', 'Examples are demonstrations — watch one, or walk it through on your cube. Nothing here is graded.'));
-  } else {
-    p.appendChild(el('div', 'meter-cap', 'A rep counts once you finish without “Show ideal” — Hint and Next move are always fair game.'));
-  }
+  // The lesson card — what, why, the phase ladder — now reads in the console
+  // (see buildBriefing), so the panel is the chips plus the one action below.
   // Examples stay available in EVERY phase — skipping ahead never locks them
   // away, and you don't need to be able to solve the cube to get back to one.
   // Hidden while an unapplied example is already on the board.
@@ -2155,9 +2127,72 @@ function coachLine(parent: HTMLElement, tag: string, cls: string, msg: string) {
   parent.appendChild(l);
 }
 
-// Output console: shows requested help only (Hint/Next move/Show ideal), not auto-answers.
+// The standing brief: what the current level or lesson is asking of you, and how
+// far through it you are. It reads here rather than under the chips because the
+// console is the one place that's meant to hold words — it scrolls, so prose can
+// be as long as it needs to be without ever costing the cube view height.
+function buildBriefing(c: HTMLElement) {
+  const tr = trainer();
+  const def = activeLessonDef();
+  if (def) {
+    const defs = lessonsFor(state.trainerId)!;
+    const cur = Math.min(foundationsTrack(state.trainerId).current, defs.length - 1);
+    const prog = lessonProgFor(state.trainerId, def.id);
+    const seeds = lessonSeedsFor(def.id);
+    const phase = derivePhase(def, prog, seeds.length);
+    coachLine(c, 'lesson', 'c-good', `L${cur + 1} · ${def.title}`);
+    coachLine(c, '', 'c-coach', def.explain);
+    coachLine(c, '', 'c-muted', `Goal: ${def.outcome}`);
+    coachLine(c, '', 'c-muted', `Why this matters: ${def.why}`);
+    const g = successCount(prog.guided);
+    const co = successCount(prog.coached);
+    const iw = successCount(prog.indep.slice(-def.gates.indepWindow));
+    const seg = (label: string, active: boolean, done: boolean) => `${active ? '▶ ' : ''}${label}${done ? ' ✓' : ''}`;
+    coachLine(c, 'phase', 'c-muted', [
+      seg(`watch ${Math.min(prog.observed, seeds.length)}/${seeds.length}`, phase === 'observe', prog.observed >= seeds.length),
+      seg(`guided ${Math.min(g, def.gates.guided)}/${def.gates.guided}`, phase === 'guided', g >= def.gates.guided),
+      seg(`coached ${Math.min(co, def.gates.coached)}/${def.gates.coached}`, phase === 'coached', co >= def.gates.coached),
+      seg(`solo ${iw}/${def.gates.indepNeed} of latest ${def.gates.indepWindow}`, phase === 'independent', prog.done),
+    ].join('  ·  '));
+    if (prog.done && cur === defs.length - 1) {
+      coachLine(c, '', 'c-muted', 'Foundations complete 🏆 — continue in Course › 2×2×3 or the free Blocks drills.');
+    } else if (phase === 'observe') {
+      coachLine(c, '', 'c-muted', 'Examples are demonstrations — watch one, or walk it through on your cube. Nothing here is graded.');
+    } else {
+      coachLine(c, '', 'c-muted', 'A rep counts once you finish without “Show ideal” — Hint and Next move are always fair game.');
+    }
+    return;
+  }
+  if (!tr.course) return;
+  const track = courseTrack(tr.id);
+  const cur = track.current;
+  coachLine(c, 'course', 'c-good', `${tr.course[cur].label} · ${tr.label}`);
+  // Seeded lessons: show example progress; the next example needs a solved
+  // cube (lesson entry resets to one), practice reps generate in between.
+  const seeds = seedsFor(tr.id, cur);
+  const intro = Math.min(courseIntro(tr.id, cur), seeds.length);
+  if (seeds.length) {
+    coachLine(c, '', 'c-muted',
+      state.courseSeedPending
+        ? `example ${Math.min(intro + 1, seeds.length)}/${seeds.length} on the board — apply the scramble`
+        : intro < seeds.length
+        ? `examples ${intro}/${seeds.length} shown — next needs a solved cube`
+        : `examples ${seeds.length}/${seeds.length} shown — practice until clean`);
+  }
+  const recent = track.levels[cur]?.recent ?? [];
+  const clean = recent.filter((w) => w <= COURSE_TOLERANCE).length;
+  coachLine(c, '', 'c-muted',
+    recent.length
+      ? `${clean}/${recent.length} clean (≤ +${COURSE_TOLERANCE}) · clear at ${Math.round(COURSE_STAR_RATES[0] * 100)}% over ${COURSE_WINDOW}`
+      : `solve ${COURSE_WINDOW} here to be graded · "clean" = within +${COURSE_TOLERANCE} of optimal`);
+}
+
+// Output console: the brief above, then requested help only (Hint/Next move/Show
+// ideal) — never auto-answers.
 function buildCoachBody(s: StepDef | null): HTMLElement {
   const c = el('div', 'console');
+  buildBriefing(c);
+  if (c.childElementCount) c.appendChild(el('div', 'crule'));
   if (!s) { coachLine(c, '', 'c-muted', 'No active step.'); return c; }
   if (state.mode === 'scramble') { coachLine(c, '', 'c-muted', 'Apply the scramble — solving auto-starts when matched.'); return c; }
   const a = state.assist;
