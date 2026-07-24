@@ -1529,7 +1529,7 @@ function startLessonSolve() {
       const corner = blockPiecesFor(s.canonicalMask).find((g) => g.length === 3);
       if (corner) {
         state.identify = { stage: 0 };
-        state.status = `First find your pieces: tap the ${pieceDescription(corner)} — any of its stickers.`;
+        state.status = identifyPrompt(s)!; // same words as the console's standing copy
         return;
       }
     }
@@ -1648,6 +1648,19 @@ function lessonLiveCoach(s: StepDef) {
   } else if (!joined && prevJoined && !cornerPlaced) {
     state.status = 'The pair split — bring the corner back to its edge.';
   }
+}
+
+// The standing find-the-piece instruction for an active identify task, derived
+// from its stage rather than stored — so it survives every re-render and lives in
+// the console, where state.status (a passing toast) can't. Null when no find is
+// running. The toast still flashes the tap-by-tap reaction (see answerIdentify).
+function identifyPrompt(s: StepDef): string | null {
+  if (!state.identify) return null;
+  const corner = blockPiecesFor(s.canonicalMask).find((g) => g.length === 3);
+  if (!corner) return null;
+  return state.identify.stage === 0
+    ? `Find the ${pieceDescription(corner)} — the piece with exactly those three colours — then tap any of its stickers.`
+    : `Good — that's the ${pieceDescription(corner)}. Now tap an edge that shares two of its colours.`;
 }
 
 // L1 tap-identification: find the corner, then any matching edge. The tap
@@ -2195,8 +2208,17 @@ function buildCoachBody(s: StepDef | null): HTMLElement {
   if (c.childElementCount) c.appendChild(el('div', 'crule'));
   if (!s) { coachLine(c, '', 'c-muted', 'No active step.'); return c; }
   if (state.mode === 'scramble') { coachLine(c, '', 'c-muted', 'Apply the scramble — solving auto-starts when matched.'); return c; }
+  // A find-the-piece task (Foundations observe/guided) is a STANDING instruction,
+  // not a passing status — it belongs here where it can't fade before you've acted
+  // on it. The cube toast still flashes the tap-by-tap right/wrong reaction; this
+  // is the copy that stays put, and it sits above any hint you then ask for.
+  const find = identifyPrompt(s);
+  if (find) coachLine(c, 'find', 'c-hint', find);
   const a = state.assist;
-  if (!a) { coachLine(c, '', 'c-muted', 'Press Hint, Next move or Show ideal when you want help.'); return c; }
+  if (!a) {
+    if (!find) coachLine(c, '', 'c-muted', 'Press Hint, Next move or Show ideal when you want help.');
+    return c;
+  }
   if (a.kind === 'nudge') {
     // Rule-based recognition + technique (no exact moves — that's Next move / Show ideal).
     const ax = eoStepAxis(s);
