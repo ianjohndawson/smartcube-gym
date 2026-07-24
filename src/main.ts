@@ -254,15 +254,21 @@ interface State {
    *  answer tap. z is the second piece the taught route places. */
   predict: { z: FocusPiece; joinDesc: string } | null;
   predictResult: { stickers: number[]; note?: string } | null; // transient reveal highlight (cleared on next move)
-  /** Guided ideal replay. Block steps carry the walkthrough ANNOTATIONS:
-   *  `seg` = the taught route's classified pattern segments (the technique
-   *  each group of moves performs), `roles` = what each single move is doing
-   *  (setup/join/carry/place). Computed once at walkthrough start. */
+  /** Guided ideal replay. `moves` is the route from `base` (the cube state the
+   *  route was computed from) to the step target; `baseLen` is the history length
+   *  at that point, so progress reads off the moves made since. Block steps carry
+   *  the walkthrough ANNOTATIONS: `seg` = the taught route's classified pattern
+   *  segments (the technique each group of moves performs), `roles` = what each
+   *  single move is doing (setup/join/carry/place). All four are recomputed if you
+   *  step off the route (see rebaseWalkthrough), so the moves shown always lead
+   *  home from where the cube actually is; `rebased` then flags that re-plan. */
   learn: {
     moves: Move3x3[];
+    base: Cube3x3;
     baseLen: number;
     seg?: { name: PatternName | null; from: number; to: number }[];
     roles?: MoveRole[];
+    rebased?: boolean;
   } | null;
   lastResult: {
     step: string; used: number; optimal: number | null; yourMoves: Move3x3[]; idealMoves: Move3x3[]; case?: string;
@@ -632,7 +638,35 @@ function afterLearnMove() {
       state.placementIdx = null;
       state.placementPinned = false;
     }
+    return;
   }
+  // Still solving: if the cube has wandered off the shown route — a wrong turn, be
+  // it the wrong face OR the wrong direction on the right face — re-plan from here
+  // so the moves on screen lead home from where the cube actually is.
+  const learn = state.learn!;
+  if (walkOnRoute(learn.base, learn.moves, state.cube).deviated) rebaseWalkthrough(s);
+}
+
+// Where the cube sits on the shown route, and whether it has left it. Walks the
+// route's prefix cube-states: the live cube matching prefix k means k tokens are
+// done. Matching none is a wrong turn to re-plan from — EXCEPT the benign case of
+// being one quarter into a half-turn token (an R done toward an R2), still on the
+// way there rather than off it (either quarter direction reaches the double).
+function walkOnRoute(base: Cube3x3, moves: Move3x3[], cur: Cube3x3): { done: number; deviated: boolean } {
+  const target = cur.encode();
+  let c = base;
+  if (c.encode() === target) return { done: 0, deviated: false };
+  for (let k = 0; k < moves.length; k++) {
+    if (moveAmount(moves[k]) === 2) {
+      const f = moveFace(moves[k]);
+      if (applyMove(c, f as Move3x3).encode() === target || applyMove(c, `${f}'` as Move3x3).encode() === target) {
+        return { done: k, deviated: false };
+      }
+    }
+    c = applyMove(c, moves[k]);
+    if (c.encode() === target) return { done: k + 1, deviated: false };
+  }
+  return { done: 0, deviated: true };
 }
 
 function afterChange() {
@@ -1168,35 +1202,56 @@ function enterLearn() {
   render();
 }
 
+// Build the walkthrough state for a route from `base` to the current step target:
+// the ideal moves plus, for block steps, the taught segment/role annotations (the
+// classifier's segments — which technique each group performs — and each single
+// move's job). Shared by the initial walkthrough and every re-plan; null when the
+// solver finds nothing from `base`. baseLen anchors progress to the moves made
+// after this point, so a re-plan measures from the cube's current position.
+function makeLearnState(base: Cube3x3, s: StepDef, rebased: boolean): NonNullable<State['learn']> | null {
+  const ideal = idealRoute(base, s);
+  if (ideal.length === 0) return null;
+  let seg: NonNullable<State['learn']>['seg'];
+  let roles: MoveRole[] | undefined;
+  if (s.kind === 'block') {
+    const mask = activeMask(s);
+    seg = classifyRoute(base, ideal, mask).map((e) => ({ name: e.name, from: e.from, to: e.to }));
+    roles = routeRoles(base, ideal, mask);
+  }
+  return { moves: ideal, base, baseLen: state.history.length, seg, roles, rebased };
+}
+
 // Start the guided ideal replay. Assumes the cube has physically returned to the
 // start of the current step (stepStartCube); never fabricates the model. Reached
 // either directly (no moves done this step) or via the pendingLearn return phase.
 function beginLearnWalkthrough() {
   const s = currentStep();
   if (!s) return;
-  const ideal = idealRoute(state.stepStartCube, s);
-  if (ideal.length === 0) { state.status = 'Nothing to learn from here.'; render(); return; }
+  const learn = makeLearnState(state.stepStartCube, s, false);
+  if (!learn) { state.status = 'Nothing to learn from here.'; render(); return; }
   state.movesThisStep = [];
   state.movesThisStepTs = [];
   state.stepDone[state.stepIndex] = false;
   state.assist = null;
-  // Annotate block walkthroughs: which technique each group of moves performs
-  // (the classifier's segments) and what each single move is doing. This is
-  // where the pattern vocabulary is actually TAUGHT, not just named.
-  let seg: NonNullable<State['learn']>['seg'];
-  let roles: MoveRole[] | undefined;
-  if (s.kind === 'block') {
-    const mask = activeMask(s);
-    seg = classifyRoute(state.stepStartCube, ideal, mask).map((e) => ({ name: e.name, from: e.from, to: e.to }));
-    roles = routeRoles(state.stepStartCube, ideal, mask);
-  }
-  state.learn = { moves: ideal, baseLen: state.history.length, seg, roles };
+  state.learn = learn;
   // Show the method route alongside the theoretical optimal so the efficiency
   // gap is visible without teaching the awkward (back/bottom-heavy) optimal.
   const opt = idealLen(state.stepStartCube, s);
-  const gap = opt != null && ideal.length > opt ? ` (method route; theoretical best ${opt})` : '';
-  state.status = `Learn by example: follow the ${ideal.length} highlighted moves for ${s.label}${gap}.`;
+  const gap = opt != null && learn.moves.length > opt ? ` (method route; theoretical best ${opt})` : '';
+  state.status = `Learn by example: follow the ${learn.moves.length} highlighted moves for ${s.label}${gap}.`;
   render();
+}
+
+// You turned off the shown route — recompute it from where the cube is now, so the
+// walkthrough always has a way home. The old fixed list pointed at a state you'd
+// already left (turn wrong, and every remaining move is nonsense) — that's the
+// "I've no idea how to fix it" trap. Same pane; only the moves and their
+// annotations change, and `rebased` lets the pane say what happened.
+function rebaseWalkthrough(s: StepDef) {
+  const learn = makeLearnState(state.cube, s, true);
+  if (!learn) return; // solver found nothing from here — keep the old route, don't blank it
+  state.learn = learn;
+  state.status = 'Off the route — here is the way home from where the cube is now.';
 }
 
 function stopLearn() {
@@ -2361,7 +2416,12 @@ function buildLearnPane(right: HTMLElement, s: StepDef) {
   right.appendChild(el('div', 'panel-hd', `Learn — ${s.label}`));
   const learn = state.learn!;
   const annotated = !!learn.seg?.length;
-  right.appendChild(el('div', 'blurb', annotated
+  // The re-plan note is persistent (a toast would fade — the very failure this
+  // feature fixes): after a wrong turn the moves below are a fresh route from the
+  // cube's current position, not the original plan.
+  right.appendChild(el('div', 'blurb', learn.rebased
+    ? 'Re-planned from where your cube is now — these moves lead home from here. Follow them move by move; another wrong turn just re-plans again.'
+    : annotated
     ? 'Follow the route move by move — green done, red wrong turn. It is grouped by technique: each box is one named pattern doing one job.'
     : 'Follow the ideal move by move. Each turn goes green; a wrong turn shows red.'));
   const { done, errorIndex } = progressOver(learn.moves, state.history.slice(learn.baseLen));
