@@ -322,6 +322,50 @@ function currentStep(): StepDef | null {
   return steps()[state.stepIndex] ?? null;
 }
 
+// --- rep phase (the one definition of "where are we in this rep") ---
+//
+// `state.mode` only distinguishes scramble from solve; the finer phases live in
+// four independent fields (learn / predict / identify / stepDone) that every
+// builder used to re-derive its own way — buildCubePanel interleaved five such
+// conditionals, and the review test was written out twice, verbatim, in the two
+// gesture handlers. The precedence between them is real logic and belongs in one
+// place: this function. The Now bar, the allowed verbs, the stage decorations and
+// the meter all read the phase from here rather than from raw state, so a new
+// phase (inspection, piece tracking) is a case added HERE plus the copy that goes
+// with it — not another conditional threaded through five builders.
+//
+// NOT a rep phase, deliberately: Stats and Settings. Those are overlays you can
+// open in any phase, and the rep underneath keeps its phase while they're up.
+type RepPhase =
+  | 'setup'        // applying the scramble; solving auto-starts when it matches
+  | 'solve'        // working the step target on your own
+  | 'identify'     // Foundations: find-the-piece tap prompt is standing
+  | 'lookahead'    // predict-where-it-lands rep; the view is blanked
+  | 'walkthrough'  // guided replay of the ideal route
+  | 'review';      // target reached — showing the verdict
+
+/** Where this rep is. Precedence is load-bearing — see the guard comments. */
+function repPhase(): RepPhase {
+  if (state.mode === 'scramble') return 'setup';
+  // Review outranks a walkthrough: completing the target during one clears
+  // state.learn (afterLearnMove), so the two can't both be live — but render()
+  // has always tested allDone first, and the order is kept explicit here.
+  if (state.stepDone.every(Boolean)) return 'review';
+  if (state.learn) return 'walkthrough';
+  // A lookahead rep outranks a find prompt: both want the sticker taps, and the
+  // lookahead answer is the one the user is mid-way through giving.
+  if (state.predict) return 'lookahead';
+  if (state.identify) return 'identify';
+  return 'solve';
+}
+
+/** Phases where the user is turning the cube toward the step target under their
+ *  own steam — so help, Retry and the solving display frame all apply. A
+ *  walkthrough is excluded: it has its own pane and its own controls. */
+function isSolvingPhase(p: RepPhase = repPhase()): boolean {
+  return p === 'solve' || p === 'lookahead' || p === 'identify';
+}
+
 // Scramble lengths. SCRAMBLE_LEN is the uniform random-scramble length shared by
 // the general block/drill paths AND the EO path (EO reaches it by padding its short
 // bad-edge setup with EO-safe moves, so the mechanism differs but the length now
@@ -936,8 +980,7 @@ function handleMove(move: string) {
 let advanceRunMove = '';
 let advanceRunCount = 0;
 function maybeAdvanceGesture(move: Move3x3): boolean {
-  const inReview = state.mode === 'solve' && !state.learn && state.stepDone.every(Boolean);
-  if (!inReview) { advanceRunMove = ''; advanceRunCount = 0; return false; }
+  if (repPhase() !== 'review') { advanceRunMove = ''; advanceRunCount = 0; return false; }
   const isAdvanceTurn = move === 'U' || move === "U'" || move === 'D' || move === "D'";
   if (isAdvanceTurn && move === advanceRunMove) advanceRunCount++;
   else if (isAdvanceTurn) { advanceRunMove = move; advanceRunCount = 1; }
@@ -960,8 +1003,7 @@ function maybeAdvanceGesture(move: Move3x3): boolean {
 let retryRunMove = '';
 let retryRunCount = 0;
 function maybeRetryGesture(move: Move3x3): boolean {
-  const inReview = state.mode === 'solve' && !state.learn && state.stepDone.every(Boolean);
-  if (!inReview) { retryRunMove = ''; retryRunCount = 0; return false; }
+  if (repPhase() !== 'review') { retryRunMove = ''; retryRunCount = 0; return false; }
   const isRetryTurn =
     move === 'F' || move === "F'" || move === 'B' || move === "B'" ||
     move === 'R' || move === "R'" || move === 'L' || move === "L'";
@@ -1182,6 +1224,12 @@ function enterLearn() {
   const ideal = idealRoute(state.stepStartCube, s);
   if (ideal.length === 0) { state.status = 'Nothing to learn from here.'; render(); return; }
   state.helpUsed = 3; // a walkthrough is the full route — the rep can't count as solo
+  // Abandon any lookahead rep in flight. Reachable: Show ideal is enabled during
+  // one, and that reveals "Walk it through". A walkthrough needs a VISIBLE cube,
+  // and a lookahead rep blanks it — so the two are mutually exclusive by intent,
+  // and saying so here keeps repPhase's precedence a fact about the state rather
+  // than a silent override of it.
+  state.predict = null;
   const back = simplifyMoves(invertSeq(state.movesThisStep));
   // Already at step start (nothing done this step yet) — go straight in.
   if (back.length === 0) { beginLearnWalkthrough(); return; }
@@ -1458,7 +1506,13 @@ function solveRotation(): RotationMove[] {
 }
 /** True when the CUBE VIEW should render rotated (picture + tap translation).
  * Block-preserving EO (eo223, eo123) hold this in BOTH scramble and solve —
- * see solveRotation() above. Everything else only in solve. */
+ * see solveRotation() above. Everything else only in solve.
+ *
+ * These three read `state.mode` rather than repPhase() ON PURPOSE: they answer
+ * "which frame is the cube being displayed in", which is a property of the whole
+ * post-scramble half of a rep — it must NOT change under you when a walkthrough
+ * starts or the review appears, or the picture would flip mid-rep. `isSolvingPhase`
+ * excludes exactly those two, so it is the wrong test here. */
 function solveFrame(): boolean {
   const s = currentStep();
   if (isBlockEo(s) || s?.id === 'eo123') return true; // always-on hold, any mode
@@ -1495,7 +1549,9 @@ function idealFromStart(): number | null {
 // reached. The tracked state is the referee — no honour system needed.
 function startPredict() {
   const s = currentStep();
-  if (!s || s.kind !== 'block' || state.mode !== 'solve') return;
+  // Only from plain solving: starting a lookahead rep on top of a walkthrough or
+  // another prompt would give two phases a claim on the same sticker taps.
+  if (!s || s.kind !== 'block' || repPhase() !== 'solve') return;
   const route = continuation();
   const two = route.length ? nextTwoFocusPieces(state.cube, activeMask(s), route) : null;
   if (!two) { state.status = 'Nothing to look ahead to — fewer than two pieces left.'; render(); return; }
@@ -1810,7 +1866,7 @@ let statusTimer: number | undefined;
 function render() {
   const s = currentStep();
   const info = s ? progressInfo(state.cube, s) : { frac: 1, pct: 100, caption: '' };
-  const allDone = state.stepDone.every(Boolean);
+  const phase = repPhase();
   document.documentElement.dataset.theme = resolveTheme(getTheme());
 
   // Flash the status message over the cube view when it changes (it's where the
@@ -1837,10 +1893,12 @@ function render() {
   else if (activeLessonDef()) left.appendChild(buildFoundationsPanel());
   main.appendChild(left);
 
+  // The right pane holds one thing at a time: the Stats overlay if it's open,
+  // otherwise whatever this rep's phase calls for.
   const right = el('div', 'panel grow');
   if (state.showStats) buildStatsPane(right);
-  else if (allDone) buildReviewPane(right);
-  else if (s && state.learn) buildLearnPane(right, s);
+  else if (phase === 'review') buildReviewPane(right);
+  else if (phase === 'walkthrough' && s) buildLearnPane(right, s);
   else buildSessionPane(right, s, info);
   main.appendChild(right);
   app.appendChild(main);
@@ -1917,7 +1975,7 @@ function buildStepBar(): HTMLElement {
   bar.appendChild(el('div', 'spacer'));
   // Only offered mid-solve: while you're still applying one, a fresh scramble is
   // what "Reset Cube" plus the strip already gives you.
-  if (state.mode !== 'scramble') bar.appendChild(btn('Next scramble', nextScramble, 'btn'));
+  if (repPhase() !== 'setup') bar.appendChild(btn('Next scramble', nextScramble, 'btn'));
   bar.appendChild(btn('Reset Cube', resetToSolved, 'btn'));
   // Sync = read the cube's real state and correct the model (for BLE drift).
   bar.appendChild(btn('Sync to Cube state', syncCube, 'btn'));
@@ -1950,7 +2008,7 @@ function buildToolbar(): HTMLElement {
 // the whole strip leaves the column and the cube view takes the height. Header-
 // less and button-less for the same reason: its buttons are in the step bar.
 function buildScrambleStrip(): HTMLElement | null {
-  if (state.mode !== 'scramble') return null;
+  if (repPhase() !== 'setup') return null;
   const p = el('div', 'panel scramble-strip');
   p.appendChild(renderScramble());
   const { offTrack } = scrambleStatus();
@@ -1969,12 +2027,15 @@ function buildCubePanel(s: StepDef | null): HTMLElement {
   const p = el('div', 'panel grow');
   p.appendChild(el('div', 'panel-hd', 'Cube view'));
   const wrap = el('div', 'cube-wrap');
-  // Sticker taps serve three flows: answering a lookahead rep (priority), the
-  // Foundations find-the-piece prompts, and tap-to-aim on the free 2×2×2 steps
-  // (pinPlacementAt). Armed mid-solve, either view.
-  const predicting = !!state.predict;
-  const identifying = !predicting && !!state.identify && state.mode === 'solve' && !state.learn;
-  const aimable = !predicting && !identifying && state.mode === 'solve' && !state.learn && !!s && s.kind === 'block' && s.family === '222' && s.candidateMasks.length > 1;
+  const phase = repPhase();
+  // Sticker taps serve three flows, and the phase says which: answering a lookahead
+  // rep, answering a Foundations find-the-piece prompt, or tap-to-aim on the free
+  // 2×2×2 steps (pinPlacementAt — plain solving, no prompt outstanding). These used
+  // to be three hand-ordered conditions that each restated the precedence; now the
+  // precedence lives in repPhase and they're mutually exclusive by construction.
+  const predicting = phase === 'lookahead';
+  const identifying = phase === 'identify';
+  const aimable = phase === 'solve' && !!s && s.kind === 'block' && s.family === '222' && s.candidateMasks.length > 1;
   if (aimable || predicting || identifying) {
     wrap.classList.add('pickable');
     wrap.addEventListener('click', (e) => {
@@ -2001,13 +2062,15 @@ function buildCubePanel(s: StepDef | null): HTMLElement {
   // Lookahead answer / identify-find reveal: ring the piece (model frame).
   if (state.predictResult) { highlight = new Set(state.predictResult.stickers); note = state.predictResult.note ?? 'highlighted: where it actually is'; }
   if (solveFrame() && highlight) highlight = rotateHighlight(highlight, solveRotation());
-  // Foundations: keep a muted persistent outline on the prerequisite block
-  // while it must be protected — dropped for independent reps (training wheels
-  // off) and while the whole view is blanked for a lookahead rep.
+  // Foundations: keep a muted persistent outline on the prerequisite block while it
+  // must be protected — dropped for independent reps (training wheels off), during
+  // setup (the block isn't built yet, and enterLearn's rewind passes through here),
+  // and while a lookahead rep has the whole view blanked. `lp` is the LESSON phase
+  // (observe/guided/coached/independent) — a different ladder from the rep phase.
   let keep: Set<number> | null = null;
-  if (s?.prereqMask && !state.predict && state.mode === 'solve' && activeLessonDef()) {
-    const phase = lessonPhaseNow();
-    if (phase === 'observe' || phase === 'guided' || phase === 'coached') {
+  if (s?.prereqMask && phase !== 'setup' && phase !== 'lookahead' && activeLessonDef()) {
+    const lp = lessonPhaseNow();
+    if (lp === 'observe' || lp === 'guided' || lp === 'coached') {
       keep = new Set(s.prereqMask.solvedFaceletIndices);
       if (solveFrame()) keep = rotateHighlight(keep, solveRotation());
     }
@@ -2018,7 +2081,7 @@ function buildCubePanel(s: StepDef | null): HTMLElement {
   // has corner facelets in its target, so its corners stay visible.
   const pureEo = s?.kind === 'eo' && !s.canonicalMask.solvedFaceletIndices.some((i) => CORNER_SET.has(i));
   // Lookahead rep: the whole view blanks — you're predicting, not reading.
-  const blank = state.predict ? ALL_FACELETS : pureEo ? new Set(CORNER_FACELETS) : null;
+  const blank = predicting ? ALL_FACELETS : pureEo ? new Set(CORNER_FACELETS) : null;
   const facelets = solveFrame() ? rotatedFacelets(state.cube, solveRotation()) : faceletString(state.cube);
   // Same facelets/highlight/blank/keep feed either view; the toggle only picks the shape.
   wrap.appendChild(cubeView === '3d' ? renderCube3D(facelets, highlight, blank, keep) : renderCubeNet(facelets, highlight, blank, keep));
@@ -2141,18 +2204,23 @@ function buildStatsPane(right: HTMLElement) {
 }
 
 function buildActions(s: StepDef | null): HTMLElement {
-  const solving = state.mode === 'solve' && !!s;
+  const phase = repPhase();
+  // Help applies whenever you're working the target yourself — plain solving, or
+  // either prompt phase, which still have you turning the cube. Setup has nothing
+  // to help with yet.
+  const solving = isSolvingPhase(phase) && !!s;
   const actions = el('div', 'row');
   actions.style.marginBottom = '14px';
   actions.appendChild(btn('Hint', () => assist('nudge'), 'btn default', !solving));
   actions.appendChild(btn('Next move', () => assist('move'), 'btn', !solving));
   actions.appendChild(btn('Show ideal', () => assist('ideal'), 'btn', !solving));
   // Lookahead rep (block steps): predict where the next-but-one piece lands.
-  // Hidden on Foundations lessons — one skill at a time for beginners.
-  if (solving && s!.kind === 'block' && !state.predict && !state.learn && !activeLessonDef()) {
+  // Offered from plain solving only — not from inside another prompt — and hidden
+  // on Foundations lessons, one skill at a time for beginners.
+  if (phase === 'solve' && !!s && s.kind === 'block' && !activeLessonDef()) {
     actions.appendChild(btn('Lookahead', startPredict, 'btn'));
   }
-  if (state.predict) actions.appendChild(btn('Cancel lookahead', cancelPredict, 'btn ghost'));
+  if (phase === 'lookahead') actions.appendChild(btn('Cancel lookahead', cancelPredict, 'btn ghost'));
   // Once the ideal is revealed (assist === 'ideal'), offer to try it: "Walk it
   // through" hands the cube back to the step start, then guides the moves. Only
   // surfaced while solving and only when there's actually a solution shown.
@@ -2169,7 +2237,7 @@ function buildActions(s: StepDef | null): HTMLElement {
 // trivially in place and the bar sat at 100% with "4/4 pieces placed" while the
 // user was still turning. Same widget, phase-appropriate reading.
 function buildStepMeter(s: StepDef | null, info: { frac: number; caption: string }, ideal: number | null): HTMLElement {
-  if (state.mode === 'scramble') return buildScrambleMeter();
+  if (repPhase() === 'setup') return buildScrambleMeter();
   const wrap = el('div', 'step-meter');
   const used = htmCount(state.movesThisStep);
   const hd = el('div', 'dock-hd');
@@ -2289,7 +2357,7 @@ function buildCoachBody(s: StepDef | null): HTMLElement {
   buildBriefing(c);
   if (c.childElementCount) c.appendChild(el('div', 'crule'));
   if (!s) { coachLine(c, '', 'c-muted', 'No active step.'); return c; }
-  if (state.mode === 'scramble') { coachLine(c, '', 'c-muted', 'Apply the scramble — solving auto-starts when matched.'); return c; }
+  if (repPhase() === 'setup') { coachLine(c, '', 'c-muted', 'Apply the scramble — solving auto-starts when matched.'); return c; }
   // A find-the-piece task (Foundations observe/guided) is a STANDING instruction,
   // not a passing status — it belongs here where it can't fade before you've acted
   // on it. The cube toast still flashes the tap-by-tap right/wrong reaction; this
@@ -2854,6 +2922,12 @@ render();
 // identifyTarget/ideal do the same for the Foundations find-prompts and routes.
 (window as unknown as { gym: unknown }).gym = {
   apply: (s: string) => handleManualMoves(s),
+  // `apply` goes straight to step(), which is the one path the hands-free review
+  // GESTURES don't run on — they hang off handleMove, the live BLE callback. So
+  // the U/D advance and side-face retry gestures were unreachable from e2e and
+  // could only be checked on hardware. `move` is that callback: raw MODEL moves,
+  // one at a time, exactly as a cube reports them.
+  move: (s: string) => { for (const m of s.trim().split(/\s+/)) if (m) handleMove(m); },
   predictTarget: () => (state.predict ? locatePieceNow(state.cube, state.predict.z.home) : null),
   identifyTarget: () => {
     const s = currentStep();
