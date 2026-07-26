@@ -316,9 +316,50 @@ are all new phases, so that shape has to change first. Agreed direction:
   moves whitespace around. It becomes worth doing in step 7, when Review and Stats
   stop being tenants of that pane and its contents actually change.
 
+- **Review and Stats stop being sidebar tenants** (step 7) — three layouts on one
+  grid, set by a modifier in `render()`:
+  - default `1fr 520px` — stage-led;
+  - `.wide-right` (review) `minmax(260px, 32%) 1fr` — the cube STAYS but yields;
+    measured 520px → 838px for the review at a 1280 viewport;
+  - `.takeover` (Stats) `1fr` with the left column not built at all — 490px → 1226px,
+    and Stats now fits without scrolling.
+
+  Stats is a MODE (enter, read, leave; the cube is irrelevant) so it takes
+  everything. Review is part of the rep, so the cube stays: you have just built
+  something, and Try again / Learn the ideal hand the cube back a sequence.
+
+  The comparison is now laid out for the width it has. `buildRouteComparison` is
+  shared by both reviews — your route beside the ideal, counts in tabular numerals —
+  replacing the pre-wrapped two-line `.coach` block each had, which wrapped
+  mid-sequence in a 490px column. The "how well did you read it" lines became a
+  `.facts` label/value grid, and the EO axis verdict became two marked rows instead
+  of a two-line text blob. No `.coach` pre-wrap blocks remain in either review.
+
+  **Trap:** the layout modifiers must be reset BY NAME in the narrow-screen media
+  query. `.main.wide-right` is specificity (0,2,0) and beats a bare `.main` (0,1,0)
+  whatever the source order, so the review kept a two-column grid on a phone —
+  measured 260px + 162px at 375px, scrolling sideways. Same shape of bug as the
+  `.panel-hd` reuse in step 6: the failure is invisible until you check the case
+  where the other rule was supposed to win.
+
+  `.col` also gained `min-width: 0`, so a grid item can never again be inflated past
+  its track by its contents' min-content width. That incidentally fixes the
+  page-level horizontal scroll in the chips bug below — the chips still don't wrap
+  (their own row overflows), which is the part the separate task owns.
+
+### Correction to step 6's note
+Step 6 claimed the console's collapse would "earn its keep in step 7". It does not.
+Review and Stats no longer share the session pane, but the pane is still a
+fixed-height flex column with the log absorbing the remainder — folding it there
+still just moves whitespace. The honest options are (a) drop the collapse idea and
+let the log fill the pane, or (b) make the log yield its height to an open brief
+instead of a manual toggle. **Ian's call** — it is a UX preference, not a defect.
+
 ### Next
-Step 7 (review/stats as takeovers), then the new features. Everything from here is
-behaviour-visible — verify in the browser as well as through `npm run check`.
+The new features: inspection (an untimed `Ready` gate as a new `repPhase` case),
+piece tracking, and the pillar IA with lookahead/tracking/inspection as per-session
+drill layers. Everything from here is behaviour-visible — verify in the browser as
+well as through `npm run check`.
 
 ### Known, not yet addressed
 - `simplifyMoves` doesn't iterate to a fixed point (above). It also feeds

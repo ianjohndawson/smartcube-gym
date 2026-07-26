@@ -82,7 +82,11 @@ you do to the physical cube, so they sit with it:
   - **Step meter** — moves used vs ideal, or the timer.
   - **Coaching** — the log: what you asked for and what came back. It never
     answers unprompted.
-  - After a solve, the whole pane becomes the review.
+
+After a solve the layout shifts: the cube yields width and the **review** takes the
+larger share, with your route beside the ideal so you can compare them at a glance.
+**Stats** goes further and takes the whole window — it is a mode you enter and
+leave, and the cube has nothing to say while you are reading it.
 
 Status messages flash over the cube view and fade — they are only ever
 confirmations. Anything you actually need to act on is in the Now bar, which stays.

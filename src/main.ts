@@ -1895,21 +1895,27 @@ function render() {
   app.appendChild(buildStepBar());
   if (state.showPicker) app.appendChild(buildToolbar());
 
-  // Left column: the scramble (while it's live), the stage, then the Now bar —
-  // directly under the cube, because that's where the eye is.
-  const main = el('div', 'main');
-  const left = el('div', 'col');
-  const strip = buildScrambleStrip();
-  if (strip) left.appendChild(strip);
-  left.appendChild(buildCubePanel(s));
-  const now = buildNowBar(s);
-  if (now) left.appendChild(now);
-  if (trainer().course) left.appendChild(buildCoursePanel());
-  else if (activeLessonDef()) left.appendChild(buildFoundationsPanel());
-  main.appendChild(left);
+  // Three layouts, one grid. Stats is a MODE — you enter it, read it and leave, and
+  // the cube is irrelevant while you're there — so it takes the whole width and the
+  // left column isn't built at all. Review is part of the rep, so the cube stays
+  // (you've just built something; hiding it at the moment of achievement would be
+  // odd, and Try again / Learn the ideal hand the cube back a sequence) — but the
+  // comparison is the point, so the columns swap emphasis and it gets the majority.
+  const main = el('div', `main${state.showStats ? ' takeover' : phase === 'review' ? ' wide-right' : ''}`);
+  if (!state.showStats) {
+    // Left column: the scramble (while it's live), the stage, then the Now bar —
+    // directly under the cube, because that's where the eye is.
+    const left = el('div', 'col');
+    const strip = buildScrambleStrip();
+    if (strip) left.appendChild(strip);
+    left.appendChild(buildCubePanel(s));
+    const now = buildNowBar(s);
+    if (now) left.appendChild(now);
+    if (trainer().course) left.appendChild(buildCoursePanel());
+    else if (activeLessonDef()) left.appendChild(buildFoundationsPanel());
+    main.appendChild(left);
+  }
 
-  // The right pane holds one thing at a time: the Stats overlay if it's open,
-  // otherwise whatever this rep's phase calls for.
   const right = el('div', 'panel grow');
   if (state.showStats) buildStatsPane(right);
   else if (phase === 'review') buildReviewPane(right);
@@ -2616,6 +2622,29 @@ function buildCoachBody(s: StepDef | null): HTMLElement {
   return wrap;
 }
 
+// Your route beside the ideal. Shared by both reviews — it's the same comparison,
+// and it used to be a pre-wrapped two-line text block in each, which wrapped
+// mid-sequence in the old 490px pane. `yoursLabel` differs only because the
+// beginner review says "moves" where the graded one says "solution".
+function buildRouteComparison(r: NonNullable<State['lastResult']>, yoursLabel: string): HTMLElement {
+  const cmp = el('div', 'cmp');
+  const box = (label: string, count: string, moves: string[], cls: string) => {
+    const b = el('div', `cmp-box ${cls}`);
+    const hd = el('div', 'cmp-hd');
+    hd.appendChild(el('span', 'cmp-label', label));
+    hd.appendChild(el('span', 'cmp-count', count));
+    b.appendChild(hd);
+    const list = el('div', 'movelist');
+    if (moves.length) for (const m of moves) list.appendChild(el('span', 'tok', m));
+    else list.appendChild(el('span', 'tok subtle', '—'));
+    b.appendChild(list);
+    return b;
+  };
+  cmp.appendChild(box(yoursLabel, `${r.used}`, disp(simplifyMoves(r.yourMoves)), 'yours'));
+  cmp.appendChild(box('ideal', `${r.optimal ?? '?'}`, disp(r.idealMoves), 'ideal'));
+  return cmp;
+}
+
 // --- right pane: beginner (Foundations) review — the roadmap's four answers:
 // did I make it · what went well · the key pattern · what to notice next time.
 // Advanced signals (placement ranking, inspection) stay out of the way here.
@@ -2634,12 +2663,7 @@ function buildLessonReview(right: HTMLElement, r: NonNullable<State['lastResult'
   if (r.patterns?.yours.length) right.appendChild(el('div', 'meter-cap', `Your solve used: ${r.patterns.yours.join(' · ')}.`));
   const kp = r.patterns?.ideal[0];
   if (kp) right.appendChild(el('div', 'meter-cap', `The taught route is a ${kp} — ${PATTERN_HOW[kp]}`));
-  const yours = disp(simplifyMoves(r.yourMoves));
-  const cmp = el('div', 'coach');
-  cmp.textContent =
-    `your moves (${r.used}): ${yours.join(' ') || '—'}\n` +
-    `ideal (${r.optimal ?? '?'}):  ${disp(r.idealMoves).join(' ')}`;
-  right.appendChild(cmp);
+  right.appendChild(buildRouteComparison(r, 'your moves'));
   if (!li.example && r.optimal != null) {
     right.appendChild(el('div', 'meter-cap', r.used <= r.optimal
       ? 'That was the shortest route. Superb.'
@@ -2664,53 +2688,66 @@ function buildReviewPane(right: HTMLElement) {
   right.appendChild(el('div', 'panel-hd', 'Solved'));
   const rl = state.lastResult;
   if (rl?.lesson && lessonsFor(state.trainerId)) { buildLessonReview(right, rl); return; }
-  right.appendChild(el('div', 'solved-banner', '🎉 Solved! Here’s how you did.'));
   const r = state.lastResult;
+  const extra = r?.optimal != null ? r.used - r.optimal : 0;
+  const verdict = !r || r.optimal == null ? ''
+    : extra <= 0 ? '🏆 optimal!' : extra <= 2 ? '👍 very efficient'
+    : extra <= 5 ? 'good — room to tighten' : 'lots of room to improve';
+  right.appendChild(el('div', 'solved-banner', verdict
+    ? `🎉 Solved — ${verdict}`
+    : '🎉 Solved! Here’s how you did.'));
+
   if (r) {
-    const yours = disp(simplifyMoves(r.yourMoves));
-    const extra = r.optimal != null ? r.used - r.optimal : 0;
-    const verdict = r.optimal == null ? '' : extra <= 0 ? '🏆 optimal!' : extra <= 2 ? '👍 very efficient' : extra <= 5 ? 'good — room to tighten' : 'lots of room to improve';
-    if (r.case) right.appendChild(el('div', 'meter-cap', `case: ${r.case}`));
-    // Planning verdict + inspection — the "did you read the scramble well" lines.
+    right.appendChild(buildRouteComparison(r, 'your solution'));
+
+    // How well you READ the scramble — label/value pairs rather than a stack of
+    // caption sentences, so they scan as a set of readings.
+    const facts: [string, string][] = [];
+    if (r.case) facts.push(['case', r.case]);
     if (r.rank) {
-      right.appendChild(el('div', 'meter-cap', r.rank.yoursBest
-        ? `placements: you built the cheapest — ${r.rank.yoursName} (${r.rank.yoursLen})`
-        : `placements: cheapest was the ${r.rank.bestName} (${r.rank.bestLen}) — you built the ${r.rank.yoursName} (${r.rank.yoursLen})`));
+      facts.push(['placement', r.rank.yoursBest
+        ? `you built the cheapest — ${r.rank.yoursName} (${r.rank.yoursLen})`
+        : `cheapest was ${r.rank.bestName} (${r.rank.bestLen}) — you built ${r.rank.yoursName} (${r.rank.yoursLen})`]);
     }
-    if (r.insp != null) right.appendChild(el('div', 'meter-cap', `inspection ${(r.insp / 1000).toFixed(1)}s`));
+    if (r.insp != null) facts.push(['inspection', `${(r.insp / 1000).toFixed(1)}s`]);
     if (r.patterns && (r.patterns.ideal.length || r.patterns.yours.length)) {
       const fmt = (xs: string[]) => (xs.length ? xs.join(' · ') : '—');
-      right.appendChild(el('div', 'meter-cap', `patterns — ideal: ${fmt(r.patterns.ideal)} · yours: ${fmt(r.patterns.yours)}`));
+      facts.push(['patterns', `ideal: ${fmt(r.patterns.ideal)}  ·  yours: ${fmt(r.patterns.yours)}`]);
     }
-    const cmp = el('div', 'coach');
-    cmp.textContent =
-      `your solution (${r.used}): ${yours.join(' ') || '—'}\n` +
-      `ideal (${r.optimal ?? '?'}):  ${disp(r.idealMoves).join(' ')}` +
-      (verdict ? `\n${verdict}` : '');
-    right.appendChild(cmp);
+    if (state.trainMode === 'timed' && state.solveStartMs != null && state.finishedMs != null) {
+      const ms = state.finishedMs - state.solveStartMs;
+      const moves = htmCount(state.history.slice(state.solveStartLen));
+      facts.push(['time', `${fmtTime(ms)} · ${moves} moves · ${ms > 0 ? (moves / (ms / 1000)).toFixed(1) : '–'} TPS`]);
+    }
+    if (facts.length) {
+      const grid = el('div', 'facts');
+      for (const [k, v] of facts) {
+        grid.appendChild(el('div', 'fact-k', k));
+        grid.appendChild(el('div', 'fact-v', v));
+      }
+      right.appendChild(grid);
+    }
+
     if (r.eo) {
       const solved = state.eoAxis;
       const other = OTHER_AXIS[solved];
       const sl = r.eo[solved].len;
       const ol = r.eo[other].len;
-      const verdictAxis =
-        sl < ol ? `you picked the shorter axis (${AXIS_SHORT[solved]} ${sl} vs ${AXIS_SHORT[other]} ${ol}) ✓`
-        : sl > ol ? `${AXIS_SHORT[other]} front was shorter (${ol} vs ${sl}) — worth a look`
-        : `both axes were equal (${sl} moves)`;
-      const cmpAxis = el('div', 'coach');
-      cmpAxis.textContent =
-        `EO axes — ${AXIS_SHORT.gb}: ${r.eo.gb.len} moves (${r.eo.gb.bad} bad) · ${AXIS_SHORT.ro}: ${r.eo.ro.len} moves (${r.eo.ro.bad} bad)\n${verdictAxis}`;
-      right.appendChild(cmpAxis);
+      const sect = el('div', 'axis-cmp');
+      sect.appendChild(el('div', 'cmp-label', 'EO axes'));
+      for (const ax of ['gb', 'ro'] as SolveAxis[]) {
+        const row = el('div', `axis-row${ax === solved ? ' chose' : ''}`);
+        row.appendChild(el('span', 'axis-nm', `${AXIS_SHORT[ax]}${ax === solved ? ' ← you' : ''}`));
+        row.appendChild(el('span', 'axis-val', `${r.eo[ax].len} moves`));
+        row.appendChild(el('span', 'axis-val subtle', `${r.eo[ax].bad} bad`));
+        sect.appendChild(row);
+      }
+      sect.appendChild(el('div', 'meter-cap',
+        sl < ol ? `You picked the shorter axis (${sl} vs ${ol}). ✓`
+        : sl > ol ? `${AXIS_SHORT[other]} front was shorter (${ol} vs ${sl}) — worth a look.`
+        : `Both axes were equal (${sl} moves).`));
+      right.appendChild(sect);
     }
-  }
-  if (state.trainMode === 'timed' && state.solveStartMs != null && state.finishedMs != null) {
-    const ms = state.finishedMs - state.solveStartMs;
-    const moves = htmCount(state.history.slice(state.solveStartLen));
-    const tps = ms > 0 ? (moves / (ms / 1000)).toFixed(1) : '–';
-    const t = el('div', 'timer');
-    t.textContent = `⏱ ${fmtTime(ms)}`;
-    right.appendChild(t);
-    right.appendChild(el('div', 'meter-cap', `${moves} moves · ${tps} TPS`));
   }
   const row = el('div', 'row');
   row.style.marginTop = '14px';

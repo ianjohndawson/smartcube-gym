@@ -454,13 +454,21 @@ html[data-theme='borland'] #app {
 .crumb-sep { color: var(--muted); opacity: 0.6; }
 .crumb:hover .crumb-part { color: var(--accent); }
 
-/* ── Main grid ───────────────────────────────────────────────────────────── */
+/* ── Main grid ─────────────────────────────────────────────────────────────
+   Three layouts on one grid, set by a modifier in render():
+     (default)     stage-led — the cube leads, the session pane is a sidebar.
+     .wide-right   review — the cube stays but yields; the comparison leads.
+     .takeover     stats — a mode, not part of a rep: full width, no cube. */
 .main {
   flex: 1 1 auto; min-height: 0;
   display: grid; grid-template-columns: 1fr 520px;
   gap: 16px; padding: 16px;
 }
-.col { display: flex; flex-direction: column; gap: var(--panel-gap); min-height: 0; }
+.main.wide-right { grid-template-columns: minmax(260px, 32%) 1fr; }
+.main.takeover { grid-template-columns: 1fr; }
+/* min-width:0 so a grid item can never be inflated past its track by the
+   min-content width of something inside it. */
+.col { display: flex; flex-direction: column; gap: var(--panel-gap); min-width: 0; min-height: 0; }
 
 /* ── Panels ──────────────────────────────────────────────────────────────── */
 .panel {
@@ -735,7 +743,18 @@ html[data-theme='borland'] .c3-face { border-radius: 0; } /* square plastic to m
 
 /* ── Stats ───────────────────────────────────────────────────────────────── */
 .stats { flex: 1 1 auto; min-height: 0; overflow: auto; display: flex; flex-direction: column; gap: 16px; }
-.stat-tiles { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+/* auto-FILL, not auto-fit: Stats is a full-width takeover now, and auto-fit would
+   collapse the empty tracks and stretch the two tiles to ~600px each. auto-fill
+   keeps the track sizes honest, so the tiles stay tile-shaped and sit left. In the
+   old sidebar width this still resolves to two columns, as before. */
+.stat-tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 12px; }
+/* Wide enough for two columns of sections side by side — the charts and the
+   per-step bars are independent readings, and stacking them wastes the width. */
+@media (min-width: 1000px) {
+  .main.takeover .stats { display: grid; grid-template-columns: 1fr 1fr; align-content: start; }
+  .main.takeover .stats > .stat-tiles { grid-column: 1 / -1; }
+  .main.takeover .stats > .stat-foot { grid-column: 1 / -1; }
+}
 .tile { border: var(--chip-border); border-radius: var(--ctl-r); background: var(--chip-bg); padding: 12px 14px; }
 .tile .big { font-size: 1.9em; line-height: 1; color: var(--accent); }
 .tile.alt .big { color: var(--ok); }
@@ -793,6 +812,32 @@ html[data-theme='borland'] .c3-face { border-radius: 0; } /* square plastic to m
 .ideal { font-family: var(--mono); font-size: 1.05em; letter-spacing: 1px; word-spacing: 4px; background: var(--chip-bg); border: var(--chip-border); border-radius: var(--ctl-r); padding: 12px; margin-top: 10px; }
 .coach { white-space: pre-wrap; line-height: 1.5; background: var(--chip-bg); border: var(--chip-border); border-radius: var(--ctl-r); padding: 12px; margin-top: 10px; }
 .solved-banner { background: var(--chip-bg); border: 1px solid var(--ok); color: var(--ok); border-radius: var(--ctl-r); padding: 14px; font-weight: 600; text-align: center; }
+
+/* ── Review: the comparison ────────────────────────────────────────────────
+   Your route beside the ideal, instead of two pre-wrapped text blocks stacked in
+   a 490px column where a long solution wrapped mid-sequence. Collapses to one
+   column when the pane is narrow (the review shares the grid with the cube). */
+.cmp { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 14px; }
+@media (max-width: 1100px) { .cmp { grid-template-columns: 1fr; } }
+.cmp-box { border: var(--chip-border); border-radius: var(--ctl-r); background: var(--chip-bg); padding: 10px 12px; min-width: 0; }
+.cmp-box.ideal { border-color: var(--ok); }
+.cmp-hd { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; margin-bottom: 7px; }
+.cmp-label { color: var(--muted); font-size: 0.84em; text-transform: var(--hd-tt); letter-spacing: var(--hd-ls); }
+.cmp-count { font-family: var(--mono); font-size: 1.25em; color: var(--accent); font-variant-numeric: tabular-nums; }
+.cmp-box.ideal .cmp-count { color: var(--ok); }
+
+/* Readings — what the solve says about how you read the scramble. */
+.facts { display: grid; grid-template-columns: max-content 1fr; gap: 6px 14px; margin-top: 14px; align-items: baseline; }
+.fact-k { color: var(--muted); font-size: 0.84em; text-transform: var(--hd-tt); letter-spacing: var(--hd-ls); white-space: nowrap; }
+.fact-v { color: var(--text); line-height: 1.4; min-width: 0; }
+
+/* EO axis comparison — two rows, the one you solved marked. */
+.axis-cmp { margin-top: 14px; border: var(--chip-border); border-radius: var(--ctl-r); background: var(--chip-bg); padding: 10px 12px; }
+.axis-row { display: flex; align-items: baseline; gap: 14px; margin-top: 6px; font-family: var(--mono); }
+.axis-row.chose .axis-nm { color: var(--accent); font-weight: 600; }
+.axis-nm { flex: 0 0 auto; min-width: 12ch; }
+.axis-val { flex: 0 0 auto; font-variant-numeric: tabular-nums; }
+.axis-cmp .meter-cap { margin-top: 9px; }
 .movelist { font-family: var(--mono); font-size: 1.05em; display: flex; flex-wrap: wrap; gap: 4px 12px; }
 
 /* Annotated walkthrough: the taught route grouped by classified technique.
@@ -843,7 +888,11 @@ html[data-theme='borland'] .modal .hint { color: #303030; }
    `:root` (0,1,0) regardless of source order. A bare `:root` here would silently
    never win. A third skin must be added to these lists. */
 @media (max-width: 900px) {
-  .main { grid-template-columns: 1fr; }
+  /* The layout modifiers must be reset by NAME here. `.main.wide-right` is
+     specificity (0,2,0) and beats a bare `.main` (0,1,0) whatever the source order,
+     so without this the review kept its two-column grid on a phone — measured
+     260px + 162px at 375px wide, scrolling sideways. */
+  .main, .main.wide-right, .main.takeover { grid-template-columns: 1fr; }
   html[data-theme='borland'], html[data-theme='future'] { --s: 30px; }
   /* Stacked layout: the page scrolls, so the cube panel has no leftover height for
      the wrap to stretch into. Give it a width-proportional square instead. */
