@@ -684,9 +684,40 @@ html[data-theme='borland'] .c3-face { border-radius: 0; } /* square plastic to m
 .chip.active .st { color: var(--accent); }
 .chip.done .st { color: var(--ok); }
 
-/* ── Console (output panel) ──────────────────────────────────────────────── */
+/* ── Brief card (what this level or lesson asks of you) ────────────────────
+   Reference text, not live coaching — it used to share the console's scroll box,
+   where it could push a requested hint below the fold. Collapses to just its
+   header once you've banked a rep here (see briefIsNew). Tokens only. */
+.brief { flex: 0 0 auto; border: var(--chip-border); border-radius: var(--ctl-r); background: var(--chip-bg); margin-bottom: 14px; }
+.brief-head {
+  font: inherit; width: 100%; text-align: left; cursor: pointer;
+  display: flex; align-items: baseline; gap: 8px;
+  background: transparent; border: none; color: var(--text);
+  padding: 10px 12px;
+}
+.brief-head:hover .brief-title { color: var(--accent); }
+.brief-head:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.brief-caret { flex: 0 0 auto; color: var(--muted); }
+.brief-title { font-weight: 600; }
+.brief-body { display: none; padding: 0 12px 12px 30px; }
+.brief.open .brief-body { display: block; }
+.brief-line { line-height: 1.45; margin-bottom: 6px; font-size: 0.94em; }
+.brief-line:last-child { margin-bottom: 0; }
+.brief-line.c-phase { font-family: var(--mono); font-size: 0.88em; color: var(--muted); }
+
+/* ── Console (the coaching log) ────────────────────────────────────────────
+   .log-hd deliberately duplicates .panel-hd's tokens instead of reusing the class:
+   Borland re-purposes .panel-hd as a DOS dialog legend, absolutely positioned into
+   the enclosing .panel's top border, which is right for a panel and wrong for a
+   section heading inside one. Same look, no structural surprise. */
+.log-wrap { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
+.log-hd {
+  flex: 0 0 auto;
+  font-size: var(--hd-fs); text-transform: var(--hd-tt); letter-spacing: var(--hd-ls);
+  color: var(--hd-fg); margin: 0 0 8px;
+}
 .console {
-  flex: 1 1 auto; min-height: 120px; overflow: auto;
+  flex: 1 1 auto; min-height: 90px; overflow: auto;
   background: var(--console-bg); color: var(--console-fg);
   border: var(--frame-border); border-radius: var(--ctl-r);
   padding: 12px 14px; font-family: var(--mono);

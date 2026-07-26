@@ -24,6 +24,7 @@ import {
   trainersIn,
   type Category,
   type StepDef,
+  type TrainerDef,
 } from './steps.ts';
 import { locatePieceNow, nextFocusPiece, nextTwoFocusPieces, pieceDescription, placementName, slotName, targetPieceStates, type FocusPiece } from './pieces.ts';
 import { humanSolveFromState } from './human-solve.ts';
@@ -45,6 +46,7 @@ import {
   foundationsTrack, lessonProgFor, setFoundationsCurrent, bumpLessonObserved, recordLessonRep, popLessonRep,
   loadLookahead, recordLookahead,
   COURSE_WINDOW, COURSE_TOLERANCE, COURSE_STAR_RATES,
+  type CourseTrack,
 } from './stats.ts';
 import { axisBad, badEdgeStickers, eoAxisOptimalLen, eoMaskForStep, freeEoHint, isFreeEo } from './eo-axis.ts';
 import { blockEoAxis, blockEoDisplayRots, blockEoPrereq, blockEoTarget, isBlockEoSolved, randomBlockEoOrient, type BlockEoMethod } from './block-eo.ts';
@@ -287,6 +289,10 @@ interface State {
   showSettings: boolean;
   showStats: boolean; // top-bar Stats overlay — accessible in any mode, not just mid-session
   showPicker: boolean;
+  /** Brief card disclosure. null = derive it (open while the level is still new to
+   *  you, collapsed once you've banked a rep); a boolean is an explicit override
+   *  from clicking the header, and survives across reps within the session. */
+  briefOpen: boolean | null;
   rightTab: 'coach' | 'stats';
   log: string[];
   lastError: string;
@@ -631,6 +637,7 @@ function startScramble(base: Cube3x3, baseHistory: Move3x3[], explicit?: Move3x3
     showSettings: false,
     showStats: state?.showStats ?? false,
     showPicker: state?.showPicker ?? false,
+    briefOpen: state?.briefOpen ?? null,
     rightTab: state?.rightTab ?? 'coach',
     log: state?.log ?? [],
     lastError: state?.lastError ?? '',
@@ -1912,13 +1919,9 @@ function render() {
   app.appendChild(main);
 
   appEl.replaceChildren(app);
-  // The standing brief sits above the coaching output. Once help has actually been
-  // asked for, pin the console to the bottom so a long lesson brief can't push the
-  // answer below the fold — press Hint, see the hint.
-  if (state.assist || state.predictResult) {
-    const con = appEl.querySelector('.console');
-    if (con) con.scrollTop = con.scrollHeight;
-  }
+  // No scroll pin here any more. It existed because the standing brief shared the
+  // console's scroll box and could push a requested hint below the fold; the brief
+  // has its own card now, so the help output is already at the top of the log.
   if (state.showSettings) renderSettings();
 }
 
@@ -2288,6 +2291,10 @@ function buildSessionPane(right: HTMLElement, s: StepDef | null, info: { frac: n
   if (ideal != null) hd.appendChild(el('span', 'tag', `ideal ${ideal}`));
   right.appendChild(hd);
 
+  // Brief (what this level asks) → help → progress → log. Reference first because
+  // it collapses to a single line once you've banked a rep here.
+  const brief = buildBriefCard();
+  if (brief) right.appendChild(brief);
   right.appendChild(buildActions(s));
   right.appendChild(buildStepMeter(s, info, ideal));
   right.appendChild(buildCoachBody(s));
@@ -2448,52 +2455,105 @@ function coachLine(parent: HTMLElement, tag: string, cls: string, msg: string) {
   parent.appendChild(l);
 }
 
-// The standing brief: what the current level or lesson is asking of you, and how
-// far through it you are. It reads here rather than under the chips because the
-// console is the one place that's meant to hold words — it scrolls, so prose can
-// be as long as it needs to be without ever costing the cube view height.
-function buildBriefing(c: HTMLElement) {
+// --- the brief: what this level or lesson asks of you ---
+//
+// Reference material, not live coaching. It used to read INSIDE the console, which
+// was the only container that could hold prose without costing the cube view any
+// height. But sharing one scroll box with the help output meant a long lesson brief
+// (title, explanation, goal, why, phase ladder, rule — seven lines) could push the
+// answer below the fold, and the fix for that was a workaround: render() pinned the
+// console to the bottom whenever help was asked for. Separating the two kinds of
+// text retires the pin, because the help output now starts at the top of its own box.
+//
+// The disclosure defaults OPEN while you have no reps here yet and COLLAPSED once
+// you do — derived from the same progress the brief reports, so there is no extra
+// state to keep in sync. `state.briefOpen` holds an explicit override once clicked.
+
+/** True when this level/lesson is still new to you — nothing banked here yet. */
+function briefIsNew(): boolean {
+  const def = activeLessonDef();
+  if (def) {
+    const prog = lessonProgFor(state.trainerId, def.id);
+    return prog.observed === 0 && prog.guided.length === 0 && prog.coached.length === 0 && prog.indep.length === 0;
+  }
+  const tr = trainer();
+  if (!tr.course) return false;
+  const track = courseTrack(tr.id);
+  return (track.levels[track.current]?.recent ?? []).length === 0;
+}
+function briefIsOpen(): boolean {
+  return state.briefOpen ?? briefIsNew();
+}
+
+function briefLine(parent: HTMLElement, text: string, cls = 'c-muted') {
+  parent.appendChild(el('div', `brief-line ${cls}`, text));
+}
+
+/** The brief card, or null for trainers that have nothing standing to say (the
+ *  free Blocks/EO drills — their step blurb is already in the Now bar). */
+function buildBriefCard(): HTMLElement | null {
   const tr = trainer();
   const def = activeLessonDef();
+  if (!def && !tr.course) return null;
+
+  const open = briefIsOpen();
+  const card = el('div', `brief${open ? ' open' : ''}`);
+  const head = btn('', () => { state.briefOpen = !open; render(); }, 'brief-head');
+  head.appendChild(el('span', 'brief-caret', open ? '▾' : '▸'));
+  const titleEl = el('span', 'brief-title');
+  head.appendChild(titleEl);
+  head.title = open ? 'Hide the brief' : 'Show what this level asks of you';
+  card.appendChild(head);
+  const body = el('div', 'brief-body');
+
   if (def) {
     const defs = lessonsFor(state.trainerId)!;
     const cur = Math.min(foundationsTrack(state.trainerId).current, defs.length - 1);
     const prog = lessonProgFor(state.trainerId, def.id);
     const seeds = lessonSeedsFor(def.id);
     const phase = derivePhase(def, prog, seeds.length);
-    coachLine(c, 'lesson', 'c-good', `L${cur + 1} · ${def.title}`);
-    coachLine(c, '', 'c-coach', def.explain);
-    coachLine(c, '', 'c-muted', `Goal: ${def.outcome}`);
-    coachLine(c, '', 'c-muted', `Why this matters: ${def.why}`);
+    titleEl.textContent = `L${cur + 1} · ${def.title}`;
+    briefLine(body, def.explain, 'c-coach');
+    briefLine(body, `Goal: ${def.outcome}`);
+    briefLine(body, `Why this matters: ${def.why}`);
     const g = successCount(prog.guided);
     const co = successCount(prog.coached);
     const iw = successCount(prog.indep.slice(-def.gates.indepWindow));
     const seg = (label: string, active: boolean, done: boolean) => `${active ? '▶ ' : ''}${label}${done ? ' ✓' : ''}`;
-    coachLine(c, 'phase', 'c-muted', [
+    briefLine(body, [
       seg(`watch ${Math.min(prog.observed, seeds.length)}/${seeds.length}`, phase === 'observe', prog.observed >= seeds.length),
       seg(`guided ${Math.min(g, def.gates.guided)}/${def.gates.guided}`, phase === 'guided', g >= def.gates.guided),
       seg(`coached ${Math.min(co, def.gates.coached)}/${def.gates.coached}`, phase === 'coached', co >= def.gates.coached),
       seg(`solo ${iw}/${def.gates.indepNeed} of latest ${def.gates.indepWindow}`, phase === 'independent', prog.done),
-    ].join('  ·  '));
+    ].join('  ·  '), 'c-phase');
     if (prog.done && cur === defs.length - 1) {
-      coachLine(c, '', 'c-muted', 'Foundations complete 🏆 — continue in Course › 2×2×3 or the free Blocks drills.');
+      briefLine(body, 'Foundations complete 🏆 — continue in Course › 2×2×3 or the free Blocks drills.');
     } else if (phase === 'observe') {
-      coachLine(c, '', 'c-muted', 'Examples are demonstrations — watch one, or walk it through on your cube. Nothing here is graded.');
+      briefLine(body, 'Examples are demonstrations — watch one, or walk it through on your cube. Nothing here is graded.');
     } else {
-      coachLine(c, '', 'c-muted', 'A rep counts once you finish without “Show ideal” — Hint and Next move are always fair game.');
+      // Control names must match the help ladder (see buildActions) — these are the
+      // rungs by their button labels, not their internal assist() kinds.
+      briefLine(body, 'A rep counts once you finish without “Show the route” — Hint and More help are always fair game.');
     }
-    return;
+    card.appendChild(body);
+    return card;
   }
-  if (!tr.course) return;
+
   const track = courseTrack(tr.id);
   const cur = track.current;
-  coachLine(c, 'course', 'c-good', `${tr.course[cur].label} · ${tr.label}`);
+  titleEl.textContent = `${tr.course![cur].label} · ${tr.label}`;
+  buildCourseBrief(body, tr, cur, track);
+  card.appendChild(body);
+  return card;
+}
+// The graded-course half of the brief: example progress, then the grading rule.
+function buildCourseBrief(body: HTMLElement, tr: TrainerDef, cur: number, track: CourseTrack) {
   // Seeded lessons: show example progress; the next example needs a solved
   // cube (lesson entry resets to one), practice reps generate in between.
   const seeds = seedsFor(tr.id, cur);
   const intro = Math.min(courseIntro(tr.id, cur), seeds.length);
   if (seeds.length) {
-    coachLine(c, '', 'c-muted',
+    briefLine(body,
       state.courseSeedPending
         ? `example ${Math.min(intro + 1, seeds.length)}/${seeds.length} on the board — apply the scramble`
         : intro < seeds.length
@@ -2502,20 +2562,27 @@ function buildBriefing(c: HTMLElement) {
   }
   const recent = track.levels[cur]?.recent ?? [];
   const clean = recent.filter((w) => w <= COURSE_TOLERANCE).length;
-  coachLine(c, '', 'c-muted',
+  briefLine(body,
     recent.length
       ? `${clean}/${recent.length} clean (≤ +${COURSE_TOLERANCE}) · clear at ${Math.round(COURSE_STAR_RATES[0] * 100)}% over ${COURSE_WINDOW}`
       : `solve ${COURSE_WINDOW} here to be graded · "clean" = within +${COURSE_TOLERANCE} of optimal`);
 }
 
-// Output console: the brief above, then requested help only (Hint/Next move/Show
-// ideal) — never auto-answers.
+// The log: what you asked for and what came back. Requested help only — it never
+// auto-answers. The standing brief that used to sit above this moved to its own
+// card (see buildBriefCard), so the newest thing you asked for is always the first
+// thing in the box, and render() no longer has to pin the scroll to the bottom.
 function buildCoachBody(s: StepDef | null): HTMLElement {
+  const wrap = el('div', 'log-wrap');
+  // Its own class, NOT .panel-hd: Borland re-purposes .panel-hd structurally, pinning
+  // it absolutely into the enclosing .panel's top border as a DOS dialog legend. Used
+  // here that put "Coaching" 12px above the right pane, 269px from the log it labels.
+  // .log-hd carries the same typographic tokens with none of the repositioning.
+  wrap.appendChild(el('div', 'log-hd', 'Coaching'));
   const c = el('div', 'console');
-  buildBriefing(c);
-  if (c.childElementCount) c.appendChild(el('div', 'crule'));
-  if (!s) { coachLine(c, '', 'c-muted', 'No active step.'); return c; }
-  if (repPhase() === 'setup') { coachLine(c, '', 'c-muted', 'Apply the scramble — solving auto-starts when matched.'); return c; }
+  wrap.appendChild(c);
+  if (!s) { coachLine(c, '', 'c-muted', 'No active step.'); return wrap; }
+  if (repPhase() === 'setup') { coachLine(c, '', 'c-muted', 'Nothing to coach until the scramble is on.'); return wrap; }
   // A find-the-piece task (Foundations observe/guided) is a STANDING instruction, so
   // it now reads in the Now bar with every other instruction — it used to be here
   // because the console was the only thing that wouldn't fade. It's still checked,
@@ -2523,11 +2590,16 @@ function buildCoachBody(s: StepDef | null): HTMLElement {
   const findOutstanding = !!identifyPrompt(s);
   const a = state.assist;
   if (!a) {
-    if (!findOutstanding) coachLine(c, '', 'c-muted', 'Press Hint, Next move or Show ideal when you want help.');
-    return c;
+    // Always say something: an empty bordered box under a header reads as a bug.
+    // But don't push the help buttons while a find prompt is still outstanding —
+    // answering that comes first, so the wording there is an offer, not a prompt.
+    coachLine(c, '', 'c-muted', findOutstanding
+      ? 'Help is here whenever you want it.'
+      : 'Press Hint or Show the route when you want help.');
+    return wrap;
   }
   if (a.kind === 'nudge') {
-    // Rule-based recognition + technique (no exact moves — that's Next move / Show ideal).
+    // Rule-based recognition + technique (no exact moves — that's More help / the route).
     const ax = eoStepAxis(s);
     const h = s.kind === 'eo' ? (ax ? freeEoHint(axisBad(state.cube, ax).count) : eoHint(state.cube)) : blockHint(a.focus, true);
     // A recognised Lars Petrus pattern outranks the generic size-based label.
@@ -2541,7 +2613,7 @@ function buildCoachBody(s: StepDef | null): HTMLElement {
   } else if (a.kind === 'ideal') {
     coachLine(c, 'solver', 'c-good', `solution ▸ ${disp(a.moves).join(' ')}`);
   }
-  return c;
+  return wrap;
 }
 
 // --- right pane: beginner (Foundations) review — the roadmap's four answers:

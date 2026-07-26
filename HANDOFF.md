@@ -288,10 +288,37 @@ are all new phases, so that shape has to change first. Agreed direction:
   only session verbs (Next scramble, Change). Labels shortened to Reset / Sync with
   explanatory titles; MANUAL.md updated to match.
 
+- **Brief out of the console** (step 6) — `buildBriefCard` replaces `buildBriefing`.
+  The standing brief (title, explanation, goal, why, phase ladder, grading rule —
+  measured 335px on a fresh Foundations lesson) used to share the console's scroll
+  box with the help output, which is why `render()` pinned the console to the bottom
+  whenever help was asked for. **That pin is gone**: the help output is now the first
+  line of its own box (verified `scrollTop` 0, `scrollHeight === clientHeight`, so
+  the log doesn't even overflow). The console gained a `Coaching` header and reads as
+  what it is — a log of what you asked for.
+
+  The disclosure default is DERIVED, not stored: open while `briefIsNew()` (no reps
+  banked at this level/lesson), collapsed once you have any. `state.briefOpen` holds
+  an explicit override from clicking the header. Collapsed is 45px against 335px
+  expanded. Free Blocks/EO drills get no card at all — their step blurb is in the
+  Now bar.
+
+  **Trap, and a warning for future components:** the log header first used
+  `.panel-hd`, which Borland re-purposes STRUCTURALLY — absolutely positioned into
+  the enclosing `.panel`'s top border as a DOS dialog legend. Inside a panel that
+  put "Coaching" 12px above the right pane, 269px from the log it labelled. It now
+  uses `.log-hd`, which duplicates the same typography tokens with no repositioning.
+  Reusing a class whose skin override is structural rather than cosmetic is the one
+  way to break the theme budget rule by accident — check both skins when reusing.
+
+  The console-collapse half of the agreed "keep it, demoted" was NOT done, on
+  purpose: the right pane is a fixed-height flex column, so collapsing the log only
+  moves whitespace around. It becomes worth doing in step 7, when Review and Stats
+  stop being tenants of that pane and its contents actually change.
+
 ### Next
-Step 6 (brief out of the console), step 7 (review/stats as takeovers), and only
-then the new features. Everything from here is behaviour-visible — verify in the
-browser as well as through `npm run check`.
+Step 7 (review/stats as takeovers), then the new features. Everything from here is
+behaviour-visible — verify in the browser as well as through `npm run check`.
 
 ### Known, not yet addressed
 - `simplifyMoves` doesn't iterate to a fixed point (above). It also feeds

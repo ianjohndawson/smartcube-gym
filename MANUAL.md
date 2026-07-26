@@ -73,13 +73,19 @@ you do to the physical cube, so they sit with it:
   amber when something must be dealt with before anything else works (a turn off
   the scramble, an outstanding find-the-piece prompt). During a walkthrough or a
   review it steps aside, because those panes carry their own instructions.
-- **Course panel** — level chips with stars and lock state, plus
-  example/grading progress for the current level.
-- **Right pane** — the help control, the step meter (moves used vs ideal, or
-  the timer), and the output console where hints and solutions appear. After a
-  solve it becomes the review.
+- **Course panel** — level chips with stars and lock state.
+- **Right pane**, top to bottom:
+  - **Brief** — what this level or lesson asks of you, why it matters, and how far
+    through it you are. Click the title to fold it away; it starts open while the
+    level is new to you and folds itself once you have banked a rep there.
+  - **Help** — one control, see below.
+  - **Step meter** — moves used vs ideal, or the timer.
+  - **Coaching** — the log: what you asked for and what came back. It never
+    answers unprompted.
+  - After a solve, the whole pane becomes the review.
 
-Status messages flash over the cube view and fade.
+Status messages flash over the cube view and fade — they are only ever
+confirmations. Anything you actually need to act on is in the Now bar, which stays.
 
 ## The cube views
 
