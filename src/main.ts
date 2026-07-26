@@ -234,6 +234,10 @@ interface State {
   placementIdx: number | null; // block steps: the candidate placement coaching aims at (hysteresis pick)
   placementPinned: boolean; // user tapped a corner to aim — the pick stops second-guessing them
   solveReadyMs: number | null; // when the scramble completed — inspection runs until the first move
+  /** Inspection gate: you've pressed Ready and committed to a plan. Per-rep, and
+   *  only consulted when the gate is switched on. The phase also ends on the first
+   *  turn, which is derived from movesThisStep rather than stored here. */
+  inspectCommitted: boolean;
   stepDone: boolean[];
   eoAxis: SolveAxis; // free-EO: which side axis EO is solved against this scramble
   eoCommitted: boolean; // free-EO: axis decided for this scramble (vs awaiting an ask-prompt)
@@ -344,6 +348,7 @@ function currentStep(): StepDef | null {
 // open in any phase, and the rep underneath keeps its phase while they're up.
 type RepPhase =
   | 'setup'        // applying the scramble; solving auto-starts when it matches
+  | 'inspect'      // scramble on, nothing turned yet — plan before you commit
   | 'solve'        // working the step target on your own
   | 'identify'     // Foundations: find-the-piece tap prompt is standing
   | 'lookahead'    // predict-where-it-lands rep; the view is blanked
@@ -361,7 +366,14 @@ function repPhase(): RepPhase {
   // A lookahead rep outranks a find prompt: both want the sticker taps, and the
   // lookahead answer is the one the user is mid-way through giving.
   if (state.predict) return 'lookahead';
+  // A find prompt outranks the inspection gate. Both are pre-solve work, but the
+  // prompt is the more specific task — and answering it IS inspecting, so the gate
+  // simply appears once it's answered, rather than the two competing for the Now bar.
   if (state.identify) return 'identify';
+  // Inspection: the scramble is on and nothing has been turned yet. Derived from
+  // movesThisStep rather than a flag, so the first turn ends it whether or not the
+  // user pressed Ready (see setInspectMode — a turn can't be rejected).
+  if (inspectMode === 'gate' && !state.inspectCommitted && state.movesThisStep.length === 0) return 'inspect';
   return 'solve';
 }
 
@@ -611,6 +623,7 @@ function startScramble(base: Cube3x3, baseHistory: Move3x3[], explicit?: Move3x3
     placementIdx: null,
     placementPinned: false,
     solveReadyMs: null,
+    inspectCommitted: false,
     stepDone: stepsList.map(() => false),
     eoAxis: lastEoAxis(),
     eoCommitted: false,
@@ -748,6 +761,7 @@ function afterChange() {
       state.assist = null;
       state.solveStartMs = null; // timer starts on the first solve move
       state.solveReadyMs = Date.now(); // inspection clock: scramble done → first move
+      state.inspectCommitted = false; // a fresh rep gets a fresh gate
       state.solveStartLen = state.history.length;
       state.finishedMs = null;
       // Free-EO: decide (or prompt for) the side axis now that the scramble is set.
@@ -1400,6 +1414,33 @@ let cubeView: CubeView = store.getEnum<CubeView>('cube-view', CUBE_VIEWS, '3d');
 function setCubeView(v: CubeView) {
   cubeView = v;
   store.setEnum('cube-view', v);
+  render();
+}
+
+// Inspection gate. 'gate' inserts a phase between the scramble landing and the
+// solve: read the cube, decide your route, then commit with Ready.
+//
+// IMPORTANT — it is a commitment button, NOT a lock. The model mirrors the physical
+// cube and is driven only by the moves the cube reports, so a turn during inspection
+// CANNOT be rejected without desyncing the two, which is the one thing this app must
+// never do. A turn therefore ends inspection exactly as Ready does; the difference is
+// only that you didn't mean to. The recorded inspection time (HistRec.insp) is the
+// same measurement either way, so nothing about scoring changes.
+//
+// Deliberately NOT timed and deliberately no visible clock: a counter would turn
+// planning into a speed test, which is the opposite of the point. The time is
+// reported afterwards in the review, where it informs without pressuring.
+type InspectMode = 'off' | 'gate';
+const INSPECT_MODES: readonly InspectMode[] = ['off', 'gate'];
+let inspectMode: InspectMode = store.getEnum<InspectMode>('inspect', INSPECT_MODES, 'off');
+function setInspectMode(m: InspectMode) {
+  inspectMode = m;
+  store.setEnum('inspect', m);
+  render();
+}
+/** Commit to a plan: end inspection and begin the solve proper. */
+function commitInspection() {
+  state.inspectCommitted = true;
   render();
 }
 
@@ -2105,6 +2146,18 @@ function buildNowBar(s: StepDef | null): HTMLElement | null {
     } else {
       say(`${goal} from your cube — solving starts by itself the moment it matches.`);
     }
+  } else if (phase === 'inspect') {
+    const aimable = !!s && s.kind === 'block' && s.family === '222' && s.candidateMasks.length > 1;
+    say(state.lessonRep?.example
+      // The route is already on screen for a demonstration, so "plan your route"
+      // would be asking for work that's been done for you.
+      ? 'Look at the cube against the route shown, then press Ready to start.'
+      : s?.kind === 'eo'
+      ? 'Inspect: find the misoriented edges and pick your axis before you turn.'
+      : aimable
+      ? 'Inspect: read the cube and decide where your block is going. Tap a corner to aim it.'
+      : `Inspect: read the cube and plan your route to the ${s?.label ?? 'target'}.`);
+    verbs.appendChild(btn('Ready', commitInspection, 'btn default'));
   } else if (phase === 'identify') {
     hot = true;
     say((s && identifyPrompt(s)) || 'Find the piece on your cube and tap it.');
@@ -2142,7 +2195,11 @@ function buildCubePanel(s: StepDef | null): HTMLElement {
   // precedence lives in repPhase and they're mutually exclusive by construction.
   const predicting = phase === 'lookahead';
   const identifying = phase === 'identify';
-  const aimable = phase === 'solve' && !!s && s.kind === 'block' && s.family === '222' && s.candidateMasks.length > 1;
+  // Tap-to-aim is armed during INSPECT as well as solve: choosing where the block
+  // goes is the main thing inspection is for, and the plan's inspection drill asks
+  // for exactly this ("identify the intended block placement") before the first turn.
+  const aimable = (phase === 'solve' || phase === 'inspect')
+    && !!s && s.kind === 'block' && s.family === '222' && s.candidateMasks.length > 1;
   if (aimable || predicting || identifying) {
     wrap.classList.add('pickable');
     wrap.addEventListener('click', (e) => {
@@ -3098,6 +3155,18 @@ function renderSettings() {
   viewGroup.appendChild(viewSeg);
   viewGroup.appendChild(el('div', 'hint', 'Drag or use the arrow keys to spin the 3D cube; the floating panels are back-views of the hidden faces. Flat net shows all six faces unfolded.'));
   modal.appendChild(viewGroup);
+
+  modal.appendChild(el('hr'));
+
+  // Inspection gate — plan before you turn.
+  const inspGroup = el('div', 'group');
+  inspGroup.appendChild(el('div', 'glabel', 'Inspection'));
+  const inspSeg = el('div', 'seg');
+  const inspModes: [InspectMode, string][] = [['off', 'Straight in'], ['gate', 'Plan first']];
+  for (const [m, label] of inspModes) inspSeg.appendChild(segBtn(label, () => setInspectMode(m), inspectMode === m));
+  inspGroup.appendChild(inspSeg);
+  inspGroup.appendChild(el('div', 'hint', 'Plan first adds a step after the scramble: read the cube, decide your route, then press Ready. Untimed and unscored — there is no clock, because planning is not a speed test. It is a commitment button rather than a lock: turning the cube also starts the solve, since the model always follows your real cube. Your inspection time is reported in the review either way.'));
+  modal.appendChild(inspGroup);
 
   modal.appendChild(el('hr'));
 

@@ -355,11 +355,51 @@ still just moves whitespace. The honest options are (a) drop the collapse idea a
 let the log fill the pane, or (b) make the log yield its height to an open brief
 instead of a manual toggle. **Ian's call** — it is a UX preference, not a defect.
 
+## Done (2026-07-26) — Inspection: the first feature to land ON the new shell
+
+The payoff for step 3. An `inspect` case in `repPhase()`, a branch in the Now bar,
+a Settings switch, and one state field — no new conditionals threaded through the
+builders, which was the whole argument for doing the refactor first.
+
+- **Settings › Inspection** — `off` (default, "Straight in") / `gate` ("Plan
+  first"). Default off so an existing session is unchanged until Ian opts in.
+- **Phase** — `inspect` sits between `setup` and `solve`, and is DERIVED:
+  `inspectMode === 'gate' && !state.inspectCommitted && movesThisStep.length === 0`.
+  Nothing can get stuck, and flipping the setting mid-rep takes effect immediately
+  (verified). `inspectCommitted` resets when a scramble lands.
+- **Precedence** — `identify` OUTRANKS `inspect`. Both are pre-solve work, but the
+  find prompt is the more specific task and answering it *is* inspecting, so the
+  gate appears once it's answered rather than the two competing for the Now bar.
+  Verified end to end: prompt → both stages → gate. `walkthrough` also outranks it,
+  so `enterLearn`'s rewind is never followed by a gate.
+- **Help is disabled during inspection** (`isSolvingPhase` excludes it, by
+  omission). Asking for a hint IS committing, so you press Ready first. Retry and
+  Lookahead are likewise off — there's nothing to retry and nothing turned yet.
+- **Tap-to-aim is armed during inspection** as well as solve. Choosing where the
+  block goes is the main thing inspection is for, and it's what the roadmap's
+  inspection drill asks for before the first turn.
+
+### The constraint that shaped it — read before "fixing" the gate
+The original sketch said "turns rejected". **They cannot be.** The model mirrors the
+physical cube and is driven only by reported moves; ignoring one desyncs the two,
+which is the single thing this app must never do. So the gate is a *commitment
+button, not a lock*: a turn ends inspection exactly as Ready does. Verified — the
+turn is counted, the model follows it, and the phase advances with no desync.
+
+`insp` (HistRec) is deliberately still measured scramble → first MOVE, not scramble
+→ Ready, so the field keeps one meaning across all accrued history whether or not
+the gate is on. Pressing Ready then pausing therefore counts the pause; that is
+accepted, and it's what the Settings hint promises.
+
+**No clock on screen, deliberately.** A counter would turn planning into a speed
+test, which the roadmap explicitly rules out. The time reports afterwards in the
+review, where it informs without pressuring.
+
 ### Next
-The new features: inspection (an untimed `Ready` gate as a new `repPhase` case),
-piece tracking, and the pillar IA with lookahead/tracking/inspection as per-session
-drill layers. Everything from here is behaviour-visible — verify in the browser as
-well as through `npm run check`.
+Piece tracking (a `track` sub-phase alongside `lookahead`), then the pillar IA with
+lookahead/tracking/inspection as per-session drill layers rather than trainers.
+Everything from here is behaviour-visible — verify in the browser as well as through
+`npm run check`.
 
 ### Known, not yet addressed
 - `simplifyMoves` doesn't iterate to a fixed point (above). It also feeds

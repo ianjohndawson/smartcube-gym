@@ -69,10 +69,11 @@ you do to the physical cube, so they sit with it:
 - **Cube view** — the live model (see below). Its caption describes the *picture*:
   how to hold the cube, and what any highlight ring means.
 - **Now bar** — directly under the cube: **what to do right now**, and nothing
-  else. The next scramble move, the piece to find, the lookahead task. It turns
-  amber when something must be dealt with before anything else works (a turn off
-  the scramble, an outstanding find-the-piece prompt). During a walkthrough or a
-  review it steps aside, because those panes carry their own instructions.
+  else. The next scramble move, the piece to find, the lookahead task, the
+  inspection gate. It turns amber when something must be dealt with before anything
+  else works (a turn off the scramble, an outstanding find-the-piece prompt). During
+  a walkthrough or a review it steps aside, because those panes carry their own
+  instructions.
 - **Course panel** — level chips with stars and lock state.
 - **Right pane**, top to bottom:
   - **Brief** — what this level or lesson asks of you, why it matters, and how far
@@ -308,6 +309,19 @@ review — mid-solve they're just moves.
 - **Theme** — Borland Pascal (the default retro look) or Holo (holographic HUD).
   Purely cosmetic; both cube views restyle with the theme.
 - **Cube view** — 3D cube (spinnable, with back-view panels) or Flat net.
+- **Inspection** — *Straight in* (the default) or *Plan first*. Plan first adds a
+  step after the scramble lands: read the cube, decide your route, then press
+  **Ready**. It is **untimed and unscored, with no clock on screen** — planning is
+  not a speed test. On free 2×2×2 steps you can tap a corner during inspection to
+  aim your block, which is the decision inspection exists to make.
+
+  It is a *commitment button, not a lock*. Turning the cube also starts the solve,
+  because the on-screen model always follows your real cube and a reported move can
+  never be ignored. Either way your inspection time is reported in the review, so
+  the measurement is the same whichever way you leave the gate.
+
+  On a Foundations lesson with a find-the-piece prompt, the prompt comes first and
+  the gate appears once you have answered it — answering *is* inspecting.
 - **Solve orientation** — White-top (scramble and solve in one frame) or
   Yellow-top (x2): scramble white-top, then physically flip to solve yellow-top;
   all displayed notation is translated to the held frame. EO trainers manage

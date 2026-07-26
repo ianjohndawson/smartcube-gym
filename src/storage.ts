@@ -24,6 +24,7 @@ export type Key =
   | 'eo-last-axis'
   | 'block-eo-method'
   | 'cube-view'
+  | 'inspect'
   | 'history'
   | 'lookahead'
   | 'course'
