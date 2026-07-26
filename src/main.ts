@@ -2163,7 +2163,13 @@ function buildActions(s: StepDef | null): HTMLElement {
   return actions;
 }
 
+// The meter reports whichever task is actually live. During setup that's the
+// SCRAMBLE, not the step: progressInfo measures the step target against a cube
+// that hasn't been scrambled yet, so on a solved cube every target piece is
+// trivially in place and the bar sat at 100% with "4/4 pieces placed" while the
+// user was still turning. Same widget, phase-appropriate reading.
 function buildStepMeter(s: StepDef | null, info: { frac: number; caption: string }, ideal: number | null): HTMLElement {
+  if (state.mode === 'scramble') return buildScrambleMeter();
   const wrap = el('div', 'step-meter');
   const used = htmCount(state.movesThisStep);
   const hd = el('div', 'dock-hd');
@@ -2183,6 +2189,27 @@ function buildStepMeter(s: StepDef | null, info: { frac: number; caption: string
   meter.appendChild(fill);
   wrap.appendChild(meter);
   wrap.appendChild(el('div', 'meter-cap', s ? `${info.caption}${ideal != null ? ` · ideal ${ideal}` : ''}` : ''));
+  return wrap;
+}
+
+// Setup-phase meter: how far through applying the scramble you are. The strip
+// above says WHICH moves are left; this says how far, and keeps the pane from
+// changing shape when solving starts.
+function buildScrambleMeter(): HTMLElement {
+  const wrap = el('div', 'step-meter');
+  const total = state.scrambleMoves.length;
+  const { done, offTrack } = scrambleStatus();
+  const hd = el('div', 'dock-hd');
+  hd.appendChild(el('span', '', 'Scramble'));
+  hd.appendChild(el('span', '', `${done} / ${total}`));
+  wrap.appendChild(hd);
+  const meter = el('div', 'meter');
+  const fill = el('div', 'fill');
+  fill.style.width = `${total ? Math.round((done / total) * 100) : 0}%`;
+  meter.appendChild(fill);
+  wrap.appendChild(meter);
+  wrap.appendChild(el('div', 'meter-cap',
+    offTrack ? 'off track — undo the wrong turn to carry on' : 'applying the scramble'));
   return wrap;
 }
 

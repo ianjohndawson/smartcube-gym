@@ -178,6 +178,65 @@ another pair is already riding; correct, if occasionally deadpan).
 
 ---
 
+## In progress (2026-07-26) — the UI/UX overhaul
+
+A review found the shell to be a *document* layout being asked to behave like an
+*instrument*: every phase of a rep is expressed by rewriting the contents of one
+520px right pane and editing captions. Inspection, lookahead and piece tracking
+are all new phases, so that shape has to change first. Agreed direction:
+
+- **Three zones — Stage / Now / Log.** Stage holds only what is spatially tied to
+  the cube (no prose). A **Now bar** under it holds the current instruction plus
+  this phase's one or two verbs, replacing the fading toast, the hold caption, the
+  scramble caption and the standing find-prompt. The console becomes a Log.
+- **`repPhase()` is the keystone** (not yet written): `setup → inspect → solve →
+  review`, with `walkthrough` / `lookahead` / `identify` / `track` as solve
+  sub-phases. One function owns the phase; the Now bar, the allowed verbs, the
+  stage decorations and the meter all read from it instead of re-deriving from
+  raw state. `buildCubePanel` currently interleaves six such conditionals.
+- **Verb tiers:** phase verbs in the Now bar · ONE escalating Help control with
+  the grading cost on the button (mirroring `helpUsed` 0–3, where 3 voids a
+  Foundations rep) · device utilities (Reset, Sync) up beside the cube pill.
+- **Brief out of the console** into its own card; retires the `scrollTop` pin.
+- **Review + Stats become full-width takeovers**, not tenants of the right pane.
+- **IA:** pillars on the SKILL axis only (Build / Orient / Preserve & connect),
+  taught-vs-graded-vs-free as a badge, and **lookahead/tracking/inspection as
+  per-session drill LAYERS, not pillars** — you always track a piece *while*
+  building something, which is how it is already implemented.
+- **Inspection:** untimed "Ready" gate by default (`solveReadyMs` /
+  `HistRec.insp` already record the measurement); a timed option is a later switch.
+
+### Done so far
+- **Themes cut 4 → 2.** Matrix deleted entirely (the rAF rain canvas, its CSS
+  block, the `#app::before` reactor, the `.panel::after` brackets, the
+  `buildCoachBody` cursor branch, and the Share Tech Mono webfont); `future`
+  renamed **Holo** in Settings. Modern Dark demoted to the **base token layer** —
+  a bare `:root` with no `data-theme='dark'` anywhere, so `THEMES` holds only the
+  two real skins and a stored `dark`/`matrix` validates back to Borland rather
+  than leaving the picker with nothing selected. `@keyframes meter-flow` was
+  declared inside the Matrix block but is used by Holo — it survived as a shared
+  animation. The three orphan `future` media one-liners are consolidated into the
+  responsive section, which must name each skin explicitly (a skin's token block
+  sets `--s` at specificity 0,1,1 and would silently beat a bare `:root`).
+  **Theme budget rule** now in the stylesheet header: a skin may override tokens
+  and add a short flourish list, never restructure layout.
+- **Dead CSS swept:** `.tab` / `.tab.active` and the `--tabs-pad` /
+  `--tab-active-*` tokens (the pane's tab controls went when it became one slot
+  with four tenants — zero `.tab` elements rendered), `.menu / .mi / .hot`,
+  `.top-meta`, `.statusbar / .sb / .key / .sep`, `.pill / .pill.ok`.
+- **The setup-phase meter no longer lies.** It read `width: 100%` / "4/4 pieces
+  placed" while the scramble was still being applied, because `progressInfo`
+  measures the step target against a cube that hasn't been scrambled yet.
+  `buildStepMeter` now delegates to `buildScrambleMeter` while `mode ===
+  'scramble'`: applied/total, a real fill, and an off-track caption that agrees
+  with the strip.
+
+### Next
+`repPhase()`, then the Now bar. Both are behaviour-visible, so verify in the
+browser as well as through `npm run check`.
+
+---
+
 ## Remaining — TODO
 
 ### H2 step 5 — `view/` extraction (deferred; NOT a pure move)
