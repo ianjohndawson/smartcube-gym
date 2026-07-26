@@ -1,16 +1,24 @@
 /* ════════════════════════════════════════════════════════════════════════
-   SmartCube Gym · two-pane solving-session dashboard — dual-theme stylesheet
+   SmartCube Gym · two-pane solving-session dashboard
    Ported from the design handoff (dashboard.css + themes.css), adapted to a
    fluid layout and our data-theme-on-<html> theming.
+
+   ONE base token layer (`:root`) + TWO selectable skins (Borland, Holo). A skin
+   may override tokens and add a short flourish list; it must NOT restructure
+   layout. If a skin needs new structure, the component is under-tokenised — fix
+   that instead of adding a per-skin exception.
    ════════════════════════════════════════════════════════════════════════ */
 
 * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
 html, body { margin: 0; padding: 0; min-height: 100vh; }
 html { background: var(--stage-bg); }
 
-/* ─────────────────────────────  MODERN DARK  ───────────────────────────── */
-:root,
-html[data-theme='dark'] {
+/* ───────────────────────  BASE TOKENS (not a skin)  ─────────────────────────
+   Was the "Modern Dark" skin; demoted to the base layer both selectable skins
+   (Borland, Holo) override. There is no `data-theme='dark'` any more — see
+   theme.ts — so this is reached as the bare `:root`, and anything a skin does not
+   restate falls through to here. Add new tokens HERE first. */
+:root {
   --stage-bg: #07090d;
   --bg: #0e1116;
   --panel: #161b22;
@@ -54,9 +62,6 @@ html[data-theme='dark'] {
   --hd-fg: var(--muted);
 
   --tabs-border: 1px solid var(--line);
-  --tabs-pad: 8px;
-  --tab-active-fg: var(--text);
-  --tab-active-bg: transparent;
 
   --scr-fs: 25px;
   --scr-ls: 0.5px;
@@ -140,9 +145,6 @@ html[data-theme='borland'] {
   --hd-fg: #55ffff;
 
   --tabs-border: 2px solid #1f8f8f;
-  --tabs-pad: 8px;
-  --tab-active-fg: #0000a8;
-  --tab-active-bg: #55ffff;
 
   --scr-fs: 28px;
   --scr-ls: 2px;
@@ -181,139 +183,9 @@ html[data-theme='borland'] {
   --danger: #ff5555;
 }
 
-/* ─────────────────────────  MATRIX (green reactor)  ─────────────────────── */
-html[data-theme='matrix'] {
-  --stage-bg: #000600;
-  --bg: #020a04;
-  --panel: rgba(4,18,8,0.82);
-  --text: #c6ffd6;
-  --muted: #4f9a63;
-  --line: #0c4f24;
-  --accent: #00ff66;
-  --accent-2: #7dffb0;
-  --ok: #39ff8a;
-  --warn: #caff5a;
-  --hot: #ff5555;
-  --on-accent: #001a08;
-
-  --font: 'Share Tech Mono', ui-monospace, monospace;
-  --mono: 'Share Tech Mono', ui-monospace, monospace;
-  --fs: 17px;
-
-  --bar-h: 54px;
-  --bar-bg: rgba(0,8,2,0.9);
-  --bar-fg: var(--text);
-  --bar-border: 1px solid var(--line);
-
-  --pill-r: 999px;
-  --ctl-bg: rgba(0,255,90,0.05);
-  --ctl-border: 1px solid var(--line);
-  --ctl-r: 5px;
-
-  --seg-bg: rgba(0,255,90,0.04);
-  --seg-border: 1px solid var(--line);
-  --seg-fg: var(--muted);
-
-  --frame-border: 1px solid #0e5e2c;
-  --radius: 7px;
-  --frame-shadow: 0 0 0 1px rgba(0,255,90,0.08), 0 0 26px rgba(0,255,90,0.12);
-  --panel-pad: 16px;
-  --panel-gap: 16px;
-
-  --hd-fs: 12px;
-  --hd-tt: uppercase;
-  --hd-ls: 0.14em;
-  --hd-fg: var(--muted);
-
-  --tabs-border: 1px solid var(--line);
-  --tabs-pad: 8px;
-  --tab-active-fg: var(--text);
-  --tab-active-bg: transparent;
-
-  --scr-fs: 25px;
-  --scr-ls: 0.5px;
-
-  --s: 34px;
-  --sticker-r: 3px;
-
-  --chip-border: 1px solid var(--line);
-  --chip-bg: rgba(0,255,90,0.04);
-
-  --ctag-w: 88px;
-
-  --bar-r: 6px;
-  --track-bg: #06200f;
-  --meter-fill: linear-gradient(90deg, #00e676, #00ff66, #9dffc4);
-
-  --dock-border: 1px solid var(--line);
-
-  --btn-fg: var(--text);
-  --btn-bg: rgba(0,255,90,0.05);
-  --btn-border: 1px solid #0e5e2c;
-  --btn-shadow: none;
-  --btn-hot: inherit;
-  --btn-default-hot: var(--on-accent);
-  --btn-press: translateY(1px);
-
-  --scrim: rgba(0,6,0,0.65);
-  --modal-bg: #04120a;
-  --modal-border: 1px solid #0e5e2c;
-  --modal-shadow: 0 0 44px rgba(0,255,90,0.15);
-  --input-bg: rgba(0,255,90,0.05);
-
-  --console-bg: #000600;
-  --console-fg: #46ff8c;
-
-  --danger: #ff5555;
-}
-
-/* Matrix flourishes: pulsing green reactor core, glows, Orbitron brand */
-@keyframes core-pulse { 0%,100% { opacity: 0.5; } 50% { opacity: 1; } }
+/* ── Theme-agnostic animations (declared once, used by whichever skin wants them) */
+/* Flowing progress fill — Holo's animated meter. */
 @keyframes meter-flow { 0% { background-position: 0% 50%; } 100% { background-position: 200% 50%; } }
-/* Transparent #app so the falling-glyph canvas (z-index:-1) shows through. */
-html[data-theme='matrix'] #app { background: transparent; }
-html[data-theme='matrix'] #app::before {
-  content: ''; position: fixed; inset: 0; z-index: 0; pointer-events: none;
-  background: radial-gradient(circle at 50% 76%, rgba(0,255,90,0.16), transparent 55%);
-  animation: core-pulse 3.4s ease-in-out infinite;
-}
-html[data-theme='matrix'] .topbar,
-html[data-theme='matrix'] .toolbar,
-html[data-theme='matrix'] .main { position: relative; z-index: 1; }
-html[data-theme='matrix'] .tab.active { box-shadow: inset 0 -2px 0 var(--accent); }
-html[data-theme='matrix'] .brand { font-family: 'Orbitron', sans-serif; letter-spacing: 2px; text-transform: uppercase; }
-html[data-theme='matrix'] .brand .logo { text-shadow: 0 0 12px var(--accent); }
-html[data-theme='matrix'] .panel-hd { font-family: 'Orbitron', sans-serif; }
-html[data-theme='matrix'] .btn.default,
-html[data-theme='matrix'] .seg-btn.active { box-shadow: 0 0 14px rgba(0,255,90,0.4); }
-html[data-theme='matrix'] .scramble .tok.next { text-shadow: 0 0 8px var(--accent); }
-html[data-theme='matrix'] .scramble .tok.done { text-shadow: 0 0 8px var(--ok); }
-html[data-theme='matrix'] .cube-net { filter: drop-shadow(0 0 10px rgba(0,255,90,0.35)); }
-html[data-theme='matrix'] .meter .fill { background-size: 200% 100%; animation: meter-flow 2.4s linear infinite; }
-html[data-theme='matrix'] .pill .dot { box-shadow: 0 0 10px var(--ok); }
-
-/* Falling digital rain (canvas injected by main.ts when the theme is Matrix). */
-#matrix-rain { position: fixed; inset: 0; width: 100%; height: 100%; z-index: -1; pointer-events: none; opacity: 0.22; }
-
-/* Animated HUD corner brackets on every panel. */
-@keyframes bracket-pulse { 0%,100% { opacity: 0.25; } 50% { opacity: 0.7; } }
-html[data-theme='matrix'] .panel::after {
-  content: ''; position: absolute; inset: 6px; pointer-events: none; --c: var(--accent); --l: 14px; --t: 2px;
-  background:
-    linear-gradient(var(--c),var(--c)) 0 0 / var(--l) var(--t) no-repeat,
-    linear-gradient(var(--c),var(--c)) 0 0 / var(--t) var(--l) no-repeat,
-    linear-gradient(var(--c),var(--c)) 100% 0 / var(--l) var(--t) no-repeat,
-    linear-gradient(var(--c),var(--c)) 100% 0 / var(--t) var(--l) no-repeat,
-    linear-gradient(var(--c),var(--c)) 0 100% / var(--l) var(--t) no-repeat,
-    linear-gradient(var(--c),var(--c)) 0 100% / var(--t) var(--l) no-repeat,
-    linear-gradient(var(--c),var(--c)) 100% 100% / var(--l) var(--t) no-repeat,
-    linear-gradient(var(--c),var(--c)) 100% 100% / var(--t) var(--l) no-repeat;
-  animation: bracket-pulse 2.6s ease-in-out infinite;
-}
-
-/* Blinking terminal cursor (added to the console on the Matrix theme). */
-@keyframes blink { 50% { opacity: 0; } }
-.cursor { display: inline-block; width: 9px; height: 1.05em; background: var(--accent); vertical-align: -2px; animation: blink 1s steps(1) infinite; }
 
 /* Green flash when a piece is placed (any theme; uses the theme's "ok" colour). */
 @keyframes piece-flash { 0% { opacity: 0; } 18% { opacity: 0.55; } 100% { opacity: 0; } }
@@ -322,8 +194,8 @@ html[data-theme='matrix'] .panel::after {
 /* ════════════════════════════════════════════════════════════════════════
    FUTURE · holographic spatial HUD  (Claude Design's future-theme.css)
    Token block on html[data-theme='future']; ambient flourishes target #app;
-   fonts via --font/--mono; console via --console-bg/--console-fg. Reuses the
-   Matrix theme's @keyframes meter-flow.
+   fonts via --font/--mono; console via --console-bg/--console-fg. Its animated
+   meter uses the shared @keyframes meter-flow declared above.
    ════════════════════════════════════════════════════════════════════════ */
 html[data-theme='future'] {
   --stage-bg: #04050d;
@@ -369,9 +241,6 @@ html[data-theme='future'] {
   --hd-fg: #8fd6ee;
 
   --tabs-border: 1px solid var(--line);
-  --tabs-pad: 8px;
-  --tab-active-fg: var(--text);
-  --tab-active-bg: transparent;
 
   --scr-fs: 25px;
   --scr-ls: 1px;
@@ -411,7 +280,7 @@ html[data-theme='future'] {
 }
 
 /* Deep-space desktop: layered auroras + perspective floor grid + light sweep.
-   (Mirrors how the Matrix theme decorates #app.) */
+   Decorates #app itself, so the chrome above it needs an explicit z-index. */
 @keyframes holo-sweep { 0% { transform: translateX(-40%) skewX(-18deg); } 100% { transform: translateX(220%) skewX(-18deg); } }
 
 html[data-theme='future'] #app {
@@ -461,7 +330,6 @@ html[data-theme='future'] .panel-hd { font-family: 'Orbitron', sans-serif; }
 
 /* Luminous controls */
 html[data-theme='future'] .seg-btn.active { background: linear-gradient(120deg, #5cf0ff, #b88cff); box-shadow: 0 0 16px rgba(124, 190, 255, 0.5); }
-html[data-theme='future'] .tab.active { box-shadow: inset 0 -2px 0 var(--accent); text-shadow: 0 0 10px rgba(92, 240, 255, 0.6); }
 html[data-theme='future'] .btn.default,
 html[data-theme='future'] .btn.primary { background: linear-gradient(120deg, #5cf0ff, #9b8cff); border-color: transparent; box-shadow: 0 0 18px rgba(108, 200, 255, 0.45); }
 html[data-theme='future'] .btn.go { background: linear-gradient(120deg, #5cffd0, #5cf0ff); border-color: transparent; box-shadow: 0 0 18px rgba(92, 255, 208, 0.4); }
@@ -478,7 +346,7 @@ html[data-theme='future'] .cube-pill { background: rgba(92, 255, 208, 0.07); }
 html[data-theme='future'] .cube-pill .dot { box-shadow: 0 0 9px var(--ok); }
 html[data-theme='future'] .tag { box-shadow: 0 0 12px rgba(92, 255, 208, 0.18); }
 
-/* Animated holographic meter (reuses the Matrix theme's meter-flow keyframes),
+/* Animated holographic meter (the shared meter-flow keyframes),
    glassy console + frosted modal scrim */
 html[data-theme='future'] .meter .fill { background-size: 200% 100%; animation: meter-flow 3s linear infinite; }
 html[data-theme='future'] .console { backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); }
@@ -491,9 +359,6 @@ html[data-theme='future'] .modal-backdrop { backdrop-filter: blur(6px); -webkit-
 
 /* Fit overrides (so the cube shrinks on small / short viewports, matching the
    other themes' media rules — these are additive, no need to edit existing ones) */
-@media (max-width: 900px) { html[data-theme='future'] { --s: 30px; } }
-@media (max-width: 420px) { html[data-theme='future'] { --s: 22px; } }
-@media (max-height: 860px) { html[data-theme='future'] { --s: 24px; --panel-gap: 12px; --fs: 16px; --scr-fs: 21px; } }
 
 /* ── Screen (the #app root) ──────────────────────────────────────────────── */
 #app {
@@ -527,12 +392,7 @@ html[data-theme='borland'] #app {
 }
 .brand { display: flex; align-items: center; gap: 10px; font-weight: 600; letter-spacing: 0.2px; }
 .brand .logo { color: var(--accent); font-size: 1.15em; }
-.menu { display: none; align-items: center; }
-.menu .mi { padding: 2px 12px; white-space: nowrap; }
-.menu .mi:first-child { font-weight: bold; }
-.menu .hot { color: var(--hot); }
 .spacer { flex: 1; }
-.top-meta { color: var(--muted); margin-right: 8px; white-space: nowrap; }
 .cube-pill {
   display: inline-flex; align-items: center; gap: 7px;
   border: 1px solid var(--ok); color: var(--ok);
@@ -547,9 +407,7 @@ html[data-theme='borland'] #app {
 }
 .icon-btn:hover { border-color: var(--accent); }
 
-html[data-theme='borland'] .top-meta { display: none; }
-
-/* ── Segmented control (method / mode / theme / tabs) ────────────────────── */
+/* ── Segmented control (method / mode / theme) ───────────────────────────── */
 .seg {
   display: inline-flex; align-items: stretch;
   background: var(--seg-bg); border: var(--seg-border);
@@ -620,20 +478,13 @@ html[data-theme='borland'] .panel-hd {
   background: #0000a8; padding: 0 10px; margin: 0; white-space: nowrap;
 }
 
-/* tabbed panel header */
+/* Right-pane header row. Named for the tabs it used to hold — the actual tab
+   controls were removed when the pane became one slot with four tenants, so what
+   is left is a ruled header strip carrying a title, a spacer and the ideal tag. */
 .panel-tabs {
   display: flex; align-items: center; gap: 4px;
-  margin: 0 0 12px; border-bottom: var(--tabs-border); padding-bottom: var(--tabs-pad);
+  margin: 0 0 12px; border-bottom: var(--tabs-border); padding-bottom: 8px;
 }
-.tab {
-  font: inherit; color: var(--muted);
-  background: transparent; border: none;
-  padding: 4px 12px; cursor: pointer; white-space: nowrap;
-  border-radius: var(--ctl-r) var(--ctl-r) 0 0;
-}
-.tab:hover { color: var(--text); }
-.tab.active { color: var(--tab-active-fg); background: var(--tab-active-bg); font-weight: 600; }
-html[data-theme='dark'] .tab.active { box-shadow: inset 0 -2px 0 var(--accent); }
 .panel-tabs .spacer { flex: 1; }
 .panel-tabs .tag { font-size: 0.86em; }
 
@@ -857,10 +708,8 @@ html[data-theme='borland'] .c3-face { border-radius: 0; } /* square plastic to m
 .meter-cap { color: var(--muted); font-size: 0.86em; margin-top: 7px; }
 .timer { font-family: var(--mono); font-size: 1.8em; font-weight: 700; color: var(--accent-2); letter-spacing: 1px; line-height: 1.1; }
 
-/* ── Tag / pill ──────────────────────────────────────────────────────────── */
+/* ── Tag ─────────────────────────────────────────────────────────────────── */
 .tag { display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--ok); color: var(--ok); padding: 1px 9px; border-radius: var(--pill-r); }
-.pill { font-size: 0.86em; padding: 2px 10px; border-radius: var(--pill-r); background: var(--ctl-bg); border: var(--ctl-border); color: var(--muted); }
-.pill.ok { color: var(--ok); border-color: var(--ok); }
 
 /* ── Buttons ─────────────────────────────────────────────────────────────── */
 .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
@@ -877,17 +726,6 @@ html[data-theme='borland'] .c3-face { border-radius: 0; } /* square plastic to m
 .btn.default, .btn.primary { background: var(--accent); color: var(--on-accent); border-color: var(--accent); font-weight: 600; }
 .btn.go { background: var(--ok); color: var(--on-accent); border-color: var(--ok); font-weight: 600; }
 .btn.ghost { background: transparent; }
-
-/* ── Status bar (borland only) ───────────────────────────────────────────── */
-.statusbar {
-  flex: 0 0 auto; display: none; align-items: center;
-  min-height: var(--bar-h); padding: 0 10px;
-  background: var(--bar-bg); color: var(--bar-fg); border-top: var(--bar-border);
-}
-html[data-theme='borland'] .statusbar { display: flex; flex-wrap: wrap; }
-.statusbar .sb { padding: 2px 10px; display: inline-flex; gap: 6px; white-space: nowrap; }
-.statusbar .sb .key { color: var(--hot); }
-.statusbar .sep { color: var(--line); }
 
 /* ── Misc content (review / learn panes) ─────────────────────────────────── */
 .blurb { color: var(--muted); line-height: 1.5; }
@@ -940,28 +778,30 @@ html[data-theme='borland'] .modal .glabel { color: #303030; }
 /* var(--muted) is Borland cyan — unreadable on the grey dialog; match glabel. */
 html[data-theme='borland'] .modal .hint { color: #303030; }
 
-/* ── Responsive: collapse to a single column on narrow screens ───────────── */
+/* ── Responsive: collapse to a single column on narrow screens ─────────────
+   Every rule here names both skins rather than `:root`, and has to: each skin's
+   token block sets --s at attribute specificity (0,1,1), which beats a bare
+   `:root` (0,1,0) regardless of source order. A bare `:root` here would silently
+   never win. A third skin must be added to these lists. */
 @media (max-width: 900px) {
   .main { grid-template-columns: 1fr; }
-  :root, html[data-theme='dark'] { --s: 30px; }
-  html[data-theme='borland'] { --s: 30px; }
+  html[data-theme='borland'], html[data-theme='future'] { --s: 30px; }
   /* Stacked layout: the page scrolls, so the cube panel has no leftover height for
      the wrap to stretch into. Give it a width-proportional square instead. */
   .cube-wrap { min-height: min(86vw, 460px); }
 }
 @media (max-width: 420px) {
-  :root, html[data-theme='dark'] { --s: 22px; }
-  html[data-theme='borland'] { --s: 22px; }
+  html[data-theme='borland'], html[data-theme='future'] { --s: 22px; }
 }
 /* Short viewports (e.g. iPad landscape): tighten the chrome so the whole session
    fits the height without scrolling. Both cube views now shrink on their own —
    their unit is derived from the stage box, which is whatever the panel has left
    — so the only cube token here is the no-container-query fallback --s. */
 @media (max-height: 860px) {
-  :root, html[data-theme='dark'], html[data-theme='borland'], html[data-theme='matrix'] { --s: 24px; --panel-gap: 12px; }
+  html[data-theme='borland'], html[data-theme='future'] { --s: 24px; --panel-gap: 12px; --scr-fs: 21px; }
   .main { padding: 12px; }
-  /* Borland's big DOS font is the height hog — shrink it so the session fits too. */
-  html[data-theme='borland'] { --fs: 17px; --scr-fs: 21px; --hd-fs: 17px; --panel-pad: 12px; }
-  /* Matrix's mono body font wraps wider/taller — trim it a touch as well. */
-  html[data-theme='matrix'] { --fs: 15px; --scr-fs: 21px; }
+  /* Each skin's body font is the remaining height hog — Borland's DOS face more so
+     than Holo's Rajdhani, hence the different floors. */
+  html[data-theme='borland'] { --fs: 17px; --hd-fs: 17px; --panel-pad: 12px; }
+  html[data-theme='future'] { --fs: 16px; }
 }

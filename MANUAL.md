@@ -279,8 +279,8 @@ review — mid-solve they're just moves.
 
 ## Settings
 
-- **Theme** — Borland Pascal (the default retro look), Modern Dark, Matrix,
-  Future. Purely cosmetic; both cube views restyle with the theme.
+- **Theme** — Borland Pascal (the default retro look) or Holo (holographic HUD).
+  Purely cosmetic; both cube views restyle with the theme.
 - **Cube view** — 3D cube (spinnable, with back-view panels) or Flat net.
 - **Solve orientation** — White-top (scramble and solve in one frame) or
   Yellow-top (x2): scramble white-top, then physically flip to solve yellow-top;

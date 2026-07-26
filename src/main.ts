@@ -2289,12 +2289,6 @@ function buildCoachBody(s: StepDef | null): HTMLElement {
   } else if (a.kind === 'ideal') {
     coachLine(c, 'solver', 'c-good', `solution ▸ ${disp(a.moves).join(' ')}`);
   }
-  if (resolveTheme(getTheme()) === 'matrix') {
-    const l = el('div', 'cline');
-    l.appendChild(el('span', 'ctag', '>'));
-    l.appendChild(el('span', 'cursor'));
-    c.appendChild(l);
-  }
   return c;
 }
 
@@ -2727,7 +2721,7 @@ function renderSettings() {
   const themeGroup = el('div', 'group');
   themeGroup.appendChild(el('div', 'glabel', 'Theme'));
   const themeSeg = el('div', 'seg');
-  for (const [id, label] of [['borland', 'Borland Pascal'], ['dark', 'Modern Dark'], ['matrix', 'Matrix'], ['future', 'Future']] as [string, string][])
+  for (const [id, label] of [['borland', 'Borland Pascal'], ['future', 'Holo']] as [string, string][])
     themeSeg.appendChild(segBtn(label, () => { setTheme(id); render(); }, getTheme() === id));
   themeGroup.appendChild(themeSeg);
   modal.appendChild(themeGroup);
