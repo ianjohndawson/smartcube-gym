@@ -1939,7 +1939,11 @@ function buildTopBar(): HTMLElement {
 
   top.appendChild(el('div', 'spacer'));
 
-  // Cube pill (click = connect/disconnect)
+  // The cube cluster: what the device IS, then the two things you do TO it. Reset
+  // and Sync used to sit in the step bar among the training controls, where "Sync to
+  // Cube state" spent 152px of prime width on something you press when BLE drifts.
+  // They're facts about the physical cube, so they belong with the cube's own pill.
+  const group = el('div', 'cube-group');
   const battery = state.battery != null ? ` · ${state.battery}%` : '';
   const pill = el('span', `cube-pill ${state.connected ? '' : 'off'}`);
   pill.appendChild(el('span', 'dot'));
@@ -1947,7 +1951,14 @@ function buildTopBar(): HTMLElement {
   pill.style.cursor = 'pointer';
   pill.title = state.connected ? 'Disconnect' : 'Connect cube';
   pill.addEventListener('click', toggleConnect);
-  top.appendChild(pill);
+  group.appendChild(pill);
+  const resetBtn = iconBtn('Reset', resetToSolved);
+  resetBtn.title = 'Reset the model to a solved cube and issue a fresh scramble';
+  group.appendChild(resetBtn);
+  const syncBtn = iconBtn('Sync', syncCube);
+  syncBtn.title = 'Read the cube’s real state and correct the model (for Bluetooth drift)';
+  group.appendChild(syncBtn);
+  top.appendChild(group);
 
   const statsBtn = iconBtn('Stats', () => { state.showStats = !state.showStats; render(); });
   if (state.showStats) { statsBtn.style.borderColor = 'var(--accent)'; statsBtn.style.fontWeight = '600'; statsBtn.style.color = 'var(--accent)'; }
@@ -1964,10 +1975,10 @@ function catLabel(c: Category): string {
   return c === 'Blocks' ? 'Block building' : c === 'EO' ? 'Edge Orientation' : c;
 }
 // The current selection as one sentence (Category · Trainer · Mode) with a Change
-// button that reveals the full picker — sits just below the top bar. It also holds
-// the cube controls: they're wanted in every mode, so giving them a panel of their
-// own in the left column would cost the cube view height for the whole session,
-// whereas this bar has to exist anyway and had a screen's width of dead space.
+// button that reveals the full picker — sits just below the top bar. It now holds
+// ONLY session verbs: what you're training, and getting the next rep of it. The cube
+// utilities that used to share it (Reset, Sync) moved to the cube cluster in the top
+// bar, where the device they act on already lives.
 function buildStepBar(): HTMLElement {
   const bar = el('div', 'stepbar');
   const crumb = el('span', 'crumb');
@@ -1982,11 +1993,8 @@ function buildStepBar(): HTMLElement {
   bar.appendChild(crumb);
   bar.appendChild(el('div', 'spacer'));
   // Only offered mid-solve: while you're still applying one, a fresh scramble is
-  // what "Reset Cube" plus the strip already gives you.
+  // what Reset (in the top bar's cube cluster) plus the strip already gives you.
   if (repPhase() !== 'setup') bar.appendChild(btn('Next scramble', nextScramble, 'btn'));
-  bar.appendChild(btn('Reset Cube', resetToSolved, 'btn'));
-  // Sync = read the cube's real state and correct the model (for BLE drift).
-  bar.appendChild(btn('Sync to Cube state', syncCube, 'btn'));
   bar.appendChild(btn(state.showPicker ? 'Close' : 'Change', togglePicker, 'btn'));
   return bar;
 }
@@ -2295,6 +2303,22 @@ function buildStatsPane(right: HTMLElement) {
   right.appendChild(buildStatsBody());
 }
 
+// What help has already been taken this step, in words. `helpUsed` is a monotonic
+// ratchet (assist() only ever raises it), and a Foundations rep counts as your own
+// work only below 3 — so this is the one number the grading actually reads, and it
+// was previously visible nowhere.
+//
+// An observe example is the exception: startLessonSolve reveals the route for you, so
+// it arrives at rung 3 without the learner asking for anything. "Won't count" would
+// be both wrong and discouraging there — watching IS the lesson at that phase.
+function helpUsedLabel(rung: number, lesson: boolean, example: boolean): string {
+  if (example) return 'a demonstration — nothing here is graded';
+  if (rung >= 3) return lesson ? 'route shown — this rep won’t count' : 'route shown';
+  if (rung === 2) return 'used: hint, then the next move';
+  if (rung === 1) return 'used: a hint';
+  return '';
+}
+
 function buildActions(s: StepDef | null): HTMLElement {
   const phase = repPhase();
   // Help applies whenever you're working the target yourself — plain solving, or
@@ -2303,9 +2327,41 @@ function buildActions(s: StepDef | null): HTMLElement {
   const solving = isSolvingPhase(phase) && !!s;
   const actions = el('div', 'row');
   actions.style.marginBottom = '14px';
-  actions.appendChild(btn('Hint', () => assist('nudge'), 'btn default', !solving));
-  actions.appendChild(btn('Next move', () => assist('move'), 'btn', !solving));
-  actions.appendChild(btn('Show ideal', () => assist('ideal'), 'btn', !solving));
+
+  // ONE escalating help control instead of three peer buttons. The three were
+  // Hint / Next move / Show ideal, presented as equals — which hid that they are
+  // rungs of a ladder and that the top rung silently voids a Foundations rep (the
+  // cost was stated only in a console line, which scrolls).
+  //
+  // The escalation is driven by state.helpUsed, NOT by what was last requested:
+  // assist() degrades a nudge to a next-move when there's no focus piece to point
+  // at, so the rung you land on isn't always the one you asked for. Reading the
+  // ratchet keeps the button honest about where you actually are.
+  //
+  // "Show the route" stays separately reachable rather than being the third press.
+  // Escalation exists to make the cost legible, not to add friction — someone who
+  // knows they're stuck should still get the answer in one click, and see what it
+  // costs on the button that charges it.
+  const rung = state.helpUsed;
+  const lesson = !!activeLessonDef();
+  const example = !!state.lessonRep?.example;
+  if (rung < 2) {
+    const label = rung === 0 ? 'Hint' : 'More help';
+    const nextKind = rung === 0 ? 'nudge' : 'move';
+    const b = btn(label, () => assist(nextKind as 'nudge' | 'move'), 'btn default', !solving);
+    b.title = rung === 0
+      ? 'Name the pattern and point at the piece that matters'
+      : 'Give the next move';
+    actions.appendChild(b);
+  }
+  if (rung < 3) {
+    const routeBtn = btn(lesson ? 'Show the route · won’t count' : 'Show the route',
+      () => assist('ideal'), 'btn', !solving);
+    routeBtn.title = lesson
+      ? 'Reveals the whole solution. A lesson rep only counts if you finish without it.'
+      : 'Reveals the whole solution for this step';
+    actions.appendChild(routeBtn);
+  }
   // Lookahead rep (block steps): predict where the next-but-one piece lands.
   // Offered from plain solving only — not from inside another prompt — and hidden
   // on Foundations lessons, one skill at a time for beginners.
@@ -2321,6 +2377,12 @@ function buildActions(s: StepDef | null): HTMLElement {
     actions.appendChild(btn('Walk it through', enterLearn, 'btn default'));
   }
   actions.appendChild(btn('Retry', tryAgain, 'btn', !solving));
+  // The ratchet, in words, once anything has been taken. Sits at the end of the row
+  // rather than on a button because it describes the rep, not an action.
+  if (solving && rung > 0) {
+    actions.appendChild(el('span', `help-rung${rung >= 3 && lesson && !example ? ' spent' : ''}`,
+      helpUsedLabel(rung, lesson, example)));
+  }
   return actions;
 }
 

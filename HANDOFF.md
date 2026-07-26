@@ -266,11 +266,32 @@ are all new phases, so that shape has to change first. Agreed direction:
   `scrambleMoves.length - done` and the token the strip is highlighting, so the two
   always agree; off-track it quotes the self-healing head move and no count.
 
+- **Verb tiers** (step 5) — three tiers, three homes. Help collapsed from three
+  peer buttons (Hint / Next move / Show ideal) to ONE escalating control driven by
+  `state.helpUsed`, the monotonic ratchet the lesson grading already reads: rung 0
+  "Hint" → rung 1 "More help" → rung 2 (primary gone). Read off the ratchet, not
+  the last request, because `assist()` degrades a nudge to a next-move when there's
+  no focus piece — so the rung you land on isn't always the one you asked for.
+  A `.help-rung` note reports what's been taken; it was previously visible nowhere.
+
+  **"Show the route" stays separately reachable** rather than being the third
+  press: escalation exists to make the cost legible, not to add friction, so a user
+  who knows they're stuck still gets the answer in one click — with the cost on the
+  button that charges it (`· won't count`, on Foundations lessons only, since
+  `helpUsed` doesn't affect graded-course scoring). Observe examples are special-
+  cased: `startLessonSolve` reveals the route FOR you, arriving at rung 3 unasked,
+  so the note reads "a demonstration — nothing here is graded" instead of a cost.
+
+  Reset and Sync moved from the step bar to a `.cube-group` cluster beside the cube
+  pill in the top bar — they act on the physical device, and "Sync to Cube state"
+  was spending 152px of prime width on a BLE-drift button. The step bar now holds
+  only session verbs (Next scramble, Change). Labels shortened to Reset / Sync with
+  explanatory titles; MANUAL.md updated to match.
+
 ### Next
-Step 5 (verb tiers: the escalating Help control, cube utilities to the top bar),
-then step 6 (brief out of the console), step 7 (review/stats as takeovers), and
-only then the new features. Everything from here is behaviour-visible — verify in
-the browser as well as through `npm run check`.
+Step 6 (brief out of the console), step 7 (review/stats as takeovers), and only
+then the new features. Everything from here is behaviour-visible — verify in the
+browser as well as through `npm run check`.
 
 ### Known, not yet addressed
 - `simplifyMoves` doesn't iterate to a fixed point (above). It also feeds
@@ -281,7 +302,17 @@ the browser as well as through `npm run check`.
   without the cube state changing: four U's are identity, `used` correctly stays 0,
   but the ideal moved 4→5. Pre-existing placement hysteresis, not the refactor —
   `b223ext` (single fixed placement) holds steady. Matters because Efficiency
-  scores against `used / ideal`.
+  scores against `used / ideal`. **Partly addressed** in a separate session (the
+  no-signal half: nothing placed anywhere → anchor to `preferred`); the residual
+  needs a state-derived anchor, which measurably changes which block the coaching
+  follows (6% of 222 moves, 8% of 123, 17.6% of 223) — so it is Ian's call, not a
+  unilateral fix. Hysteresis and path-independence are fundamentally incompatible.
+- The chip row overflows narrow viewports: at 375px the six Foundations lesson
+  chips force `.col` to 527px and the whole page scrolls sideways. `.chips` is a
+  non-wrapping flex row and `.col` is a grid item with the default
+  `min-width: auto`, so the track expands to the chips' min-content width. Isolated
+  by hiding each child of `.col` in turn; trainers with no chips panel are clean.
+  CSS-only, unrelated to the overhaul.
 
 ---
 

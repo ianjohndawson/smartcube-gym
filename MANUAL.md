@@ -41,7 +41,7 @@ and GoCube smart cubes, over Web Bluetooth.
    address once; it is remembered per cube afterwards.
 2. **Start from a solved cube.** On connect the app assumes your cube is solved
    (most smart cubes cannot report their true state reliably at connect time).
-   If yours is scrambled, press **Sync to Cube state**.
+   If yours is scrambled, press **Sync**.
 3. Apply the displayed scramble. The tokens turn green as you go; solving starts
    automatically the instant the scramble matches.
 
@@ -51,9 +51,12 @@ your physical cube, driven only by the moves the cube reports. Buttons like
 short sequence to physically return your cube to where it needs to be, and
 track you along it.
 
-- **Reset Cube** — declares "my physical cube is solved" and starts fresh.
+Both cube controls live in the **top bar**, next to the cube pill — they are things
+you do to the physical cube, so they sit with it:
+
+- **Reset** — declares "my physical cube is solved" and starts fresh.
   Only press it when the cube in your hands really is solved.
-- **Sync to Cube state** — reads the cube's true state and reconciles the model
+- **Sync** — reads the cube's true state and reconciles the model
   (use after missed moves / drift). Small drift is bridged invisibly; large
   divergence starts a fresh scramble from the cube's real state.
 
@@ -61,12 +64,18 @@ track you along it.
 
 - **Scramble panel** — the scramble to apply. Green = done, highlighted = next,
   **red = you turned a wrong face** (undo it, or follow the self-healing "next"
-  hint, which always shows a correct path from wherever you are). While solving,
-  the scramble is hidden (it is the solution in reverse!).
-- **Cube view** — the live model (see below).
+  move in the Now bar, which always shows a correct path from wherever you are).
+  While solving, the scramble is hidden (it is the solution in reverse!).
+- **Cube view** — the live model (see below). Its caption describes the *picture*:
+  how to hold the cube, and what any highlight ring means.
+- **Now bar** — directly under the cube: **what to do right now**, and nothing
+  else. The next scramble move, the piece to find, the lookahead task. It turns
+  amber when something must be dealt with before anything else works (a turn off
+  the scramble, an outstanding find-the-piece prompt). During a walkthrough or a
+  review it steps aside, because those panes carry their own instructions.
 - **Course panel** — level chips with stars and lock state, plus
   example/grading progress for the current level.
-- **Right pane** — the action buttons, the step meter (moves used vs ideal, or
+- **Right pane** — the help control, the step meter (moves used vs ideal, or
   the timer), and the output console where hints and solutions appear. After a
   solve it becomes the review.
 
@@ -120,7 +129,7 @@ Pick with **Change** in the bar under the title: Category → Trainer → Mode.
   You advance on **proficiency, not efficiency**: 2 guided successes unlock
   coached, 3 coached unlock independent, and 3 of your latest 4 independent
   reps complete the lesson (the next one unlocks). A rep counts as a success
-  when you finish **without "Show ideal"** — Hint and Next move are always
+  when you finish **without "Show the route"** — Hint and More help are always
   fair game, and move counts are tracked in Stats but never gate a lesson.
   Lessons that pre-build a block outline it with a dashed ring: that is the
   part to protect. The review answers the beginner questions — did I build
@@ -143,7 +152,8 @@ removes a botched rep.
   the pattern vocabulary (Simple joins → Double joins & Swings → Roundabouts &
   rescues → full scrambles). Each lesson opens with a few **seeded examples**:
   the status names the technique, and you can walk it through with
-  **Show ideal → Walk it through**. Examples never count toward your grade.
+  **Walk it through** (the route is already on screen). Examples never count
+  toward your grade, and the note beside the help control says so.
   After the examples, the app generates practice cases that genuinely use the
   lesson's technique — short scrambles, because these patterns live near the
   end of a build. Note: the next example is served when you enter the lesson
@@ -191,15 +201,21 @@ turn of F/B (for the standard axis) — the hint explains per case.
 
 ## Help while solving
 
-The ladder, from least to most revealing:
+Help is a **ladder with one button**, from least to most revealing. Press **Hint**
+and it becomes **More help**; a note beside it records what you have taken this
+rep, because that is the one thing the lesson grading reads.
 
 1. **Hint** — names what you're looking at and how to approach it, without
    giving moves. On block steps it names the **pattern** the taught route is
    about to use ("Double join — one turn locks the pair and its second edge
    onto the centre") and points at the piece to focus on; on EO steps it
    highlights the bad edges and states the count.
-2. **Next move** — exactly one move.
-3. **Show ideal** — the full teaching route for this step. For blocks this is
+2. **More help** — exactly one move. (If there was no single piece to point at,
+   Hint gives you this directly and the ladder skips a rung.)
+3. **Show the route** — the full teaching route for this step. Kept separate
+   rather than being the third press, so you can always get the answer in one
+   click when you know you are stuck. On a Foundations lesson the button says
+   **· won't count**, because that is exactly what it costs. For blocks this is
    the **method route** (build the milestone, then extend — the way a human
    solves), which may be a move or two longer than the raw optimal; scoring
    always uses the true optimal, so the gap stays honest.
@@ -321,7 +337,7 @@ solves, all in your browser's local storage.
 
 ## Troubleshooting
 
-- **Model doesn't match my cube** — press **Sync to Cube state**. If you
+- **Model doesn't match my cube** — press **Sync**. If you
   connected with a scrambled cube, Sync is the fix too.
 - **Cube won't connect** — check Bluetooth, try forgetting saved MACs in
   Settings; on iPad make sure you're in Bluefy. Some cubes need waking with a

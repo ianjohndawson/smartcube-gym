@@ -400,6 +400,10 @@ html[data-theme='borland'] #app {
 }
 .cube-pill.off { border-color: var(--muted); color: var(--muted); }
 .cube-pill .dot { width: 8px; height: 8px; border-radius: 50%; background: currentColor; }
+/* The cube cluster: the device's own pill plus the two actions that act on it
+   (Reset, Sync). Grouped tightly so it reads as one unit distinct from the app
+   actions (Stats / ? / ⚙) that follow it along the bar. */
+.cube-group { display: inline-flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 .icon-btn {
   font: inherit; color: var(--bar-fg);
   background: var(--ctl-bg); border: var(--ctl-border); border-radius: var(--ctl-r);
@@ -745,6 +749,11 @@ html[data-theme='borland'] .c3-face { border-radius: 0; } /* square plastic to m
 .btn.default, .btn.primary { background: var(--accent); color: var(--on-accent); border-color: var(--accent); font-weight: 600; }
 .btn.go { background: var(--ok); color: var(--on-accent); border-color: var(--ok); font-weight: 600; }
 .btn.ghost { background: transparent; }
+/* How much help this rep has taken, in words, beside the help control. Muted
+   because it reports the rep rather than offering an action; `.spent` marks the
+   rung that costs a Foundations rep its credit. */
+.help-rung { color: var(--muted); font-size: 0.86em; align-self: center; }
+.help-rung.spent { color: var(--warn); }
 
 /* ── Misc content (review / learn panes) ─────────────────────────────────── */
 .blurb { color: var(--muted); line-height: 1.5; }
