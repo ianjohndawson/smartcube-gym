@@ -231,9 +231,57 @@ are all new phases, so that shape has to change first. Agreed direction:
   'scramble'`: applied/total, a real fill, and an off-track caption that agrees
   with the strip.
 
+- **`repPhase()`** (step 3) — one definition of where a rep is:
+  `setup | solve | identify | lookahead | walkthrough | review`, plus
+  `isSolvingPhase()` for the three phases where you're working the target
+  yourself. Replaced five re-derivations, including a review test written out
+  verbatim in both gesture handlers. Two corrections fell out: `enterLearn` now
+  abandons a lookahead rep in flight (Show ideal → Walk it through used to start a
+  walkthrough with all 54 stickers still blanked), and tap-to-aim is disarmed in
+  review. The frame helpers (`solveRotation`/`solveFrame`/`notationFrame`)
+  deliberately still read `state.mode` and say why — they answer which frame the
+  cube is DRAWN in, which must hold across the whole post-scramble half of a rep,
+  so `isSolvingPhase` (which excludes walkthrough and review) is the wrong test.
+- **`gym.move()`** — `gym.apply` goes straight to `step()`, the one path the
+  hands-free review gestures don't run on (they hang off `handleMove`, the live BLE
+  callback), so they had no e2e reach at all. Now verified from the browser.
+- **Now bar** (step 4) — `buildNowBar`, directly under the stage. The instruction
+  was previously spread across the strip's caption, the cube caption, a `[find]`
+  console line and a 3.5s toast; all four now converge here. Rendered for the four
+  phases that share the generic session pane — walkthrough and review are excluded
+  because their dedicated panes already own their instruction and verbs, and a
+  second copy would need filler text. Verbs appear only for a phase you can back
+  OUT of (Cancel lookahead moved here out of the actions row). Styled from tokens
+  only: both skins picked it up with zero per-skin CSS, which is the budget rule
+  paying off. The setup line distinguishes the two errands that share the phase —
+  applying a scramble vs `enterLearn`'s rewind — as does the meter's label.
+
+  The hold note deliberately STAYED on the stage, against the original sketch: it
+  describes the view, not the phase, and shouldn't turn over with the instruction.
+
+  Note `scrambleRemaining()` is not used for the "N to go" count. `simplifyMoves`
+  is a single pass over consecutive same-face runs, so a cancellation that only
+  becomes adjacent after an inner pair vanishes survives and the count comes out
+  inflated (the old strip caption had this too). On-track the Now bar reads
+  `scrambleMoves.length - done` and the token the strip is highlighting, so the two
+  always agree; off-track it quotes the self-healing head move and no count.
+
 ### Next
-`repPhase()`, then the Now bar. Both are behaviour-visible, so verify in the
-browser as well as through `npm run check`.
+Step 5 (verb tiers: the escalating Help control, cube utilities to the top bar),
+then step 6 (brief out of the console), step 7 (review/stats as takeovers), and
+only then the new features. Everything from here is behaviour-visible — verify in
+the browser as well as through `npm run check`.
+
+### Known, not yet addressed
+- `simplifyMoves` doesn't iterate to a fixed point (above). It also feeds
+  `undoToScramble`, `enterLearn`'s rewind and the review's "your moves" display, so
+  fixing it would shorten real rewind sequences — but it touches a graded-adjacent
+  display, so it wants its own change rather than riding along with UI work.
+- On free-placement block trainers the displayed `ideal` can change mid-solve
+  without the cube state changing: four U's are identity, `used` correctly stays 0,
+  but the ideal moved 4→5. Pre-existing placement hysteresis, not the refactor —
+  `b223ext` (single fixed placement) holds steady. Matters because Efficiency
+  scores against `used / ideal`.
 
 ---
 

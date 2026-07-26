@@ -651,6 +651,25 @@ html[data-theme='borland'] .c3-face { border-radius: 0; } /* square plastic to m
   @keyframes c3-pulse { 50% { filter: brightness(1.28); } }
 }
 
+/* ── Now bar ───────────────────────────────────────────────────────────────
+   The one place that says what to do next, sitting directly under the stage.
+   Styled from tokens only — no per-skin rules — so both skins pick it up from
+   their own chip/frame vocabulary (see the budget rule in the header). It reads a
+   step up from a caption and a step down from a heading: this is an instruction,
+   not a title. `.hot` marks the two states you must act on before anything else
+   works — an off-scramble turn, and an outstanding find-the-piece prompt. */
+.nowbar {
+  flex: 0 0 auto;
+  display: flex; align-items: center; gap: 10px 16px; flex-wrap: wrap;
+  padding: 12px var(--panel-pad);
+  background: var(--chip-bg);
+  border: var(--chip-border); border-radius: var(--ctl-r);
+}
+.nowbar .now-text { flex: 1 1 auto; min-width: 0; line-height: 1.35; color: var(--text); }
+.nowbar .now-verbs { flex: 0 0 auto; display: flex; gap: 10px; flex-wrap: wrap; }
+.nowbar.hot { border-color: var(--warn); }
+.nowbar.hot .now-text { color: var(--warn); }
+
 /* ── Chip lists (course levels, …) ───────────────────────────────────────── */
 .chips { display: flex; gap: 10px; }
 .chip { flex: 1 1 0; min-width: 0; border: var(--chip-border); border-radius: var(--ctl-r); padding: 8px 12px; background: var(--chip-bg); }

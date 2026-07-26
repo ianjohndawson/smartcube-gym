@@ -1557,7 +1557,9 @@ function startPredict() {
   if (!two) { state.status = 'Nothing to look ahead to — fewer than two pieces left.'; render(); return; }
   state.assist = null;
   state.predict = { z: two.second, joinDesc: two.first.description };
-  state.status = `Lookahead: place the ${two.first.description} while predicting the ${two.second.description}. Execute, then tap where it ended up — the view is blanked.`;
+  // The standing instruction is the Now bar's now; the toast just confirms the mode
+  // started, rather than flashing the same paragraph and then taking it away.
+  state.status = 'Lookahead on — the view is blanked.';
   render();
 }
 function cancelPredict() {
@@ -1640,7 +1642,9 @@ function startLessonSolve() {
       const corner = blockPiecesFor(s.canonicalMask).find((g) => g.length === 3);
       if (corner) {
         state.identify = { stage: 0 };
-        state.status = identifyPrompt(s)!; // same words as the console's standing copy
+        // The prompt itself stands in the Now bar; no need to also flash it as a
+        // toast that expires while the learner is still hunting for the piece.
+        state.status = 'Find the piece on your cube, then tap it.';
         return;
       }
     }
@@ -1884,11 +1888,15 @@ function render() {
   app.appendChild(buildStepBar());
   if (state.showPicker) app.appendChild(buildToolbar());
 
+  // Left column: the scramble (while it's live), the stage, then the Now bar —
+  // directly under the cube, because that's where the eye is.
   const main = el('div', 'main');
   const left = el('div', 'col');
   const strip = buildScrambleStrip();
   if (strip) left.appendChild(strip);
   left.appendChild(buildCubePanel(s));
+  const now = buildNowBar(s);
+  if (now) left.appendChild(now);
   if (trainer().course) left.appendChild(buildCoursePanel());
   else if (activeLessonDef()) left.appendChild(buildFoundationsPanel());
   main.appendChild(left);
@@ -2007,20 +2015,102 @@ function buildToolbar(): HTMLElement {
 // inverse). So rather than leave a panel standing empty for the rest of the rep,
 // the whole strip leaves the column and the cube view takes the height. Header-
 // less and button-less for the same reason: its buttons are in the step bar.
+// The strip is now just the move tokens: what it used to say underneath ("next L ·
+// 10 to go · solving auto-starts when matched") is the current instruction, so it
+// moved to the Now bar with every other instruction. The tokens stay here because
+// they're a picture of the sequence, not a sentence about it.
 function buildScrambleStrip(): HTMLElement | null {
   if (repPhase() !== 'setup') return null;
   const p = el('div', 'panel scramble-strip');
   p.appendChild(renderScramble());
-  const { offTrack } = scrambleStatus();
-  const rem = scrambleRemaining();
-  const cap = el('div', 'meter-cap');
-  if (rem.length) {
-    cap.innerHTML = `next <span class="accent-fg">${rem[0]}</span>${offTrack ? ' · corrects a wrong turn' : ''} · ${rem.length} to go · solving auto-starts when matched`;
-  } else {
-    cap.textContent = 'Apply the scramble from your cube — solving auto-starts when matched.';
-  }
-  p.appendChild(cap);
   return p;
+}
+
+// --- Now bar: the one place that says what to do next ---
+//
+// One task, one message. The current instruction used to be spread across four
+// places — the scramble strip's caption, the cube panel's caption, a [find] line in
+// the console, and a toast that fades after 3.5s. That last one had already been
+// patched once (commit 6a9d868) because a find-the-piece prompt vanished before the
+// learner had acted on it; the same objection applied to every other instruction.
+// It sits under the cube because that's where the eye already is — the reason the
+// toast was drawn over the cube in the first place.
+//
+// Rendered for the four phases that share the generic session pane. Walkthrough and
+// review are deliberately EXCLUDED: each has a dedicated right-hand pane that
+// already owns its instruction and its verbs (buildLearnPane carries the route, the
+// per-move role and the pattern's why), so a second copy here would either duplicate
+// them or need filler text to justify the space.
+//
+// Verbs appear here only for a phase you can BACK OUT OF — a mode with a way to
+// leave it. Help keeps its own home in the session pane; the cube utilities keep
+// theirs in the step bar.
+function buildNowBar(s: StepDef | null): HTMLElement | null {
+  const phase = repPhase();
+  if (phase === 'walkthrough' || phase === 'review') return null;
+
+  const bar = el('div', 'nowbar');
+  const line = el('div', 'now-text');
+  const verbs = el('div', 'now-verbs');
+  let hot = false;
+
+  const say = (...parts: (string | HTMLElement)[]) => {
+    for (const part of parts) {
+      if (typeof part === 'string') line.appendChild(document.createTextNode(part));
+      else line.appendChild(part);
+    }
+  };
+  const move = (m: string) => el('span', 'accent-fg mono', m);
+
+  if (phase === 'setup') {
+    const { done, offTrack } = scrambleStatus();
+    const total = state.scrambleMoves.length;
+    // enterLearn borrows the setup phase to rewind the cube to the step start, so
+    // this is two different errands. Say which — "apply the scramble" is actively
+    // wrong when what's wanted is undoing your own moves.
+    const goal = state.pendingLearn
+      ? `Rewind to the start of ${s?.label ?? 'the step'}`
+      : 'Apply the scramble';
+    if (offTrack) {
+      // Off track, the self-healing sequence is the only thing that knows the way
+      // back, so its head is the move to make. Its LENGTH isn't quoted: simplifyMoves
+      // is a single pass over consecutive same-face runs, so a cancellation that only
+      // becomes adjacent after an inner pair vanishes survives, and the count comes
+      // out inflated. The move is right either way; a wrong number is not worth it.
+      const fix = scrambleRemaining()[0];
+      hot = true;
+      if (fix) say('That turn was off the scramble — undo it with ', move(fix), ', then carry on.');
+      else say('That turn was off the scramble — undo it to carry on.');
+    } else if (done < total) {
+      // On track: read straight off the token the strip is highlighting, so the two
+      // always agree about what "next" means.
+      say(`${goal} — next `, move(state.scrambleMoves[done]), ` · ${total - done} to go.`);
+    } else {
+      say(`${goal} from your cube — solving starts by itself the moment it matches.`);
+    }
+  } else if (phase === 'identify') {
+    hot = true;
+    say((s && identifyPrompt(s)) || 'Find the piece on your cube and tap it.');
+  } else if (phase === 'lookahead') {
+    const p = state.predict!;
+    say(`Place the ${p.joinDesc} while you track the ${p.z.description}. The view is blank — execute on your cube, then tap where you think it ended up.`);
+    verbs.appendChild(btn('Cancel lookahead', cancelPredict, 'btn ghost'));
+  } else {
+    // solve
+    if (!s) say('Pick something to train from the Change menu.');
+    else {
+      const task = s.kind === 'eo'
+        ? `Orient all 12 edges${s.prereqMask ? `, keeping the ${s.label} intact` : ''}.`
+        : `Build the ${s.label}.`;
+      const aimable = s.kind === 'block' && s.family === '222' && s.candidateMasks.length > 1;
+      say(aimable ? `${task} Tap a corner on the cube to aim it there.` : task);
+    }
+  }
+
+  if (hot) bar.classList.add('hot');
+  bar.appendChild(line);
+  if (verbs.childElementCount) bar.appendChild(verbs);
+  return bar;
 }
 
 function buildCubePanel(s: StepDef | null): HTMLElement {
@@ -2090,13 +2180,15 @@ function buildCubePanel(s: StepDef | null): HTMLElement {
     wrap.appendChild(el('div', 'cube-toast', state.status));
   }
   p.appendChild(wrap);
+  // The stage's caption annotates the PICTURE — how to hold the cube, and what a
+  // highlight ring means. What to DO about it is the Now bar's job, so the old
+  // "tap a corner to aim" / "execute, then tap where it landed" instructions have
+  // moved there. (The hold deliberately stayed: it describes the view, not the
+  // phase, and it must not scroll away with the instruction when the phase turns.)
   const holdNote = s?.hold
     ? s.hold
     : `${solveFrame() ? `hold ${orientLabel(solveRotation())}` : 'hold white-up / green-front'}${s ? ` · ${s.label} target` : ''}`;
-  const aimNote = predicting
-    ? ' · lookahead: execute, then tap where the piece ended up'
-    : aimable ? ' · tap a corner to aim your block there' : '';
-  p.appendChild(el('div', 'meter-cap', note || holdNote + aimNote));
+  p.appendChild(el('div', 'meter-cap', note || holdNote));
   return p;
 }
 
@@ -2220,7 +2312,8 @@ function buildActions(s: StepDef | null): HTMLElement {
   if (phase === 'solve' && !!s && s.kind === 'block' && !activeLessonDef()) {
     actions.appendChild(btn('Lookahead', startPredict, 'btn'));
   }
-  if (phase === 'lookahead') actions.appendChild(btn('Cancel lookahead', cancelPredict, 'btn ghost'));
+  // Cancel lookahead is NOT here: leaving a mode is a phase verb, and those live in
+  // the Now bar next to the instruction for the mode you're leaving.
   // Once the ideal is revealed (assist === 'ideal'), offer to try it: "Walk it
   // through" hands the cube back to the step start, then guides the moves. Only
   // surfaced while solving and only when there's actually a solution shown.
@@ -2268,7 +2361,9 @@ function buildScrambleMeter(): HTMLElement {
   const total = state.scrambleMoves.length;
   const { done, offTrack } = scrambleStatus();
   const hd = el('div', 'dock-hd');
-  hd.appendChild(el('span', '', 'Scramble'));
+  // enterLearn borrows this phase to rewind to the step start — same progress
+  // mechanics, different errand, so it gets its own label (as in the Now bar).
+  hd.appendChild(el('span', '', state.pendingLearn ? 'Rewind' : 'Scramble'));
   hd.appendChild(el('span', '', `${done} / ${total}`));
   wrap.appendChild(hd);
   const meter = el('div', 'meter');
@@ -2277,7 +2372,8 @@ function buildScrambleMeter(): HTMLElement {
   meter.appendChild(fill);
   wrap.appendChild(meter);
   wrap.appendChild(el('div', 'meter-cap',
-    offTrack ? 'off track — undo the wrong turn to carry on' : 'applying the scramble'));
+    offTrack ? 'off track — undo the wrong turn to carry on'
+    : state.pendingLearn ? 'returning to the start of the step' : 'applying the scramble'));
   return wrap;
 }
 
@@ -2358,15 +2454,14 @@ function buildCoachBody(s: StepDef | null): HTMLElement {
   if (c.childElementCount) c.appendChild(el('div', 'crule'));
   if (!s) { coachLine(c, '', 'c-muted', 'No active step.'); return c; }
   if (repPhase() === 'setup') { coachLine(c, '', 'c-muted', 'Apply the scramble — solving auto-starts when matched.'); return c; }
-  // A find-the-piece task (Foundations observe/guided) is a STANDING instruction,
-  // not a passing status — it belongs here where it can't fade before you've acted
-  // on it. The cube toast still flashes the tap-by-tap right/wrong reaction; this
-  // is the copy that stays put, and it sits above any hint you then ask for.
-  const find = identifyPrompt(s);
-  if (find) coachLine(c, 'find', 'c-hint', find);
+  // A find-the-piece task (Foundations observe/guided) is a STANDING instruction, so
+  // it now reads in the Now bar with every other instruction — it used to be here
+  // because the console was the only thing that wouldn't fade. It's still checked,
+  // though: while a prompt is outstanding, don't also nag about the help buttons.
+  const findOutstanding = !!identifyPrompt(s);
   const a = state.assist;
   if (!a) {
-    if (!find) coachLine(c, '', 'c-muted', 'Press Hint, Next move or Show ideal when you want help.');
+    if (!findOutstanding) coachLine(c, '', 'c-muted', 'Press Hint, Next move or Show ideal when you want help.');
     return c;
   }
   if (a.kind === 'nudge') {
