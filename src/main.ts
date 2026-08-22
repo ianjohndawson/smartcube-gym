@@ -672,7 +672,7 @@ function step(move: Move3x3) {
   if (!move) return;
   state.cube = applyMove(state.cube, move);
   state.history.push(move);
-  state.assist = null;
+  state.assist = survivingAssist();
   if (state.learn) { afterLearnMove(); return; }
   if (state.mode === 'solve') {
     // Free-EO stays axis-agnostic through the solve: detect reads the axis off the
@@ -1633,6 +1633,34 @@ function answerPredict(viewIdx: number) {
     ? `✓ Right — the ${p.z.description} is at the ${slotName(actual)}. (${rate}% over last ${la.recent.length})`
     : `✗ The ${p.z.description} is at the ${slotName(actual)}, not the ${slotName(tapped)}. (${rate}% over last ${la.recent.length})`;
   render();
+}
+
+// What help survives a turn.
+//
+// A next-move or a revealed route must NOT: they are move lists, and one turn
+// later they are simply wrong. (Refreshing them instead would be autopilot, not
+// help — and it would quietly make the whole rep a rung-3 rep.)
+//
+// A NUDGE is different in kind. It names a piece and a technique, and you can't
+// read it and turn at the same time — so wiping it on the very turn it prompted
+// left no way back: the escalating Help button had already moved on to "More
+// help", which spends a rung and hands over a move you never asked for. So the
+// nudge rides along, and its highlight FOLLOWS the piece while you set it up.
+// It retires itself the moment that piece is home, so it can never point at
+// work already done.
+//
+// Deliberately does not re-derive the route: locatePieceNow is a table lookup,
+// but idealRoute is a search (~130ms on a deep 2×2×3 — see idealLen's memo), and
+// paying that on every turn would put lag in the one place it must never be.
+function survivingAssist(): State['assist'] {
+  const a = state.assist;
+  if (!a || a.kind !== 'nudge') return null;
+  // EO nudges carry no focus piece — buildCubePanel recomputes the misoriented
+  // edges from the live state each render, so they stay true for free.
+  if (!a.focus) return a;
+  const current = locatePieceNow(state.cube, a.focus.home);
+  if (current.join() === a.focus.home.join()) return null; // placed — the advice is spent
+  return { ...a, focus: { ...a.focus, current } };
 }
 
 function assist(kind: 'nudge' | 'move' | 'ideal') {
