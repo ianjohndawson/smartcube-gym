@@ -121,13 +121,16 @@ export class CubeManager {
       // Pull current state + battery so the UI has something immediately — but only
       // the commands this cube actually supports.
       const caps = this.conn.capabilities;
-      try {
-        if (caps.hardware) await this.conn.sendCommand({ type: 'REQUEST_HARDWARE' });
-        if (caps.battery) await this.conn.sendCommand({ type: 'REQUEST_BATTERY' });
-        if (caps.facelets) await this.conn.sendCommand({ type: 'REQUEST_FACELETS' });
-      } catch {
-        /* not all protocols support explicit requests; ignore */
-      }
+      // Seed state first: main.ts buffers MOVE events until this response lands.
+      // Each optional command is isolated so one unsupported request cannot prevent
+      // the others (especially FACELETS) from being attempted.
+      const request = async (supported: boolean, type: 'REQUEST_FACELETS' | 'REQUEST_BATTERY' | 'REQUEST_HARDWARE') => {
+        if (!supported) return;
+        try { await this.conn?.sendCommand({ type }); } catch { /* optional command */ }
+      };
+      await request(caps.facelets, 'REQUEST_FACELETS');
+      await request(caps.battery, 'REQUEST_BATTERY');
+      await request(caps.hardware, 'REQUEST_HARDWARE');
     } catch (err) {
       this.conn = null;
       this.handlers.onLog?.(`Connect failed: ${msg(err)}`);
@@ -136,11 +139,14 @@ export class CubeManager {
     }
   }
 
-  async requestFacelets(): Promise<void> {
+  async requestFacelets(reportError = true): Promise<boolean> {
+    if (!this.conn?.capabilities.facelets) return false;
     try {
-      if (this.conn?.capabilities.facelets) await this.conn.sendCommand({ type: 'REQUEST_FACELETS' });
+      await this.conn.sendCommand({ type: 'REQUEST_FACELETS' });
+      return true;
     } catch (err) {
-      this.handlers.onError?.(err);
+      if (reportError) this.handlers.onError?.(err);
+      return false;
     }
   }
 
