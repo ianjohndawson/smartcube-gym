@@ -50,7 +50,6 @@ import {
 } from './stats.ts';
 import { axisBad, badEdgeStickers, eoAxisOptimalLen, eoMaskForStep, freeEoHint, isFreeEo } from './eo-axis.ts';
 import { blockEoAxis, blockEoDisplayRots, blockEoPrereq, blockEoTarget, isBlockEoSolved, randomBlockEoOrient, type BlockEoMethod } from './block-eo.ts';
-import { cubeIsAtRest, MoveSeedGate } from './cube-sync.ts';
 
 const SOLVED_STR = faceletString(newSolved());
 
@@ -974,20 +973,20 @@ function checkStepCompletion() {
 }
 
 function handleMove(move: string) {
-  lastMoveAt = Date.now();
   // Connect-seed window: the cube's authoritative state hasn't landed yet.
   // Queue the move and replay it once we've seeded, so it's never applied to a
   // stale (pre-seed) model. Without this, a MOVE that beats the seeding FACELETS
   // makes handleFacelets bridge a phantom inverse move — a permanent model↔cube
   // offset that breaks scramble tracking and solve detection.
-  const modelMove = move as Move3x3;
-  if (connectSeed.capture(modelMove)) return;
-  step(modelMove);
-  scheduleIdleFaceletCheck();
+  if (awaitingConnectSeed) {
+    seedQueue.push(move);
+    return;
+  }
+  step(move as Move3x3);
   // #4: neutral "advance" gesture (see maybeAdvanceGesture). Runs on the live move
   // stream only — seed-queue replays call step() directly and bypass this.
-  if (maybeAdvanceGesture(modelMove)) return; // nextScramble() already rendered
-  if (maybeRetryGesture(modelMove)) return; // tryAgain() already rendered
+  if (maybeAdvanceGesture(move as Move3x3)) return; // nextScramble() already rendered
+  if (maybeRetryGesture(move as Move3x3)) return; // tryAgain() already rendered
   render();
 }
 
@@ -1042,106 +1041,47 @@ function maybeRetryGesture(move: Move3x3): boolean {
 }
 
 // Read the cube's true state and reconcile the model to it (manual Sync).
-async function syncCube() {
+function syncCube() {
   if (!state.connected) { state.status = 'Connect a cube first, then Sync to read its real state.'; render(); return; }
   awaitingSync = true;
-  armManualSyncTimeout();
+  cube.requestFacelets();
   state.status = 'Reading cube state…';
   render();
-  const requested = await cube.requestFacelets();
-  if (!requested && awaitingSync) finishManualSyncWithoutSnapshot('This cube cannot provide a full state snapshot. Live moves still work.');
 }
 
 // --- Facelet sync state ---
 //
-// connectSeed — armed on connect, released by the FIRST FACELETS snapshot or a
-//   bounded timeout. The timeout is load-bearing: some protocols cannot request
-//   facelets and a failed optional request must never swallow every later MOVE.
+// awaitingConnectSeed — set on connect, cleared by the FIRST FACELETS snapshot.
 //   Seeds the model from the cube's true physical state. Any MOVE events during
 //   this window are buffered in seedQueue (see handleMove) and replayed on top
 //   of the seeded state, so a move can never race ahead of the seed and trigger
 //   a phantom bridge. GAN cubes push an unsolicited FACELETS on connect, and the
 //   firmware can have a stale snapshot in flight — this window closes that gap.
 //
-// Passive FACELETS are accepted only after the cube has been at rest. In addition,
-// every live move schedules a fresh snapshot request after that rest window, so a
-// missed MOVE self-heals even when the protocol does not publish periodic state.
-const CONNECT_SEED_TIMEOUT_MS = 1800;
-const MANUAL_SYNC_TIMEOUT_MS = 2500;
-const FACELET_REST_MS = 700;
-const connectSeed = new MoveSeedGate<Move3x3>();
+// awaitingSync — set only by an explicit Sync button press, for reconciling
+//   drift mid-session (the original manual path).
+//
+// Periodic FACELETS that arrive while neither flag is set are ignored, so the
+// live move stream is never fought during a scramble or solve.
+let awaitingConnectSeed = false;
+let seedQueue: string[] = [];
 let awaitingSync = false;
-let manualSyncTimer: ReturnType<typeof setTimeout> | null = null;
-let idleFaceletTimer: ReturnType<typeof setTimeout> | null = null;
-let lastMoveAt = 0;
-
-function replaySeedMoves(queued: Move3x3[], status: string) {
-  state.status = status;
-  for (const m of queued) step(m);
-  if (queued.length) scheduleIdleFaceletCheck();
-  render();
-}
-
-function beginConnectSeed() {
-  awaitingSync = false;
-  clearManualSyncTimeout();
-  connectSeed.begin(CONNECT_SEED_TIMEOUT_MS, (queued) => {
-    replaySeedMoves(queued, 'Cube state did not answer — assuming the current start and keeping every move. Press Sync if the picture differs.');
-  });
-}
-
-function clearManualSyncTimeout() {
-  if (manualSyncTimer !== null) clearTimeout(manualSyncTimer);
-  manualSyncTimer = null;
-}
-
-function finishManualSyncWithoutSnapshot(message: string) {
-  if (!awaitingSync) return;
-  awaitingSync = false;
-  clearManualSyncTimeout();
-  state.status = message;
-  render();
-}
-
-function armManualSyncTimeout() {
-  clearManualSyncTimeout();
-  manualSyncTimer = setTimeout(() => {
-    finishManualSyncWithoutSnapshot('No cube-state response received. Live moves still work; reconnect if the picture differs.');
-  }, MANUAL_SYNC_TIMEOUT_MS);
-}
-
-function clearIdleFaceletCheck() {
-  if (idleFaceletTimer !== null) clearTimeout(idleFaceletTimer);
-  idleFaceletTimer = null;
-}
-
-function scheduleIdleFaceletCheck() {
-  clearIdleFaceletCheck();
-  if (!state.connected) return;
-  idleFaceletTimer = setTimeout(async () => {
-    idleFaceletTimer = null;
-    if (!state.connected || connectSeed.active || awaitingSync) return;
-    // Silent: lack of snapshot support is normal on some cube protocols.
-    await cube.requestFacelets(false);
-  }, FACELET_REST_MS);
-}
 
 function handleFacelets(kociemba: string) {
   let trueCube: Cube3x3;
   try {
     trueCube = cubeFromFacelets(kociembaToNet(kociemba));
   } catch {
-    if (connectSeed.active) {
-      replaySeedMoves(connectSeed.release(), 'Cube sent an unreadable state — assuming the current start and keeping every move. Press Sync if the picture differs.');
-    } else if (awaitingSync) {
-      finishManualSyncWithoutSnapshot('The cube state could not be read. Live moves still work; reconnect if the picture differs.');
-    }
+    awaitingConnectSeed = false;
+    awaitingSync = false;
+    seedQueue = [];
     return;
   }
 
   // --- Connect-time seed (authoritative; takes priority over manual sync) ---
-  if (connectSeed.active) {
-    const queued = connectSeed.release();
+  if (awaitingConnectSeed) {
+    awaitingConnectSeed = false;
+    const queued = seedQueue.splice(0);
     // GAN cubes can't sense absolute state: on connect they push a snapshot that
     // is often STALE (a physically solved cube can report as scrambled). So only
     // trust a connect snapshot that decodes to solved, or to exactly the current
@@ -1158,22 +1098,15 @@ function handleFacelets(kociemba: string) {
     }
     state.connected = true;
     // Replay any moves the cube reported during the seed window, in order.
-    for (const m of queued) step(m);
-    if (queued.length) scheduleIdleFaceletCheck();
+    for (const m of queued) step(m as Move3x3);
     render();
     return;
   }
 
-  // --- Manual or idle automatic reconciliation ---
-  const explicit = awaitingSync;
+  // --- Manual Sync button ---
+  if (!awaitingSync) return;
   awaitingSync = false;
-  clearManualSyncTimeout();
-  if (!explicit && !cubeIsAtRest(lastMoveAt, Date.now(), FACELET_REST_MS)) return;
-  clearIdleFaceletCheck();
-  if (trueCube.encode() === state.cube.encode()) {
-    if (explicit) { state.status = 'Already in sync with your cube.'; render(); }
-    return;
-  }
+  if (trueCube.encode() === state.cube.encode()) { state.status = 'Already in sync with your cube.'; render(); return; }
   // Small drift (a few missed moves): bridge them so the move history stays valid
   // and you keep your place in the current scramble/solve.
   const bridge = findBridge(state.cube, trueCube, 6);
@@ -1186,17 +1119,13 @@ function handleFacelets(kociemba: string) {
       state.movesThisStepTs.push(...bridge.map(() => now));
     }
     afterChange();
-    if (explicit && !state.stepDone.every(Boolean)) state.status = `Cube synced — recovered ${bridge.length} missed move${bridge.length === 1 ? '' : 's'}.`;
     render();
     return;
   }
-  // Large divergence: automatic snapshots must never teleport the session. Only
-  // the explicit Sync button may perform the disruptive clean restart.
-  if (explicit) {
-    state = startScramble(trueCube, []);
-    state.status = 'Synced to your cube — fresh scramble from its current state.';
-    render();
-  }
+  // Large divergence: clean restart with the cube's TRUE state as the base.
+  state = startScramble(trueCube, []);
+  state.status = 'Synced to your cube — fresh scramble from its current state.';
+  render();
 }
 function handleManualMoves(text: string) {
   // In the solve frame the user types what they see (held frame); translate to
@@ -1214,8 +1143,8 @@ const cube = new CubeManager({
   onMove: (m) => handleMove(m),
   onFacelets: (f) => handleFacelets(f),
   onBattery: (b) => { state.battery = b; render(); },
-  onConnect: (name) => { state.connected = true; state.lastError = ''; state.status = `Connected to ${name} — reading cube state…`; beginConnectSeed(); render(); },
-  onDisconnect: () => { state.connected = false; connectSeed.cancel(); awaitingSync = false; clearManualSyncTimeout(); clearIdleFaceletCheck(); state.status = 'Cube disconnected.'; render(); },
+  onConnect: (name) => { state.connected = true; state.lastError = ''; state.status = `Connected to ${name} — reading cube state…`; awaitingConnectSeed = true; seedQueue = []; cube.requestFacelets(); render(); },
+  onDisconnect: () => { state.connected = false; state.status = 'Cube disconnected.'; render(); },
   onError: (e) => { state.lastError = String((e as Error)?.message ?? e); state.status = `Bluetooth error: ${state.lastError}`; render(); },
   // Trace of raw cube events (for diagnosing BLE quirks; shown in Settings).
   onLog: (line) => { const t = new Date().toLocaleTimeString(); state.log = [...(state.log ?? []), `${t}  ${line}`].slice(-60); },
