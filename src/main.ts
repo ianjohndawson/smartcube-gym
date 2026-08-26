@@ -45,6 +45,7 @@ import {
   courseIntro, bumpCourseIntro,
   foundationsTrack, lessonProgFor, setFoundationsCurrent, bumpLessonObserved, recordLessonRep, popLessonRep,
   loadLookahead, recordLookahead,
+  dailyRows, dayKey, discardDaily,
   COURSE_WINDOW, COURSE_TOLERANCE, COURSE_STAR_RATES,
   type CourseTrack,
 } from './stats.ts';
@@ -2375,11 +2376,26 @@ function buildFoundationsPanel(): HTMLElement {
 
 // --- right pane: session (actions on top + meter + output console) ---
 
+// EO keeps its own answer back until the rep is done.
+//
+// The bad-edge count IS the recognition skill these trainers exist to build, and
+// the meter was handing it over — "8/12 edges oriented", for free, one line below
+// a Hint that charges a rung for the very same number. The ideal length goes with
+// it: "4 bad edges, ideal 4" gives away the shape of the solution before you have
+// looked at the cube, and the inspection gate made that worse by putting it on
+// screen during the one phase that is meant to be planning.
+//
+// Blocks are deliberately NOT concealed. Their pieces are visible on the cube, so
+// a placed-count reports what you can already see; an edge's orientation is not.
+function concealsProgress(s: StepDef | null): boolean {
+  return s?.kind === 'eo';
+}
+
 function buildSessionPane(right: HTMLElement, s: StepDef | null, info: { frac: number; caption: string }) {
   const ideal = idealFromStart();
   const hd = el('div', 'panel-tabs');
   hd.appendChild(el('div', 'spacer'));
-  if (ideal != null) hd.appendChild(el('span', 'tag', `ideal ${ideal}`));
+  if (ideal != null && !concealsProgress(s)) hd.appendChild(el('span', 'tag', `ideal ${ideal}`));
   right.appendChild(hd);
 
   // Brief (what this level asks) → help → progress → log. Reference first because
@@ -2491,6 +2507,9 @@ function buildActions(s: StepDef | null): HTMLElement {
 // user was still turning. Same widget, phase-appropriate reading.
 function buildStepMeter(s: StepDef | null, info: { frac: number; caption: string }, ideal: number | null): HTMLElement {
   if (repPhase() === 'setup') return buildScrambleMeter();
+  // See concealsProgress: on EO the fill, the caption and the ideal are all the
+  // answer. The empty track still renders, so the pane keeps its shape.
+  const conceal = concealsProgress(s);
   const wrap = el('div', 'step-meter');
   const used = htmCount(state.movesThisStep);
   const hd = el('div', 'dock-hd');
@@ -2501,15 +2520,20 @@ function buildStepMeter(s: StepDef | null, info: { frac: number; caption: string
     t.id = 'live-timer';
     hd.appendChild(t);
   } else {
-    hd.appendChild(el('span', '', `${used} / ${ideal ?? '?'}`));
+    hd.appendChild(el('span', '', conceal ? `${used}` : `${used} / ${ideal ?? '?'}`));
   }
   wrap.appendChild(hd);
   const meter = el('div', 'meter');
-  const fill = el('div', 'fill');
-  fill.style.width = `${Math.round(info.frac * 100)}%`;
-  meter.appendChild(fill);
+  if (!conceal) {
+    const fill = el('div', 'fill');
+    fill.style.width = `${Math.round(info.frac * 100)}%`;
+    meter.appendChild(fill);
+  }
   wrap.appendChild(meter);
-  wrap.appendChild(el('div', 'meter-cap', s ? `${info.caption}${ideal != null ? ` · ideal ${ideal}` : ''}` : ''));
+  wrap.appendChild(el('div', 'meter-cap',
+    !s ? ''
+    : conceal ? 'hidden until review — counting the bad edges is the skill'
+    : `${info.caption}${ideal != null ? ` · ideal ${ideal}` : ''}`));
   return wrap;
 }
 
@@ -2789,6 +2813,13 @@ function buildReviewPane(right: HTMLElement) {
     // caption sentences, so they scan as a set of readings.
     const facts: [string, string][] = [];
     if (r.case) facts.push(['case', r.case]);
+    // EO withholds this number for the whole rep (see concealsProgress) — so this
+    // is where it finally lands, and you get to check it against what you counted.
+    const done = currentStep();
+    if (done && concealsProgress(done)) {
+      const bad = 12 - orientedEdges(state.stepStartCube, done);
+      facts.push(['bad edges', `${bad} at the start`]);
+    }
     if (r.rank) {
       facts.push(['placement', r.rank.yoursBest
         ? `you built the cheapest — ${r.rank.yoursName} (${r.rank.yoursLen})`
@@ -2984,6 +3015,82 @@ function buildLineChart(values: number[]): HTMLElement {
   return wrap;
 }
 
+// Reps per day, per thing. Every other chart here measures how WELL you solved;
+// none of them answer "did I turn up today, and on what" — which is the question
+// that actually predicts whether the rest of the numbers move.
+//
+// The window is calendar days, not the days you practised, so the gaps show. A
+// row of stubs is the honest picture of a week off, and averaging it away would
+// defeat the point of keeping the tally at all.
+const TALLY_DAYS = 14;
+function buildPracticeTally(): HTMLElement {
+  const sect = el('div', 'stat-sect');
+  const all = dailyRows(3650);
+  const today = dayKey(Date.now());
+  const todayRow = all.find((r) => r.day === today);
+
+  sect.appendChild(el('div', 'sh', todayRow
+    ? `practice · today · ${todayRow.total} rep${todayRow.total === 1 ? '' : 's'}`
+    : 'practice · nothing logged today'));
+
+  if (!all.length) {
+    sect.appendChild(el('div', 'blurb', 'No reps logged yet — finish a step and the day starts counting.'));
+    return sect;
+  }
+
+  // Today, split by what you practised. Bars are relative to today's biggest, so
+  // this reads as a balance ("all 2×2×2 again") rather than another volume chart.
+  if (todayRow) {
+    const max = Math.max(...todayRow.steps.map(([, n]) => n));
+    for (const [step, n] of todayRow.steps) {
+      const r = el('div', 'steprow');
+      r.appendChild(el('div', 'nm', step));
+      const track = el('div', 'track');
+      const f = el('div', 'fill');
+      f.style.width = `${(n / max) * 100}%`;
+      track.appendChild(f);
+      r.appendChild(track);
+      r.appendChild(el('div', 'val', `${n}`));
+      sect.appendChild(r);
+    }
+  }
+
+  // Oldest → newest, so it reads left-to-right like a calendar. Missing days are
+  // filled in as zeros; .b's 3px min-height renders those as a stub, which is
+  // exactly right. Deliberately NOT using .b.zero or .b.hi — those are green and
+  // amber for the extra-moves chart, where zero is good and high is bad. Here
+  // zero is the bad one, so borrowing that palette would invert the meaning.
+  const byDay = new Map(all.map((d) => [d.day, d]));
+  const days: { day: string; total: number; steps: [string, number][] }[] = [];
+  for (let i = TALLY_DAYS - 1; i >= 0; i--) {
+    const d = new Date();
+    d.setDate(d.getDate() - i);
+    const k = dayKey(d.getTime());
+    days.push(byDay.get(k) ?? { day: k, total: 0, steps: [] });
+  }
+  const chart = el('div', 'barchart');
+  const peak = Math.max(1, ...days.map((d) => d.total));
+  for (const d of days) {
+    const b = el('div', 'b');
+    b.style.height = d.total ? `${Math.max(8, (d.total / peak) * 100)}%` : '0';
+    b.title = d.total
+      ? `${d.day} · ${d.total} rep${d.total === 1 ? '' : 's'} · ${d.steps.map(([s, n]) => `${s} ${n}`).join(' · ')}`
+      : `${d.day} · none`;
+    chart.appendChild(b);
+  }
+  sect.appendChild(el('div', 'sh', `reps per day · last ${TALLY_DAYS}`));
+  sect.appendChild(chart);
+
+  // Lexicographic compare is safe on YYYY-MM-DD, and cheaper than date maths.
+  const weekAgo = new Date();
+  weekAgo.setDate(weekAgo.getDate() - 6);
+  const week = all.filter((d) => d.day >= dayKey(weekAgo.getTime())).reduce((n, d) => n + d.total, 0);
+  const best = all.reduce((a, b) => (b.total > a.total ? b : a));
+  sect.appendChild(el('div', 'blurb',
+    `${week} in the last 7 days · best day ${best.total} on ${best.day} · ${all.length} day${all.length === 1 ? '' : 's'} practised`));
+  return sect;
+}
+
 function buildStatsBody(): HTMLElement {
   const wrap = el('div', 'stats');
   const st = computeStats();
@@ -3000,6 +3107,9 @@ function buildStatsBody(): HTMLElement {
 
   // Course progress — stars climbed per track (always shown).
   wrap.appendChild(buildCourseStats());
+
+  // How much you actually practised, and of what.
+  wrap.appendChild(buildPracticeTally());
 
   // Lookahead drill accuracy (predict-z reps).
   const la = loadLookahead();
@@ -3068,8 +3178,10 @@ let lastRecord: { history: boolean; trainerId?: string; level?: number; lesson?:
 function discardLastSolve() {
   if (lastRecord.history) {
     const h = loadHistory();
-    h.pop();
+    const gone = h.pop();
     store.setJSON('history', h);
+    // Keep the day's tally honest: a discarded rep never happened.
+    if (gone) discardDaily(gone.step, gone.ts);
   }
   if (lastRecord.trainerId != null && lastRecord.level != null) {
     const p = loadCourse();

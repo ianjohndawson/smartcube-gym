@@ -26,6 +26,7 @@ export type Key =
   | 'cube-view'
   | 'inspect'
   | 'history'
+  | 'daily'
   | 'lookahead'
   | 'course'
   | 'foundations'

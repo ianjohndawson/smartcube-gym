@@ -14,9 +14,81 @@ export function loadHistory(): HistRec[] {
   return store.getJSON<HistRec[]>('history', []);
 }
 export function recordSolve(rec: HistRec) {
+  // Settle the tally's one-time seed BEFORE this rep joins the history it seeds
+  // from. Otherwise the very first recorded solve is counted twice: once by the
+  // lazy seed inside bumpDaily (which would find it already in history) and once
+  // by the bump itself. Caught by scripts/daily-check.ts.
+  loadDaily();
   const h = loadHistory();
   h.push(rec);
   store.setJSON('history', h.slice(-500));
+  bumpDaily(rec.step, rec.ts);
+}
+
+// --- daily practice tally ---
+//
+// How many reps of each thing you did on each day. This could be derived from
+// `history` — it carries `ts` and `step` already — except that history is capped
+// at the last 500 solves, so at any real practice rate the early days would age
+// out of the record and a "reps per day" chart would silently lose its own past.
+// So the counts are kept separately: a couple of dozen bytes a day, and they last.
+//
+// Only COMPLETED reps land here, because recordSolve is the only way in — an
+// abandoned or retried attempt never reaches it. Discarding a solve rolls the
+// tally back with it (see discardDaily), so the count always matches the history.
+export type DailyTally = Record<string, Record<string, number>>;
+
+/** Local calendar day, not UTC — a rep at 23:30 belongs to that evening. */
+export function dayKey(ts: number): string {
+  const d = new Date(ts);
+  const p = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+}
+
+export function loadDaily(): DailyTally {
+  // First read seeds itself from whatever history still holds, so the feature
+  // doesn't start life pretending you have never practised. Absent (not empty)
+  // is the trigger, so a genuinely empty tally is never re-seeded on every call.
+  if (store.getRaw('daily') === null) {
+    const seeded: DailyTally = {};
+    for (const r of loadHistory()) {
+      const day = (seeded[dayKey(r.ts)] ??= {});
+      day[r.step] = (day[r.step] ?? 0) + 1;
+    }
+    store.setJSON('daily', seeded);
+    return seeded;
+  }
+  return store.getJSON<DailyTally>('daily', {});
+}
+
+function bumpDaily(step: string, ts: number) {
+  const t = loadDaily();
+  const day = (t[dayKey(ts)] ??= {});
+  day[step] = (day[step] ?? 0) + 1;
+  store.setJSON('daily', t);
+}
+
+/** Undo one tally entry — pairs with discarding a solve from the history. */
+export function discardDaily(step: string, ts: number) {
+  const t = loadDaily();
+  const day = t[dayKey(ts)];
+  if (!day?.[step]) return;
+  day[step] -= 1;
+  if (day[step] <= 0) delete day[step];
+  if (!Object.keys(day).length) delete t[dayKey(ts)];
+  store.setJSON('daily', t);
+}
+
+/** Newest-first days, each with its per-step counts and total. */
+export function dailyRows(limit: number): { day: string; total: number; steps: [string, number][] }[] {
+  const t = loadDaily();
+  return Object.keys(t)
+    .sort((a, b) => (a < b ? 1 : -1))
+    .slice(0, limit)
+    .map((day) => {
+      const steps = Object.entries(t[day]).sort((a, b) => b[1] - a[1]);
+      return { day, total: steps.reduce((n, [, c]) => n + c, 0), steps };
+    });
 }
 export function computeStats() {
   const h = loadHistory();
